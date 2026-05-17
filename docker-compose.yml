@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/google_credentials.json
+    env_file:
+      - .env
+    volumes:
+      - batch_outputs:/app/batch_outputs
+      - ./google_credentials.json:/app/google_credentials.json:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    command: python worker.py
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/google_credentials.json
+    env_file:
+      - .env
+    volumes:
+      - batch_outputs:/app/batch_outputs
+      - ./google_credentials.json:/app/google_credentials.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  redis_data:
+  batch_outputs:

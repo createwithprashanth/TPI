@@ -1,0 +1,498 @@
+# XYRA-BACKEND/app/modules/instrumap/core/standard_library.py
+import re
+import pandas as pd
+
+# Instrument types that are always soft/calculated — no physical standalone version
+# FQT removed: it is a real AI transmitter, not a DCS display
+_ALWAYS_SOFT_TYPES = {'FQI', 'FIR', 'TIR', 'PIR', 'AIR', 'LIR'}
+
+# Physical descriptions for standalone indicators (no transmitter in same loop)
+_PHYSICAL_GAUGE_DESC = {
+    'P': 'Pressure Gauge',
+    'T': 'Temperature Gauge',
+    'L': 'Level Gauge (Sight Glass)',
+    'F': 'Flow Indicator (Local)',
+    'D': 'Differential Pressure Gauge',
+    'A': 'Analysis Indicator (Local)',
+    'V': 'Vibration Indicator (Local)',
+    'W': 'Weight Indicator (Local)',
+    'M': 'Moisture Indicator (Local)',
+}
+
+
+def _loop_key(row) -> tuple:
+    """Return a hashable key that uniquely identifies a loop.
+
+    Uses (area, loop, numeric_suffix) so that instruments sharing the same
+    area unit (e.g. '298P') but different loop numbers ('01' vs '07') are
+    correctly treated as separate loops.
+
+    Examples:
+      FIT-298P-01 → ('', '298P', '01')
+      FI-298P-01  → ('', '298P', '01')   — same loop as FIT ✓
+      PI-298P-07  → ('', '298P', '07')   — different loop ✓
+      FIT-01      → ('', '01',   '')
+      FI-01       → ('', '01',   '')     — same loop ✓
+    """
+    import re as _re
+    area = str(row.get('Area', '') or '')
+    loop = str(row.get('Loop', '') or '')
+    s    = str(row.get('Suffix', '') or '')
+    m = _re.match(r'^(\d+)', s)
+    num_suffix = m.group(1) if m else ''
+    return (area, loop, num_suffix)
+
+
+def compute_programmatic_fields(master_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Populate Fail_State, SIL_Level, Criticality and Enclosure columns
+    directly from instrument type / system classification — no LLM needed.
+    """
+    if master_df is None or master_df.empty:
+        return master_df
+
+    df = master_df.copy()
+
+    def _fail_state(row) -> str:
+        desc = str(row.get('Instrument_Description', '') or '')
+        io   = str(row.get('IO_Type', '') or '')
+        # Spring-loaded safety/relief valves open on over-pressure — always Fail Open
+        if any(x in desc for x in ('Safety Valve', 'Relief Valve', 'Blowdown')):
+            return 'Fail Open'
+        # All other actuated valves default to Fail Close (safe position)
+        if io in ('AO', 'DO'):
+            return 'Fail Close'
+        return ''
+
+    def _sil_level(row) -> str:
+        sys_  = str(row.get('System', '') or '')
+        desc  = str(row.get('Instrument_Description', '') or '')
+        io    = str(row.get('IO_Type', '') or '')
+        # SIL 2: SIS/ESD system, or dual-redundant safety actions (High-High / Low-Low)
+        if sys_ == 'SIS/ESD':
+            return 'SIL 2'
+        if any(x in desc for x in ('Safety Valve', 'Relief Valve', 'High High', 'Low Low')):
+            return 'SIL 2'
+        # SIL 1: any single field switch — discrete safety measurement, not just display
+        if io == 'DI' and 'Switch' in desc:
+            return 'SIL 1'
+        return ''
+
+    def _criticality(row) -> str:
+        sys_ = str(row.get('System', '') or '')
+        io   = str(row.get('IO_Type', '') or '')
+        if sys_ == 'SIS/ESD':
+            return 'Safety Critical'
+        if io in ('AI', 'AO', 'DI', 'DO') and sys_ == 'DCS':
+            return 'Critical'
+        return 'Normal'
+
+    def _enclosure(row) -> str:
+        mounting = str(row.get('Mounting', '') or '')
+        io       = str(row.get('IO_Type', '') or '')
+        desc     = str(row.get('Instrument_Description', '') or '')
+        fluid    = str(row.get('Matched_Fluid', '') or '') or str(row.get('Process_Fluid', '') or '')
+        # Only hardwired field devices get an IP rating
+        if 'Field' not in mounting or io not in ('AI', 'AO', 'DI', 'DO'):
+            return ''
+        # Wet / water service or submerged → IP67
+        wet_keywords = ('Water', 'water', 'Produced Water', 'Cooling Water',
+                        'Fire Water', 'subsea', 'Subsea', 'submerged')
+        if any(w in fluid or w in desc for w in wet_keywords):
+            return 'IP67'
+        return 'IP65'
+
+    df['Fail_State']  = df.apply(_fail_state,  axis=1)
+    df['SIL_Level']   = df.apply(_sil_level,   axis=1)
+    df['Criticality'] = df.apply(_criticality, axis=1)
+    df['Enclosure']   = df.apply(_enclosure,   axis=1)
+    return df
+
+
+def refine_descriptions_by_loop_context(master_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Correct instrument descriptions based on loop context.
+
+    An indicator (type ends in 'I') with no transmitter (type ends in 'T')
+    of the same variable letter in the same loop is a physical field gauge,
+    not a soft/panel indicator.
+
+    Examples:
+      PI alone in loop        → Pressure Gauge       (IO_Type='', System='')
+      PI + PIT in same loop   → Pressure Indicator   (soft, no change)
+      TI + TIT in same loop   → Temperature Indicator (soft, no change)
+      TI alone                → Temperature Gauge
+    """
+    if master_df is None or master_df.empty:
+        return master_df
+
+    df = master_df.copy()
+
+    # Build set of (loop_key, first_letter) for every transmitter in master_df
+    transmitter_keys = set()
+    for _, row in df.iterrows():
+        t = str(row.get('Type', '') or '')
+        if len(t) >= 2 and t[-1] == 'T':
+            transmitter_keys.add((_loop_key(row), t[0]))
+
+    for idx, row in df.iterrows():
+        t = str(row.get('Type', '') or '')
+        if len(t) < 2 or t[-1] != 'I':
+            continue
+        if t in _ALWAYS_SOFT_TYPES:
+            continue
+
+        first = t[0]
+        if first not in _PHYSICAL_GAUGE_DESC:
+            continue
+
+        has_transmitter = (_loop_key(row), first) in transmitter_keys
+        if not has_transmitter:
+            df.at[idx, 'Instrument_Description'] = _PHYSICAL_GAUGE_DESC[first]
+            df.at[idx, 'IO_Type']     = ''
+            df.at[idx, 'Signal_Type'] = ''
+            df.at[idx, 'Power_Supply'] = ''
+            df.at[idx, 'System']      = ''
+            df.at[idx, 'Mounting']    = 'Field / Direct'
+
+    return df
+
+
+class InstrumentLogicEngine:
+    """
+    Advanced Logic Engine for parsing Tags into Engineering Data.
+    Tuned for real-world EPC P&IDs including irregular tags (SZ, CV, X).
+    """
+
+    # 1. EXACT MATCH OVERRIDES (The "Cheatsheet")
+    # These take precedence over standard logic to handle project-specific edge cases.
+    SPECIAL_OVERRIDES = {
+        # Hand / manual devices
+        "HIC":  "Hand Indicating Controller",
+        "HSD":  "Hand Switch (Shutdown)",
+        "HS":   "Hand Switch",
+        "HSS":  "Hand Switch (Safety)",
+        "SZHS": "Safety Hand Switch (Position)",
+        "HOV":  "Hand Operated Valve",
+        "MOV":  "Motor Operated Valve",
+        # Position / actuator feedback
+        "CVZT": "Control Valve Position Transmitter",
+        "FZT":  "Flow Element Position Transmitter",
+        "ZSC":  "Position Switch (Closed)",
+        "ZSO":  "Position Switch (Open)",
+        "ZSL":  "Position Switch (Low/Closed)",
+        "ZSH":  "Position Switch (High/Open)",
+        "SZSL": "Safety Position Switch (Low/Closed)",
+        "SZSH": "Safety Position Switch (High/Open)",
+        "SZIL": "Safety Position Indicator (Low)",
+        "SZIH": "Safety Position Indicator (High)",
+        # Totalizer / integrators
+        "FQI":  "Flow Totalizer Indicator",
+        "FQT":  "Flow Totalizer Transmitter",
+        # Analyzers
+        "AT":   "Analyzer Transmitter",
+        "AIT":  "Analyzer Indicating Transmitter",
+        "AE":   "Analyzer Element",
+        # Differential pressure
+        "PDT":  "Differential Pressure Transmitter",
+        "PDIT": "Differential Pressure Indicating Transmitter",
+        "PDI":  "Differential Pressure Indicator",
+        # Control valves — variable-type prefix
+        "CV":   "Control Valve",
+        "FCV":  "Flow Control Valve",
+        "PCV":  "Pressure Control Valve",
+        "TCV":  "Temperature Control Valve",
+        "LCV":  "Level Control Valve",
+        # On/Off and safety valves
+        "XV":   "On/Off Valve",
+        "SDV":  "Shutdown Valve",
+        "BDV":  "Blowdown Valve",
+        "ESV":  "Emergency Shutdown Valve",
+        "PSV":  "Pressure Safety Valve",
+        "PRV":  "Pressure Relief Valve",
+        # Direct-read gauges (no electrical signal)
+        "PG":   "Pressure Gauge",
+        "TG":   "Temperature Gauge",
+        "LG":   "Level Gauge",
+        # Misc
+        "BMS":  "Burner Management System",
+        "WIT":  "Weight / Mass Flow Indicating Transmitter",
+        # Common OCR typos
+        "P1":   "Pressure Indicator",
+        "T1":   "Temperature Indicator",
+    }
+
+    # 2. ISA-5.1 STANDARD DICTIONARIES
+    FIRST_LETTER = {
+        'A': 'Analysis', 'B': 'Burner', 'C': 'Conductivity', 'D': 'Density',
+        'E': 'Voltage', 'F': 'Flow', 'G': 'Gauging', 'H': 'Hand',
+        'I': 'Current', 'J': 'Power', 'K': 'Time', 'L': 'Level',
+        'M': 'Moisture', 'P': 'Pressure', 'Q': 'Quantity', 'R': 'Radiation',
+        'S': 'Speed', 'T': 'Temperature', 'U': 'Multivariable', 'V': 'Vibration',
+        'W': 'Weight', 'X': 'Process (Misc)', 'Y': 'Event', 'Z': 'Position'
+    }
+
+    MODIFIERS = {
+        'D': 'Differential', 'F': 'Ratio', 'I': 'Indicating', 'Q': 'Totalizer',
+        'S': 'Safety', 'J': 'Scan', 'H': 'High', 'L': 'Low'
+    }
+
+    READOUT_PASSIVE = {
+        'A': 'Alarm', 'E': 'Element', 'G': 'Gauge', 'I': 'Indicator',
+        'R': 'Recorder', 'Q': 'Totalizer', 'W': 'Well', 'O': 'Orifice'
+    }
+
+    OUTPUT_ACTIVE = {
+        'C': 'Controller', 'S': 'Switch', 'T': 'Transmitter',
+        'V': 'Valve', 'Y': 'Relay/Compute', 'Z': 'Actuator/Driver'
+    }
+
+    @staticmethod
+    def parse_tag_structure(full_tag):
+        """
+        Parses a tag string (e.g., "10-PIT-101A" or "TIT-298P-05") into its components.
+        """
+        clean_tag = full_tag.strip()
+        
+        # --- PATTERN 1: Complex Loop with Separator (The "298P-05" Case) ---
+        # Matches: Area(Opt) - Type - Loop(Alphanumeric) - Suffix(Alphanumeric)
+        # Regex explanation:
+        # (\d+[-_])?      -> Optional Area Code (e.g., "10-")
+        # ([A-Z]+)        -> Instrument Type (e.g., "TIT")
+        # [-_ ]?          -> Separator
+        # ([A-Z0-9]+)     -> Loop Number (Now allows letters like "298P")
+        # [-_ ]           -> Mandatory Separator
+        # ([A-Z0-9]+)$    -> Suffix (e.g., "05")
+        # Separator between Type and Loop is MANDATORY to prevent "FI-01" being
+        # split as Type="F", Loop="I", Suffix="01" by the greedy [A-Z]+ group.
+        pattern_complex = r'^(\d+[-_])?([A-Z]+)[-_ ]([A-Z0-9]+)[-_ ]([A-Z0-9]+)$'
+        match = re.match(pattern_complex, clean_tag)
+
+        if match:
+            area_raw = match.group(1)
+            area = area_raw.replace('-', '').replace('_', '') if area_raw else ""
+            return {
+                "Area_Code": area,
+                "Instrument_Type": match.group(2),
+                "Loop_Number": match.group(3), # Captures "298P"
+                "Tag_Suffix": match.group(4)   # Captures "05"
+            }
+
+        # --- PATTERN 2: Standard Loop (The "101A" Case) ---
+        # Separator required here too for the same reason.
+        pattern_std = r'^(\d+[-_])?([A-Z]+)[-_ ]([A-Z0-9]+)([A-Z]?)$'
+        match = re.match(pattern_std, clean_tag)
+        
+        if match:
+            area_raw = match.group(1)
+            area = area_raw.replace('-', '').replace('_', '') if area_raw else ""
+            return {
+                "Area_Code": area,
+                "Instrument_Type": match.group(2),
+                "Loop_Number": match.group(3),
+                "Tag_Suffix": match.group(4)
+            }
+        
+        # Fallback: Just extract the type so we don't crash, but Loop will be empty
+        type_match = re.search(r'([A-Z]+)', clean_tag)
+        return {
+            "Area_Code": "",
+            "Instrument_Type": type_match.group(1) if type_match else "UNKNOWN",
+            "Loop_Number": "",
+            "Tag_Suffix": ""
+        }
+
+    @staticmethod
+    def get_epc_specs(full_tag, default_area_code=None):
+        """
+        Main function to generate Engineering Specs from a Tag.
+        """
+        parsed = InstrumentLogicEngine.parse_tag_structure(full_tag)
+        code = parsed["Instrument_Type"]
+        
+        # Area Code Logic: Use parsed, otherwise fallback to default
+        final_area_code = parsed["Area_Code"]
+        if not final_area_code and default_area_code:
+            final_area_code = str(default_area_code).strip()
+
+        # Default Specs (Warning State)
+        specs = {
+            "Area_Code": final_area_code,
+            "Instrument_Type": code,
+            "Loop_Number": parsed["Loop_Number"],
+            "Tag_Suffix": parsed["Tag_Suffix"],
+            "Instrument_Description": "Unknown Instrument",
+            "Service": "", 
+            "System": "REVIEW",     
+            "IO_Type": "REVIEW",    
+            "Signal_Type": "",
+            "Power_Supply": "",
+            "Mounting": "Field",
+            "Confidence": "Low"
+        }
+
+        if not code: return specs
+
+        # ---------------------------------------------------------
+        # STRATEGY 1: EXACT OVERRIDES (Fast Path)
+        # ---------------------------------------------------------
+        if code in InstrumentLogicEngine.SPECIAL_OVERRIDES:
+            specs['Instrument_Description'] = InstrumentLogicEngine.SPECIAL_OVERRIDES[code]
+            specs['Confidence'] = "High"
+            specs['System'] = "DCS" # Default unless overridden below
+
+            # Apply Engineering Rules to Overrides
+            desc = specs['Instrument_Description']
+            if "Switch" in desc:
+                specs['IO_Type'] = "DI"
+                specs['Signal_Type'] = "24VDC (Dry Contact)"
+                specs['Power_Supply'] = "24VDC"
+                if "Safety" in desc or "Shutdown" in desc:
+                    specs['System'] = "SIS/ESD"
+            elif "Control Valve" in desc:
+                specs['IO_Type'] = "AO"
+                specs['Signal_Type'] = "4-20mA"
+                specs['Power_Supply'] = "Loop Powered"
+                specs['System'] = "DCS"
+            elif "Valve" in desc and "Control" not in desc:
+                if "Hand" in desc or "Relief" in desc or "Safety Valve" in desc:
+                    # Manually operated or spring-loaded — no electrical actuator
+                    specs['IO_Type'] = ""
+                    specs['System'] = ""
+                    specs['Mounting'] = "Field / Direct"
+                else:
+                    specs['IO_Type'] = "DO"
+                    specs['System'] = (
+                        "SIS/ESD" if any(w in desc for w in
+                            ("Safety", "Shutdown", "Blowdown", "Emergency"))
+                        else "DCS"
+                    )
+            elif "Transmitter" in desc:
+                specs['IO_Type'] = "AI"
+                specs['Signal_Type'] = "4-20mA + HART"
+                specs['Power_Supply'] = "24VDC (Loop Powered)"
+                specs['Mounting'] = "Field / Direct"
+            elif "Element" in desc or (
+                # Direct-read gauges: PG, TG, LG — no electrical signal
+                any(x in desc for x in ("Pressure Gauge", "Temperature Gauge", "Level Gauge"))
+            ):
+                specs['IO_Type'] = ""
+                specs['Signal_Type'] = ""
+                specs['Power_Supply'] = ""
+                specs['System'] = ""
+                specs['Mounting'] = "Field / Direct"
+            elif "Indicator" in desc and "Totalizer" not in desc:
+                # Panel/HMI soft indicator
+                specs['IO_Type'] = "Soft Link"
+                specs['System'] = "DCS"
+
+            # Catch-all: anything that didn't match above is a DCS soft display
+            if specs['IO_Type'] == 'REVIEW':
+                specs['IO_Type'] = 'Soft Link'
+
+            return specs
+
+        # ---------------------------------------------------------
+        # STRATEGY 2: INTELLIGENT PARSING
+        # ---------------------------------------------------------
+        first_char = code[0]
+        rest_chars = code[1:]
+        
+        # Valid ISA tags must map the first letter
+        if first_char not in InstrumentLogicEngine.FIRST_LETTER:
+            specs['Instrument_Description'] = f"Unknown Variable ({code})"
+            return specs
+
+        desc_words = [InstrumentLogicEngine.FIRST_LETTER.get(first_char, 'Process')]
+        found_function = False 
+
+        # -- MODIFIER LOGIC (Middle Letters) --
+        for i, char in enumerate(rest_chars[:-1]):
+            if char == 'S':
+                # 'S' = Switch when followed by H/L/A (e.g. PSH, PSL, PSHA),
+                # otherwise Safety (e.g. PST = Pressure Safety Transmitter)
+                next_char = rest_chars[i+1]
+                if next_char in ['H', 'L', 'A']:
+                    desc_words.append("Switch")
+                else:
+                    desc_words.append("Safety")
+            elif char == 'A':
+                # 'A' in middle = Alarm (PAH, TAH, LAH, PAHH, etc.)
+                desc_words.append("Alarm")
+            elif char in InstrumentLogicEngine.MODIFIERS:
+                desc_words.append(InstrumentLogicEngine.MODIFIERS[char])
+
+        # -- FUNCTION LOGIC (Last Letter) --
+        last_char = rest_chars[-1] if rest_chars else ""
+        if last_char in InstrumentLogicEngine.OUTPUT_ACTIVE:
+            desc_words.append(InstrumentLogicEngine.OUTPUT_ACTIVE[last_char])
+            found_function = True
+        elif last_char in InstrumentLogicEngine.READOUT_PASSIVE:
+            desc_words.append(InstrumentLogicEngine.READOUT_PASSIVE[last_char])
+            found_function = True
+
+        # H/L at the end qualifies as a valid function when preceded by Switch (S)
+        # or Alarm (A): PSH, PSL, PSHH, PSLL, PAH, PAL, TSH, LSH, LSHH, LSLL …
+        if last_char in ('H', 'L') and any(c in rest_chars for c in ('S', 'A')):
+            desc_words.append(InstrumentLogicEngine.MODIFIERS.get(last_char, ''))
+            found_function = True
+        
+        specs['Instrument_Description'] = " ".join(desc_words).replace("  ", " ").strip()
+
+        # 3. FINAL SAFETY CHECK
+        if not found_function and len(code) > 1:
+            specs['Confidence'] = "Low"
+            specs['Instrument_Description'] += " (?)"
+            return specs
+        
+        # If we made it here, it's a valid standard tag
+        specs['Confidence'] = "High"
+        specs['System'] = "DCS"
+        specs['IO_Type'] = "Soft Link"
+
+        # ---------------------------------------------------------
+        # 4. ENGINEERING SPECS LOGIC
+        # ---------------------------------------------------------
+        desc = specs['Instrument_Description']
+
+        if "Transmitter" in desc:
+            specs['IO_Type'] = "AI"
+            specs['Signal_Type'] = "4-20mA + HART"
+            specs['Power_Supply'] = "24VDC (Loop Powered)"
+            if first_char == 'Z': specs['Signal_Type'] = "4-20mA"
+
+        elif "Element" in desc or "Well" in desc:
+            # Physical passive field device — no electrical signal (FE, TE, TW, PE)
+            specs['IO_Type'] = ""
+            specs['Signal_Type'] = ""
+            specs['Power_Supply'] = ""
+            specs['System'] = ""
+            specs['Mounting'] = "Field / Direct"
+
+        elif "Control Valve" in desc or (first_char in ['F','L','P','T'] and 'V' in rest_chars):
+            specs['IO_Type'] = "AO"
+            specs['Signal_Type'] = "4-20mA"
+            specs['Power_Supply'] = "Loop Powered"
+            if "Control Valve" not in desc: specs['Instrument_Description'] += " (Control Valve)"
+
+        elif "Switch" in desc:
+            specs['IO_Type'] = "DI"
+            specs['Signal_Type'] = "24VDC (Dry Contact)"
+            specs['Power_Supply'] = "24VDC"
+            # High-High / Low-Low or explicit Safety → SIS/ESD trip switch
+            if "Safety" in desc or "High High" in desc or "Low Low" in desc:
+                specs['System'] = "SIS/ESD"
+
+        elif "Alarm" in desc and "Switch" not in desc:
+            # Alarm tags (PAH, TAH, LAH …) are DCS soft displays, not hardwired
+            specs['System'] = "DCS"
+            specs['IO_Type'] = "Soft Link"
+
+        elif "Gauge" in desc or "Indicator" in desc:
+            specs['System'] = ""
+            specs['IO_Type'] = ""
+            specs['Mounting'] = "Field / Direct"
+            if "Indicator" in desc and "Transmitter" not in desc:
+                specs['IO_Type'] = "Soft Link"  # panel/HMI indicator
+
+        return specs

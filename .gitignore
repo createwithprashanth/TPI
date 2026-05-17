@@ -1,0 +1,22 @@
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/batch_outputs/
+
+# Node
+frontend/node_modules/
+
+# Secrets / credentials
+.env
+google_credentials.json
+*.json.key
+instrumap-*.json
+
+# Logs / temp
+/tmp/
+*.log
+
+# macOS
+.DS_Store
