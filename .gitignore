@@ -20,3 +20,4 @@ instrumap-*.json
 
 # macOS
 .DS_Store
+frontend/dist/

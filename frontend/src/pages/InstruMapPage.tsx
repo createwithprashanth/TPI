@@ -6,6 +6,10 @@ import {
   generateInstruMapPreview,
   downloadBatchResults,
   detectPipingSymbolAllPages,
+  detectFromLibraryTemplate,
+  fetchLibrary,
+  saveLibrarySymbol,
+  deleteLibrarySymbol,
   downloadHighlightedImage,
   JobStatusResponse,
   ProjectInfo,
@@ -25,16 +29,26 @@ interface BatchResult {
   error: string | null;
 }
 
+interface LibrarySymbol {
+  id: string;
+  name: string;
+  thumbnail: string;     // small base64 PNG for display
+  templateImage: string; // full-res base64 PNG for matching
+  createdAt: string;
+}
+
 interface StagedTemplate {
   id: string;
   label: string;
-  box: Box;
+  box?: Box;             // user-drawn selection
+  templateImage?: string; // from library
 }
 
 interface MtoSession {
   id: string;
   label: string;
   color: string;
+  templateBox: Box;
   matches: { x1: number; y1: number; x2: number; y2: number; score: number }[];
   count: number;
   imageWidth: number;
@@ -65,6 +79,7 @@ function loadProject(): ProjectInfo {
 function saveProject(p: ProjectInfo) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
 }
+
 
 // ── NavItem ──────────────────────────────────────────────────────────────────
 
@@ -122,6 +137,11 @@ const InstruMapPage: React.FC = () => {
   const [mtoError, setMtoError] = useState<string | null>(null);
   const [mtoLoading, setMtoLoading] = useState(false);
   const [mtoThreshold, setMtoThreshold] = useState(0.70);
+
+  // Symbol library
+  const [librarySymbols, setLibrarySymbols] = useState<LibrarySymbol[]>([]);
+  const [selectedLibraryIds, setSelectedLibraryIds] = useState<Set<string>>(new Set());
+  const [saveToLibrary, setSaveToLibrary] = useState(false);
 
   // Rubber-band drag
   const [dragAnchor, setDragAnchor] = useState<{ px: number; py: number; ix: number; iy: number } | null>(null);
@@ -189,6 +209,11 @@ const InstruMapPage: React.FC = () => {
     if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
   }, []);
 
+  // Load symbol library from backend on mount
+  useEffect(() => {
+    fetchLibrary().then(setLibrarySymbols).catch(() => {/* silent — library panel just stays empty */});
+  }, []);
+
   // Ctrl+scroll zoom — locked during rubber-band drag
   useEffect(() => {
     const el = viewerRef.current;
@@ -227,6 +252,29 @@ const InstruMapPage: React.FC = () => {
 
   // ── MTO handlers ──────────────────────────────────────────────────────────
 
+  const cropBoxToBase64 = (box: Box, opts?: { maxDim?: number; format?: 'png' | 'jpeg'; quality?: number }): string => {
+    try {
+      const img = imageRef.current;
+      if (!img || !img.complete) return '';
+      const bw = box.x2 - box.x1;
+      const bh = box.y2 - box.y1;
+      if (bw < 2 || bh < 2) return '';
+      const scale = opts?.maxDim ? Math.min(1, opts.maxDim / Math.max(bw, bh)) : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.max(1, Math.round(bw * scale));
+      canvas.height = Math.max(1, Math.round(bh * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return '';
+      ctx.drawImage(img, box.x1, box.y1, bw, bh, 0, 0, canvas.width, canvas.height);
+      const mime = opts?.format === 'jpeg' ? 'image/jpeg' : 'image/png';
+      const dataUrl = canvas.toDataURL(mime, opts?.quality ?? 0.92);
+      const b64 = dataUrl.split(',')[1];
+      return b64 ?? '';
+    } catch {
+      return '';
+    }
+  };
+
   const cancelPending = () => {
     setPendingBox(null);
     setPendingLabel('');
@@ -237,9 +285,30 @@ const InstruMapPage: React.FC = () => {
     if (!pendingBox) return;
     const n = stagedTemplates.length + mtoSessions.length + 1;
     const label = pendingLabel.trim() || `Symbol ${n}`;
+
+    if (saveToLibrary) {
+      const templateImage = cropBoxToBase64(pendingBox, { format: 'jpeg', quality: 0.92 });
+      const thumbnail     = cropBoxToBase64(pendingBox, { maxDim: 96, format: 'png' });
+      if (templateImage) {
+        const entry: LibrarySymbol = {
+          id: Date.now().toString(),
+          name: label,
+          thumbnail,
+          templateImage,
+          createdAt: new Date().toISOString(),
+        };
+        saveLibrarySymbol(entry)
+          .then(saved => setLibrarySymbols(prev => [...prev, saved]))
+          .catch(() => setMtoError('Symbol added to queue but library save failed.'));
+      } else {
+        setMtoError('Could not crop symbol image — try drawing the box again.');
+      }
+    }
+
     setStagedTemplates(prev => [...prev, { id: Date.now().toString(), label, box: pendingBox }]);
     setPendingBox(null);
     setPendingLabel('');
+    setSaveToLibrary(false);
     setMtoStep('pick_template');
   };
 
@@ -331,16 +400,24 @@ const InstruMapPage: React.FC = () => {
       const newSessions: MtoSession[] = [];
       for (const tmpl of toRun) {
         const colorIdx = (mtoSessions.length + newSessions.length) % SESSION_COLORS.length;
-        const result = await detectPipingSymbolAllPages({
-          pidFile: pidFiles[0],
-          templateBox: tmpl.box,
-          threshold: mtoThreshold,
-          label: tmpl.label,
-        });
+        const result = tmpl.templateImage
+          ? await detectFromLibraryTemplate({
+              pidFile: pidFiles[0],
+              templateImageBase64: tmpl.templateImage,
+              threshold: mtoThreshold,
+              label: tmpl.label,
+            })
+          : await detectPipingSymbolAllPages({
+              pidFile: pidFiles[0],
+              templateBox: tmpl.box!,
+              threshold: mtoThreshold,
+              label: tmpl.label,
+            });
         newSessions.push({
           id: `${Date.now()}-${newSessions.length}`,
           label: tmpl.label,
           color: SESSION_COLORS[colorIdx],
+          templateBox: tmpl.box ?? { x1: 0, y1: 0, x2: 0, y2: 0 },
           matches: result.matches,
           count: result.total_count,
           imageWidth: result.image_width,
@@ -359,24 +436,262 @@ const InstruMapPage: React.FC = () => {
     setMtoLoading(false);
   };
 
+  const toggleLibrarySelection = (id: string) => {
+    setSelectedLibraryIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const stageSelectedLibrarySymbols = () => {
+    const toStage = librarySymbols.filter(s => selectedLibraryIds.has(s.id));
+    const newStaged: StagedTemplate[] = toStage.map(s => ({
+      id: `lib-${s.id}-${Date.now()}`,
+      label: s.name,
+      templateImage: s.templateImage,
+    }));
+    setStagedTemplates(prev => [...prev, ...newStaged]);
+    setSelectedLibraryIds(new Set());
+  };
+
+  const deleteFromLibrary = (id: string) => {
+    setLibrarySymbols(prev => prev.filter(s => s.id !== id));
+    setSelectedLibraryIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+    deleteLibrarySymbol(id).catch(() => {/* best-effort */});
+  };
+
   const removeSession = (id: string) => {
     setMtoSessions(prev => prev.filter(s => s.id !== id));
   };
 
+  const rerunSession = async (session: MtoSession) => {
+    if (!pidFiles.length || mtoLoading) return;
+    setMtoLoading(true);
+    setMtoError(null);
+    try {
+      const result = await detectPipingSymbolAllPages({
+        pidFile: pidFiles[0],
+        templateBox: session.templateBox,
+        threshold: mtoThreshold,
+        label: session.label,
+      });
+      setMtoSessions(prev => prev.map(s =>
+        s.id === session.id
+          ? { ...s, matches: result.matches, count: result.total_count, imageWidth: result.image_width, imageHeight: result.image_height, pageCounts: result.pages.map(p => ({ page: p.page, count: p.count })) }
+          : s
+      ));
+    } catch (err: any) {
+      setMtoError(err.response?.data?.detail || err.message || 'Re-run failed.');
+    }
+    setMtoLoading(false);
+  };
+
   const exportAllMtoCsv = () => {
     if (!mtoSessions.length) return;
-    const rows: (string | number)[][] = [
-      ['Symbol', 'Count'],
-      ...mtoSessions.map(s => [s.label, s.count]),
-      [],
-      ['Total', totalMtoCount],
-    ];
-    const csv = rows.map(r => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+
+    // Collect all page numbers that appear across any session
+    const allPages = Array.from(
+      new Set(mtoSessions.flatMap(s => s.pageCounts.map(pc => pc.page)))
+    ).sort((a, b) => a - b);
+
+    const multiPage = allPages.length > 1;
+
+    // Project info header rows
+    const meta: (string | number)[][] = [];
+    if (project.project_name) meta.push(['Project', project.project_name]);
+    if (project.project_no)   meta.push(['Project No.', project.project_no]);
+    if (project.client_name)  meta.push(['Client', project.client_name]);
+    if (project.contractor_name) meta.push(['Contractor', project.contractor_name]);
+    if (project.location)     meta.push(['Location', project.location]);
+    if (meta.length) meta.push([]);
+
+    // Column headers
+    const headers = multiPage
+      ? ['No.', 'Symbol', ...allPages.map(p => `Page ${p}`), 'Total Count']
+      : ['No.', 'Symbol', 'Count'];
+
+    // Data rows — one per symbol
+    const dataRows = mtoSessions.map((s, i) => {
+      if (multiPage) {
+        const pageCols = allPages.map(p => {
+          const found = s.pageCounts.find(pc => pc.page === p);
+          return found ? found.count : 0;
+        });
+        return [i + 1, s.label, ...pageCols, s.count];
+      }
+      return [i + 1, s.label, s.count];
+    });
+
+    // Total row
+    const totalRow = multiPage
+      ? ['', 'TOTAL', ...allPages.map(p => mtoSessions.reduce((sum, s) => sum + (s.pageCounts.find(pc => pc.page === p)?.count ?? 0), 0)), totalMtoCount]
+      : ['', 'TOTAL', totalMtoCount];
+
+    const escapeCell = (v: string | number) => {
+      const s = String(v);
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+
+    const allRows = [...meta, headers, ...dataRows, [], totalRow];
+    const csv = allRows.map(r => r.map(escapeCell).join(',')).join('\n');
+
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'piping_mto.csv';
+    a.download = `piping_mto_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportMtoExcel = async () => {
+    if (!mtoSessions.length || !imageRef.current) return;
+    const img = imageRef.current;
+
+    // Draw the full P&ID onto an offscreen canvas once
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = img.naturalWidth;
+    srcCanvas.height = img.naturalHeight;
+    const srcCtx = srcCanvas.getContext('2d');
+    if (!srcCtx) return;
+    srcCtx.drawImage(img, 0, 0);
+
+    const { default: ExcelJS } = await import('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'InstruMap – Piping MTO';
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet('Piping MTO', {
+      pageSetup: { fitToPage: true, fitToWidth: 1 },
+    });
+
+    // ── Column widths ──────────────────────────────────────────────────
+    const multiPage = mtoSessions.some(s => s.pageCounts.length > 1);
+    sheet.columns = [
+      { key: 'no',     width: 6 },
+      { key: 'symbol', width: 28 },
+      { key: 'image',  width: 14 },
+      ...(multiPage ? [{ key: 'page', width: 8 }] : []),
+      { key: 'count',  width: 8 },
+    ];
+
+    // ── Project info header ────────────────────────────────────────────
+    const addMeta = (label: string, value: string) => {
+      const r = sheet.addRow([label, value]);
+      r.getCell(1).font = { bold: true, size: 9, color: { argb: 'FF888888' } };
+      r.getCell(2).font = { size: 9 };
+      r.height = 14;
+    };
+    if (project.project_name)     addMeta('Project',    project.project_name);
+    if (project.project_no)       addMeta('Project No.', project.project_no);
+    if (project.client_name)      addMeta('Client',     project.client_name);
+    if (project.contractor_name)  addMeta('Contractor', project.contractor_name);
+    if (project.location)         addMeta('Location',   project.location);
+    if (sheet.rowCount > 0) sheet.addRow([]);
+
+    // ── Column header row ──────────────────────────────────────────────
+    const hdrValues = ['No.', 'Symbol', 'Image', ...(multiPage ? ['Page'] : []), 'Count'];
+    const hdrRow = sheet.addRow(hdrValues);
+    hdrRow.height = 18;
+    hdrRow.eachCell(cell => {
+      cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.border = {
+        bottom: { style: 'thin', color: { argb: 'FF374151' } },
+      };
+    });
+
+    // ── Data rows ─────────────────────────────────────────────────────
+    const THUMB_W = 80;
+    const THUMB_H = 60;
+    const ROW_H   = 48;
+    const PAD_RATIO = 0.35; // padding around the tight box
+
+    let rowNo = 1;
+    const imgColIdx = multiPage ? 3 : 3; // 1-based column C
+    const countColLetter = multiPage ? 'E' : 'D';
+    let firstDataRow = -1;
+    let lastDataRow  = -1;
+
+    for (const session of mtoSessions) {
+      const scaleX = img.naturalWidth  / session.imageWidth;
+      const scaleY = img.naturalHeight / session.imageHeight;
+
+      // Determine page for each match (matches are page-1 only from backend)
+      for (const match of session.matches) {
+        const bw = (match.x2 - match.x1) * scaleX;
+        const bh = (match.y2 - match.y1) * scaleY;
+        const pad = Math.round(Math.min(bw, bh) * PAD_RATIO);
+        const sx = Math.max(0, Math.round(match.x1 * scaleX) - pad);
+        const sy = Math.max(0, Math.round(match.y1 * scaleY) - pad);
+        const sw = Math.min(img.naturalWidth  - sx, Math.round(bw) + pad * 2);
+        const sh = Math.min(img.naturalHeight - sy, Math.round(bh) + pad * 2);
+
+        const crop = document.createElement('canvas');
+        crop.width  = THUMB_W;
+        crop.height = THUMB_H;
+        const cCtx = crop.getContext('2d');
+        if (!cCtx) continue;
+        cCtx.fillStyle = '#ffffff';
+        cCtx.fillRect(0, 0, THUMB_W, THUMB_H);
+        cCtx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, THUMB_W, THUMB_H);
+
+        const base64 = crop.toDataURL('image/png').split(',')[1];
+        const imgId  = workbook.addImage({ base64, extension: 'png' });
+
+        const values = [rowNo++, session.label, '', ...(multiPage ? [1] : []), 1];
+        const dataRow = sheet.addRow(values);
+        dataRow.height = ROW_H;
+        if (firstDataRow === -1) firstDataRow = dataRow.number;
+        lastDataRow = dataRow.number;
+
+        // Style data cells
+        dataRow.eachCell((cell, col) => {
+          cell.alignment = { vertical: 'middle', horizontal: col === 2 ? 'left' : 'center' };
+          cell.font = { size: 9 };
+          cell.border = { bottom: { style: 'hair', color: { argb: 'FFE5E7EB' } } };
+        });
+        // Color swatch in symbol cell
+        dataRow.getCell(2).font = { size: 9, color: { argb: 'FF' + session.color.replace('#', '') } };
+
+        // Embed thumbnail — anchor to image column
+        sheet.addImage(imgId, {
+          tl: { col: imgColIdx - 1, row: dataRow.number - 1 },
+          br: { col: imgColIdx,     row: dataRow.number },
+          editAs: 'oneCell',
+        } as any);
+      }
+    }
+
+    // ── Total row ──────────────────────────────────────────────────────
+    sheet.addRow([]);
+    const totalRow = sheet.addRow(['', 'TOTAL', '', ...(multiPage ? [''] : []), '']);
+    totalRow.height = 18;
+    totalRow.getCell(2).font = { bold: true, size: 10 };
+    const totalCell = totalRow.getCell(multiPage ? 5 : 4);
+    totalCell.font = { bold: true, size: 11 };
+    // SUM formula — user can delete false-positive rows and total updates automatically
+    if (firstDataRow > 0) {
+      totalCell.value = {
+        formula: `SUM(${countColLetter}${firstDataRow}:${countColLetter}${lastDataRow})`,
+        result: totalMtoCount,
+      } as any;
+    } else {
+      totalCell.value = 0;
+    }
+    totalCell.border = { top: { style: 'thin', color: { argb: 'FF374151' } } };
+
+    // ── Write ──────────────────────────────────────────────────────────
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `piping_mto_${new Date().toISOString().slice(0, 10)}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -764,6 +1079,45 @@ const InstruMapPage: React.FC = () => {
           </div>
         </div>
 
+        {/* ── Library button bar (piping view) ── */}
+        {view === 'piping' && librarySymbols.length > 0 && (
+          <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-white/[0.06] bg-gray-950 overflow-x-auto">
+            <span className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider shrink-0">Library</span>
+            {librarySymbols.map(sym => {
+              const selected = selectedLibraryIds.has(sym.id);
+              return (
+                <button
+                  key={sym.id}
+                  onClick={() => toggleLibrarySelection(sym.id)}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-medium transition-colors shrink-0 ${
+                    selected
+                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                      : 'bg-white/[0.04] border-white/[0.08] text-gray-400 hover:text-white hover:border-white/20'
+                  }`}
+                >
+                  {sym.thumbnail && (
+                    <img
+                      src={`data:image/png;base64,${sym.thumbnail}`}
+                      alt=""
+                      className="w-5 h-5 object-contain rounded shrink-0"
+                    />
+                  )}
+                  {sym.name}
+                  {selected && <span className="text-emerald-400 text-[10px]">✓</span>}
+                </button>
+              );
+            })}
+            {selectedLibraryIds.size > 0 && (
+              <button
+                onClick={stageSelectedLibrarySymbols}
+                className="shrink-0 ml-1 px-3 py-1 rounded-lg text-xs font-bold text-gray-900 bg-emerald-400 hover:bg-emerald-300 transition-colors"
+              >
+                Search {selectedLibraryIds.size} →
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Viewer */}
         <div
           ref={viewerRef}
@@ -1000,6 +1354,15 @@ const InstruMapPage: React.FC = () => {
                         placeholder='e.g. Ball Valve 1"'
                         className="w-full rounded-lg border border-white/[0.08] bg-white/[0.05] px-2.5 py-2 text-xs text-white placeholder:text-gray-600 outline-none focus:border-white/[0.22] mb-2.5"
                       />
+                      <label className="flex items-center gap-2 mb-2.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={saveToLibrary}
+                          onChange={e => setSaveToLibrary(e.target.checked)}
+                          className="w-3 h-3 accent-emerald-400"
+                        />
+                        <span className="text-[11px] text-gray-400">Save to symbol library</span>
+                      </label>
                       <div className="flex gap-1.5">
                         <button
                           onClick={addStagedTemplate}
@@ -1075,13 +1438,66 @@ const InstruMapPage: React.FC = () => {
 
               {/* ── MTO: Floating panel (staged + results) ── */}
               <AnimatePresence>
-                {view === 'piping' && (stagedTemplates.length > 0 || mtoSessions.length > 0) && (
+                {view === 'piping' && (librarySymbols.length > 0 || stagedTemplates.length > 0 || mtoSessions.length > 0) && (
                   <motion.div
                     initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.18 }}
                     className="absolute top-4 right-4 z-20"
                   >
                     <div className="bg-gray-950/95 backdrop-blur-sm border border-white/[0.10] rounded-xl overflow-hidden min-w-[230px] max-w-[268px]">
+
+                      {/* ── Library section ── */}
+                      {librarySymbols.length > 0 && (
+                        <>
+                          <div className="px-4 pt-3 pb-2">
+                            <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider mb-2">
+                              Symbol Library · {librarySymbols.length}
+                            </p>
+                            <div className="space-y-1">
+                              {librarySymbols.map(sym => {
+                                const selected = selectedLibraryIds.has(sym.id);
+                                return (
+                                  <div
+                                    key={sym.id}
+                                    className={`flex items-center gap-2 rounded-lg px-2 py-1 cursor-pointer transition-colors ${
+                                      selected ? 'bg-emerald-500/15 border border-emerald-500/30' : 'hover:bg-white/[0.04] border border-transparent'
+                                    }`}
+                                    onClick={() => toggleLibrarySelection(sym.id)}
+                                  >
+                                    {sym.thumbnail && (
+                                      <img
+                                        src={`data:image/png;base64,${sym.thumbnail}`}
+                                        alt={sym.name}
+                                        className="w-8 h-8 object-contain rounded border border-white/[0.08] bg-white/[0.03] shrink-0"
+                                      />
+                                    )}
+                                    <span className={`text-xs flex-1 truncate ${selected ? 'text-emerald-300' : 'text-gray-300'}`}>
+                                      {sym.name}
+                                    </span>
+                                    {selected && <span className="text-emerald-400 text-[10px] font-bold shrink-0">✓</span>}
+                                    <button
+                                      onClick={e => { e.stopPropagation(); deleteFromLibrary(sym.id); }}
+                                      className="text-gray-700 hover:text-red-400 transition-colors shrink-0"
+                                      title="Remove from library"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {selectedLibraryIds.size > 0 && (
+                              <button
+                                onClick={stageSelectedLibrarySymbols}
+                                className="w-full mt-2 text-xs font-bold text-gray-900 bg-emerald-400 hover:bg-emerald-300 px-3 py-1.5 rounded-lg transition-colors"
+                              >
+                                Stage {selectedLibraryIds.size} Selected →
+                              </button>
+                            )}
+                          </div>
+                          <div className="border-t border-white/[0.06]" />
+                        </>
+                      )}
 
                       {/* Staged section */}
                       {stagedTemplates.length > 0 && (
@@ -1105,7 +1521,23 @@ const InstruMapPage: React.FC = () => {
                               ))}
                             </div>
                           </div>
-                          <div className="px-4 pt-2 pb-3">
+                          {/* Threshold number input — set before running */}
+                          <div className="px-4 pt-1 pb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-gray-600 shrink-0">Threshold</span>
+                              <input
+                                type="number" min={0.40} max={0.95} step={0.01}
+                                value={mtoThreshold}
+                                onChange={e => {
+                                  const v = parseFloat(e.target.value);
+                                  if (!isNaN(v) && v >= 0.40 && v <= 0.95) setMtoThreshold(+v.toFixed(2));
+                                }}
+                                className="w-20 rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-xs text-white font-mono outline-none focus:border-emerald-500 transition-colors"
+                              />
+                              <span className="text-[10px] text-gray-600">(0.40 – 0.95)</span>
+                            </div>
+                          </div>
+                          <div className="px-4 pt-1 pb-3">
                             <button
                               onClick={handleMtoRunAll}
                               disabled={mtoLoading}
@@ -1133,8 +1565,16 @@ const InstruMapPage: React.FC = () => {
                                   <span className="text-xs text-gray-300 flex-1 truncate">{session.label}</span>
                                   <span className="text-xs font-bold text-white tabular-nums w-6 text-right">{session.count}</span>
                                   <button
+                                    onClick={() => rerunSession(session)}
+                                    disabled={mtoLoading}
+                                    title="Re-run with current sensitivity"
+                                    className="text-gray-600 hover:text-emerald-400 disabled:opacity-30 transition-colors"
+                                  >
+                                    ↺
+                                  </button>
+                                  <button
                                     onClick={() => removeSession(session.id)}
-                                    className="text-gray-600 hover:text-red-400 transition-colors ml-1"
+                                    className="text-gray-600 hover:text-red-400 transition-colors"
                                   >
                                     <X className="w-3 h-3" />
                                   </button>
@@ -1157,26 +1597,36 @@ const InstruMapPage: React.FC = () => {
                             <span className="text-sm font-bold text-white tabular-nums">{totalMtoCount}</span>
                           </div>
 
-                          {/* Sensitivity */}
+                          {/* Threshold + Re-run All */}
                           <div className="px-4 pb-3 border-t border-white/[0.06] pt-2">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[10px] text-gray-600">Sensitivity</span>
-                              <span className="text-[10px] text-gray-400 font-mono">{Math.round((1 - mtoThreshold) * 100)}%</span>
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-[10px] text-gray-600 shrink-0">Threshold</span>
+                              <input
+                                type="number" min={0.40} max={0.95} step={0.01}
+                                value={mtoThreshold}
+                                onChange={e => {
+                                  const v = parseFloat(e.target.value);
+                                  if (!isNaN(v) && v >= 0.40 && v <= 0.95) setMtoThreshold(+v.toFixed(2));
+                                }}
+                                className="w-20 rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-xs text-white font-mono outline-none focus:border-emerald-500 transition-colors"
+                              />
+                              <span className="text-[10px] text-gray-600">(0.40 – 0.95)</span>
                             </div>
-                            <input
-                              type="range" min={40} max={90} step={5}
-                              value={Math.round((1 - mtoThreshold) * 100)}
-                              onChange={e => setMtoThreshold(+(1 - Number(e.target.value) / 100).toFixed(2))}
-                              className="w-full accent-emerald-400 h-1 cursor-pointer"
-                            />
-                            <div className="flex justify-between text-[9px] text-gray-700 mt-0.5">
-                              <span>precise</span><span>loose</span>
-                            </div>
+                            <button
+                              onClick={() => { mtoSessions.forEach(s => rerunSession(s)); }}
+                              disabled={mtoLoading}
+                              className="w-full text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 disabled:opacity-30 border border-emerald-900 hover:border-emerald-700 py-1.5 rounded-lg transition-colors"
+                            >
+                              ↺ Re-run All
+                            </button>
                           </div>
 
                           {/* Actions */}
                           <div className="px-4 pb-3 border-t border-white/[0.06] pt-2 flex flex-col gap-1.5">
-                            <button onClick={exportAllMtoCsv} className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 transition-colors text-right">
+                            <button onClick={exportMtoExcel} className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 transition-colors text-right">
+                              Export Excel (with images)
+                            </button>
+                            <button onClick={exportAllMtoCsv} className="text-xs font-semibold text-gray-500 hover:text-gray-300 transition-colors text-right">
                               Export CSV
                             </button>
                             <button onClick={downloadMtoImage} className="text-xs font-semibold text-blue-400 hover:text-blue-300 transition-colors text-right">

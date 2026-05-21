@@ -4,6 +4,7 @@ No authentication, no Supabase, local file serving.
 """
 import base64
 import io
+import json
 import logging
 import os
 import uuid
@@ -18,7 +19,11 @@ from pdf2image import convert_from_bytes
 from app.modules.instrumap.core import config as instrumap_config
 from app.config.redis_client import get_instrumap_queue, get_redis_connection, is_redis_available
 from app.workers.instrumap_tasks import process_pid_task, BATCH_OUTPUT_BASE
-from app.modules.instrumap.core.piping_mto import detect_symbol as _detect_piping_symbol, detect_all_pages as _detect_all_pages
+from app.modules.instrumap.core.piping_mto import (
+    detect_symbol as _detect_piping_symbol,
+    detect_all_pages as _detect_all_pages,
+    detect_from_template_image_all_pages as _detect_from_template_image_all_pages,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +31,47 @@ router = APIRouter()
 
 PREFIX = "/api/v1/instrumap"
 TAGS = ["InstruMap"]
+
+LIBRARY_FILE = Path(__file__).parent.parent.parent.parent / "data" / "symbol_library.json"
+
+
+def _read_library() -> list:
+    try:
+        return json.loads(LIBRARY_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _write_library(entries: list) -> None:
+    LIBRARY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LIBRARY_FILE.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+@router.get("/library", tags=TAGS)
+async def get_library() -> list:
+    return _read_library()
+
+
+@router.post("/library", tags=TAGS)
+async def add_library_symbol(payload: dict) -> dict:
+    entries = _read_library()
+    entry = {
+        "id": payload.get("id", str(uuid.uuid4())),
+        "name": payload["name"],
+        "thumbnail": payload.get("thumbnail", ""),
+        "templateImage": payload["templateImage"],
+        "createdAt": payload.get("createdAt", ""),
+    }
+    entries.append(entry)
+    _write_library(entries)
+    return entry
+
+
+@router.delete("/library/{symbol_id}", tags=TAGS)
+async def delete_library_symbol(symbol_id: str) -> dict:
+    entries = [e for e in _read_library() if e.get("id") != symbol_id]
+    _write_library(entries)
+    return {"deleted": symbol_id}
 
 
 @router.post("/preview", response_model=dict, tags=TAGS)
@@ -235,6 +281,31 @@ async def detect_piping_all_pages(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"All-pages piping MTO failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/piping-mto/detect-from-library", tags=TAGS)
+async def detect_from_library_template(
+    pid_file: UploadFile = File(...),
+    template_image: UploadFile = File(...),
+    threshold: float = Form(0.70),
+    label: str = Form("Symbol"),
+) -> dict:
+    """Detect a symbol using a pre-saved library template image (PNG/JPEG)."""
+    try:
+        pdf_content = await pid_file.read()
+        tmpl_content = await template_image.read()
+        result = _detect_from_template_image_all_pages(
+            pdf_bytes=pdf_content,
+            template_bytes=tmpl_content,
+            threshold=threshold,
+            label=label,
+        )
+        return {"status": "SUCCESS", **result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Library template detection failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

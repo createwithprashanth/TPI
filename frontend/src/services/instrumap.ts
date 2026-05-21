@@ -195,6 +195,55 @@ export const detectPipingSymbolAllPages = async ({
   return resp.data;
 };
 
+// ── Symbol Library ─────────────────────────────────────────────────────────
+
+export interface LibrarySymbolRecord {
+  id: string;
+  name: string;
+  thumbnail: string;
+  templateImage: string;
+  createdAt: string;
+}
+
+export const fetchLibrary = async (): Promise<LibrarySymbolRecord[]> => {
+  const resp = await api.get('/api/v1/instrumap/library');
+  return resp.data;
+};
+
+export const saveLibrarySymbol = async (entry: LibrarySymbolRecord): Promise<LibrarySymbolRecord> => {
+  const resp = await api.post('/api/v1/instrumap/library', entry);
+  return resp.data;
+};
+
+export const deleteLibrarySymbol = async (id: string): Promise<void> => {
+  await api.delete(`/api/v1/instrumap/library/${id}`);
+};
+
+export const detectFromLibraryTemplate = async ({
+  pidFile,
+  templateImageBase64,
+  threshold = 0.70,
+  label = 'Symbol',
+}: {
+  pidFile: File;
+  templateImageBase64: string;
+  threshold?: number;
+  label?: string;
+}): Promise<MtoPipingAllPagesResponse> => {
+  const form = new FormData();
+  form.append('pid_file', pidFile);
+  // Convert base64 PNG back to a File blob
+  const byteArr = Uint8Array.from(atob(templateImageBase64), c => c.charCodeAt(0));
+  form.append('template_image', new Blob([byteArr], { type: 'image/png' }), 'template.png');
+  form.append('threshold', String(threshold));
+  form.append('label', label);
+  const resp = await api.post('/api/v1/instrumap/piping-mto/detect-from-library', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000,
+  });
+  return resp.data;
+};
+
 export const downloadHighlightedImage = async (batchId: string): Promise<void> => {
   const resp = await api.get(`/api/v1/instrumap/highlighted/${batchId}`, { responseType: 'blob' });
   const url = URL.createObjectURL(new Blob([resp.data], { type: 'image/jpeg' }));
