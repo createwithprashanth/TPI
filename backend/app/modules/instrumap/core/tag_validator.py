@@ -1,4 +1,4 @@
-"""
+r"""
 Tag format validator for InstruMap.
 
 Validates extracted instrument tags against the project's tag numbering

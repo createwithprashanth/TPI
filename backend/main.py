@@ -1,5 +1,5 @@
 """
-InstruMap API — white-label edition.
+API server — white-label edition.
 """
 import logging
 from contextlib import asynccontextmanager
@@ -8,7 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.redis_client import init_redis
-from app.modules.instrumap.routes import router as instrumap_router, PREFIX
+from app.modules.pid_analyser.routes import router as pid_router, PREFIX as PID_PREFIX
+from app.modules.piping_mto.routes import router as mto_router, PREFIX as MTO_PREFIX
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,7 +24,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="InstruMap API",
+    title="P&ID Platform API",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -31,12 +32,13 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(instrumap_router, prefix=PREFIX)
+app.include_router(pid_router, prefix=PID_PREFIX)
+app.include_router(mto_router, prefix=MTO_PREFIX)
 
 
 @app.get("/health")

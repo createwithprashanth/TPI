@@ -1,21 +1,9 @@
-# XYRA-BACKEND/app/modules/instrumap/core/config.py
+# Env-driven values come from settings; algorithm constants live here.
+from app.config.settings import settings
 
-import os
-
-# --- GOOGLE VISION API CONFIG ---
-# Path to your Google Service Account Credentials JSON file
-# IMPORTANT: Update this path to your actual credentials file.
-GOOGLE_APPLICATION_CREDENTIALS_PATH = os.path.join(os.getcwd(), 'instrumap-464410-3cb4dae6350d.json')
-
-
-# Poppler path for PDF conversion (None for Linux system-wide install, Windows path if needed)
-POPPLER_PATH = os.getenv("POPPLER_PATH", None)  # Set to None for Linux, or provide Windows path via env var
-
-# --- PDF CONFIG ---
-# Path to Poppler (needed for PDF to Image conversion on Windows)
-# Set to None if Poppler is in system PATH (e.g., on Linux/macOS)
-
-PDF_DPI = 300 # DPI used for PDF to Image conversion
+GOOGLE_APPLICATION_CREDENTIALS_PATH = settings.google_credentials_path
+POPPLER_PATH = settings.POPPLER_PATH
+PDF_DPI = settings.PDF_DPI
 
 # --- EXTRACTION MODE ---
 # USE_PYMUPDF  : try direct PDF extraction first (vector PDFs only, zero API calls)
@@ -71,7 +59,5 @@ PID_GRID_COLS = 5
 PID_SEARCH_ORDER = 'top_left_to_bottom_right'
 
 # --- DEBUGGING CONFIG ---
-# Set DEBUG_MODE=true via environment variable to enable on a specific worker.
-# Always off in production — saving per-page JPEGs at 300 DPI is expensive.
-DEBUG_MODE = os.getenv("INSTRUMAP_DEBUG", "false").lower() == "true"
+DEBUG_MODE = settings.INSTRUMAP_DEBUG
 DEBUG_OUTPUT_FOLDER = "debug_output"

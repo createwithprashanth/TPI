@@ -13,7 +13,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api/v1/instrumap": {
+      "/api/v1": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },
