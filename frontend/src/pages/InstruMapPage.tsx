@@ -1,8 +1,8 @@
 import React, { useRef, useState, Suspense, lazy } from 'react';
 import { ProjectProvider } from '../contexts/ProjectContext';
 import { WorkspaceProvider, useWorkspace } from '../contexts/WorkspaceContext';
+import WorkspaceBar from '../components/workspace/WorkspaceBar';
 import ActivityBar from '../components/workspace/ActivityBar';
-import SidePanel from '../components/workspace/SidePanel';
 import FileTabs from '../components/workspace/FileTabs';
 import Breadcrumb from '../components/workspace/Breadcrumb';
 import type { WorkspaceView } from '../components/workspace/WorkspaceSidebar';
@@ -23,7 +23,6 @@ const WorkspaceShell: React.FC = () => {
   const { pidFiles, loadFiles, isPreviewLoading } = useWorkspace();
   const [view, setView] = useState<WorkspaceView>('pid');
   const [areaCode, setAreaCode] = useState('');
-  const [panelOpen, setPanelOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const openFiles = () => fileInputRef.current?.click();
@@ -38,31 +37,23 @@ const WorkspaceShell: React.FC = () => {
 
   const currentFile = pidFiles[0] ?? null;
 
-  // Breadcrumb items
   const breadcrumbItems = [
     { label: 'XYRA Studio', dim: true },
     { label: TOOL_LABELS[view] },
-    ...(currentFile && view !== 'precisionpdf'
-      ? [{ label: currentFile.name }]
-      : []),
+    ...(currentFile && view !== 'precisionpdf' ? [{ label: currentFile.name }] : []),
   ];
 
   return (
     <div className="h-full flex flex-col bg-[#0c0c0e] overflow-hidden">
 
+      {/* ── Workspace bar — full width, above everything ── */}
+      <WorkspaceBar />
+
       {/* ── Main row ── */}
       <div className="flex-1 flex overflow-hidden min-h-0">
 
         {/* Activity bar */}
-        <ActivityBar
-          view={view}
-          onViewChange={setView}
-          panelOpen={panelOpen}
-          onTogglePanel={() => setPanelOpen(v => !v)}
-        />
-
-        {/* Project side panel */}
-        <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} />
+        <ActivityBar view={view} onViewChange={setView} />
 
         {/* ── Editor area ── */}
         {view === 'precisionpdf' ? (
@@ -78,13 +69,11 @@ const WorkspaceShell: React.FC = () => {
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
-            {/* Top bar — tool controls */}
+            {/* Tool top bar */}
             <div className="h-11 shrink-0 flex items-center justify-between px-4 border-b border-white/[0.05] bg-[#0c0c0e]">
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] font-semibold text-white tracking-tight">
-                  {TOOL_LABELS[view]}
-                </span>
-              </div>
+              <span className="text-[13px] font-semibold text-white tracking-tight">
+                {TOOL_LABELS[view]}
+              </span>
 
               <div className="flex items-center gap-2">
                 {view === 'pid' && (
