@@ -29,6 +29,8 @@ import {
   Eraser,
   Upload,
   Download,
+  FolderOpen,
+  Save,
   PanelLeft,
   PanelRight,
   Workflow,
@@ -404,6 +406,12 @@ export default function Toolbar({
       setOpenColorPickerId(null);
     }
   }, [selectedTool]);
+
+  useEffect(() => {
+    const toggleSearch = () => setSearchOpen((value) => !value);
+    window.addEventListener("precisionpdf:toggle-search", toggleSearch);
+    return () => window.removeEventListener("precisionpdf:toggle-search", toggleSearch);
+  }, []);
 
   // Close signature dropdown when clicking outside
   useEffect(() => {
@@ -829,6 +837,20 @@ export default function Toolbar({
               onClick={() =>
                 dispatch({ type: "ADD_BOOKMARK", payload: currentPage })
               }
+            />
+
+            <ToolButton
+              icon={<FolderOpen className="w-4 h-4" />}
+              label="Open Review Session"
+              disabled={!hasDocument}
+              onClick={() => window.dispatchEvent(new CustomEvent("precisionpdf:open-session"))}
+            />
+
+            <ToolButton
+              icon={<Save className="w-4 h-4" />}
+              label="Save Review Session"
+              disabled={!hasDocument}
+              onClick={() => window.dispatchEvent(new CustomEvent("precisionpdf:save-session"))}
             />
 
             <ToolButton

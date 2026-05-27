@@ -63,4 +63,24 @@ export type PdfAction =
     | { type: "SET_PID_SYMBOL"; payload: string | null }
     | { type: "SET_PID_COLOR"; payload: string }
     | { type: "TOGGLE_PID_PANEL" }
-    | { type: "SET_SHOW_PID_PANEL"; payload: boolean };
+    | { type: "SET_SHOW_PID_PANEL"; payload: boolean }
+    | {
+        type: "IMPORT_REVIEW_SESSION";
+        payload: Partial<
+            Pick<
+                PdfState,
+                | "annotations"
+                | "bookmarks"
+                | "currentPage"
+                | "scale"
+                | "rotation"
+                | "viewMode"
+                | "fitMode"
+                | "toolColors"
+                | "signatureImage"
+                | "pidSelectedSymbolId"
+                | "pidColor"
+                | "showPidPanel"
+            >
+        >;
+    };

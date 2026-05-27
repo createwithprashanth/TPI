@@ -117,6 +117,32 @@ export function pdfReducer(state: PdfState, action: PdfAction): PdfState {
     case "SET_DIRTY_STATE":
       return { ...state, isDirty: action.payload };
 
+    case "IMPORT_REVIEW_SESSION": {
+      const nextPage = action.payload.currentPage
+        ? Math.min(Math.max(action.payload.currentPage, 1), Math.max(state.numPages, 1))
+        : state.currentPage;
+
+      return {
+        ...state,
+        annotations: action.payload.annotations ?? state.annotations,
+        bookmarks: action.payload.bookmarks ?? state.bookmarks,
+        currentPage: nextPage,
+        scale: action.payload.scale ?? state.scale,
+        rotation: action.payload.rotation ?? state.rotation,
+        viewMode: action.payload.viewMode ?? state.viewMode,
+        fitMode: action.payload.fitMode ?? state.fitMode,
+        toolColors: action.payload.toolColors ?? state.toolColors,
+        signatureImage: action.payload.signatureImage ?? state.signatureImage,
+        pidSelectedSymbolId: action.payload.pidSelectedSymbolId ?? state.pidSelectedSymbolId,
+        pidColor: action.payload.pidColor ?? state.pidColor,
+        showPidPanel: action.payload.showPidPanel ?? state.showPidPanel,
+        selectedAnnotationId: null,
+        undoStack: [],
+        redoStack: [],
+        isDirty: true,
+      };
+    }
+
     case "ADD_ANNOTATION": {
       const page = action.payload.page;
       const newState = {

@@ -7,9 +7,16 @@ import StatusBar from "./StatusBar";
 import { usePdfContext } from "./context/PdfContext";
 import PdfRenderer from "./PdfRenderer";
 import MiniMapOverlay from "./MiniMapOverlay";
+import CommandPalette from "./CommandPalette";
+import ReviewSessionBridge from "./ReviewSessionBridge";
 import type { ToolName } from "./context/PdfState";
 
-function ViewInner({ onOpenFile }: { onOpenFile?: () => void }) {
+type ViewerContainerProps = {
+  onOpenFile?: () => void;
+  documentName?: string;
+};
+
+function ViewInner({ onOpenFile, documentName }: ViewerContainerProps) {
   const { pdfDoc, dispatch, selectedTool, fitMode, scale, showPidPanel, pidSelectedSymbolId, pidColor } = usePdfContext();
   const [mouseCoords, setMouseCoords] = useState<{ x: number; y: number } | null>(null);
   const [showPages, setShowPages] = useState(true);
@@ -378,6 +385,14 @@ function ViewInner({ onOpenFile }: { onOpenFile?: () => void }) {
         onTogglePages={() => setShowPages((prev) => !prev)}
         onToggleAnnotations={() => setShowAnnotations((prev) => !prev)}
       />
+      <CommandPalette
+        onOpenFile={onOpenFile}
+        showPages={showPages}
+        showAnnotations={showAnnotations}
+        onTogglePages={() => setShowPages((prev) => !prev)}
+        onToggleAnnotations={() => setShowAnnotations((prev) => !prev)}
+      />
+      <ReviewSessionBridge documentName={documentName} />
       <div className="flex flex-1 overflow-hidden">
         {!pdfDoc ? (
           <div
@@ -506,8 +521,8 @@ function ViewInner({ onOpenFile }: { onOpenFile?: () => void }) {
   );
 }
 
-export default function ViewerContainer({ onOpenFile }: { onOpenFile?: () => void }) {
+export default function ViewerContainer({ onOpenFile, documentName }: ViewerContainerProps) {
   // NOTE: App.tsx already wraps the whole app in <PdfProvider>,
   // so we just render the inner viewer here to use that context.
-  return <ViewInner onOpenFile={onOpenFile} />;
+  return <ViewInner onOpenFile={onOpenFile} documentName={documentName} />;
 }

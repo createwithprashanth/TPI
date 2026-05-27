@@ -1104,6 +1104,7 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
       pointerEvents: selectedTool === "erase" ? "none" : "auto",
       overflow: "visible", // Ensure content is visible - CRITICAL for resize handles to be visible
       zIndex: selected ? 10 : 1, // Ensure selected annotations are above others
+      opacity: ann.type === "highlight" ? 1 : (ann.meta?.opacity ?? 1),
     };
 
     // For arrows, w and h represent the direction vector (can be negative)
@@ -1160,7 +1161,7 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
           return (
             <div 
               style={{ 
-                backgroundColor: `rgba(${r}, ${g}, ${b}, 0.4)`,
+                backgroundColor: `rgba(${r}, ${g}, ${b}, ${ann.meta?.opacity ?? 0.4})`,
                 position: "absolute",
                 top: 0,
                 left: 0,

@@ -129,7 +129,7 @@ function PrecisionPDFViewer({
 
   // If PDF is loaded, show the viewer
   if (pdfDoc) {
-    return <ViewerContainer />;
+    return <ViewerContainer documentName={selectedPdfFile.name} />;
   }
 
   // If no PDF is loaded yet, show waiting state
@@ -151,6 +151,7 @@ function PrecisionPDFViewer({
 const PrecisionPDFPage: React.FC = () => {
   const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
+  const [selectedPdfIndex, setSelectedPdfIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -158,6 +159,7 @@ const PrecisionPDFPage: React.FC = () => {
   useEffect(() => {
     setPdfFiles([]);
     setSelectedPdfFile(null);
+    setSelectedPdfIndex(0);
     setError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -173,15 +175,54 @@ const PrecisionPDFPage: React.FC = () => {
         setError("Please select valid PDF files.");
         return;
       }
-      setPdfFiles(pdfFilesOnly);
-      setSelectedPdfFile(pdfFilesOnly[0]);
+      setPdfFiles((prev) => {
+        const merged = [...prev];
+        for (const file of pdfFilesOnly) {
+          const exists = merged.some((item) =>
+            item.name === file.name && item.size === file.size && item.lastModified === file.lastModified
+          );
+          if (!exists) merged.push(file);
+        }
+        const nextIndex = prev.length;
+        const nextFile = merged[nextIndex] ?? merged[0] ?? null;
+        setSelectedPdfIndex(nextFile ? merged.indexOf(nextFile) : 0);
+        setSelectedPdfFile(nextFile);
+        return merged;
+      });
       setError(null);
+      event.target.value = "";
     }
+  };
+
+  const selectPdfTab = (index: number) => {
+    const file = pdfFiles[index];
+    if (!file) return;
+    setSelectedPdfIndex(index);
+    setSelectedPdfFile(file);
+  };
+
+  const closePdfTab = (index: number) => {
+    setPdfFiles((prev) => {
+      const next = prev.filter((_, itemIndex) => itemIndex !== index);
+      if (!next.length) {
+        setSelectedPdfIndex(0);
+        setSelectedPdfFile(null);
+        return next;
+      }
+      const nextIndex = index === selectedPdfIndex
+        ? Math.max(0, index - 1)
+        : index < selectedPdfIndex
+          ? selectedPdfIndex - 1
+          : selectedPdfIndex;
+      setSelectedPdfIndex(nextIndex);
+      setSelectedPdfFile(next[nextIndex]);
+      return next;
+    });
   };
 
   return (
     <PdfProvider>
-      <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#0f172a]">
+      <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#181818]">
         <input
           ref={fileInputRef}
           type="file"
@@ -191,7 +232,51 @@ const PrecisionPDFPage: React.FC = () => {
           onChange={handlePdfFileChange}
         />
 
-        <div className="flex-1 overflow-hidden bg-slate-900">
+        {pdfFiles.length > 0 && (
+          <div className="flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-[#2b2b2b] bg-[#181818]">
+            {pdfFiles.map((file, index) => {
+              const active = index === selectedPdfIndex;
+              return (
+                <div
+                  key={`${file.name}-${file.size}-${file.lastModified}`}
+                  className={`group flex min-w-0 max-w-[220px] items-center border-r border-[#2b2b2b] ${
+                    active ? "bg-[#1e1e1e] text-white" : "text-[#858585] hover:bg-[#252526] hover:text-[#cccccc]"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => selectPdfTab(index)}
+                    className="min-w-0 flex-1 truncate px-3 text-left text-xs"
+                    title={file.name}
+                  >
+                    {file.name}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => closePdfTab(index)}
+                    className="mr-1 rounded-[3px] p-1 opacity-70 transition-colors hover:bg-[#2a2d2e] hover:opacity-100"
+                    aria-label={`Close ${file.name}`}
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex w-9 shrink-0 items-center justify-center text-[#858585] transition-colors hover:bg-[#2a2d2e] hover:text-white"
+              aria-label="Open more PDFs"
+              title="Open more PDFs"
+            >
+              +
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-hidden bg-[#181818]">
           {selectedPdfFile ? (
             <PrecisionPDFViewer
               key={selectedPdfFile.name + selectedPdfFile.size + selectedPdfFile.lastModified}
