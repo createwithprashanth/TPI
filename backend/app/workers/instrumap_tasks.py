@@ -123,6 +123,7 @@ def process_pid_task(
     location: Optional[str] = None,
 ) -> Dict[str, Any]:
     pid_temp_path = None
+    _rl = None  # telemetry logger — flushed in finally
 
     try:
         logger.info(f"[Job {job_id}] Starting P&ID processing for batch {batch_id}")
@@ -134,6 +135,12 @@ def process_pid_task(
 
         pid_filename_base = Path(pdf_filename).stem if pdf_filename else "pid"
         suffix = Path(pdf_filename).suffix if pdf_filename else ".pdf"
+
+        try:
+            from app.modules.telemetry import RunLogger
+            _rl = RunLogger(pid_filename_base)
+        except Exception:
+            pass
 
         with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(pdf_content)
@@ -158,6 +165,8 @@ def process_pid_task(
                 )
                 if not results_df.empty:
                     _pymupdf_succeeded = True
+                    if _rl:
+                        _rl.log_path("pymupdf")
                     logger.info(f"[Job {job_id}] PyMuPDF: {len(results_df)} instruments found")
 
                     # Geometry-based line mapping (vector path)
@@ -171,6 +180,11 @@ def process_pid_task(
                             logger.info(f"[Job {job_id}] Line mapper: {matched}/{len(results_df)} matched")
                         except Exception as lm_exc:
                             logger.warning(f"[Job {job_id}] Line mapping failed (non-fatal): {lm_exc}")
+
+                    if _rl:
+                        if not lines_df.empty and "Line_Number" in lines_df.columns:
+                            _rl.log_lines(1, list(lines_df["Line_Number"].astype(str)))
+                        _rl.log_instruments(1, list(results_df["Tag_Number"].astype(str)))
 
 
                     try:
@@ -187,6 +201,8 @@ def process_pid_task(
 
         # ── OCR fallback ─────────────────────────────────────────────────────
         if not _pymupdf_succeeded:
+            if _rl:
+                _rl.log_path("ocr")
             final_calibration_radius = user_selected_radius
 
             _report_progress(job_id, "calibration", "Calibrating instrument circle size…")
@@ -324,5 +340,10 @@ def process_pid_task(
             "error": str(exc),
         }
     finally:
+        if _rl:
+            try:
+                _rl.flush()
+            except Exception:
+                pass
         if pid_temp_path and os.path.exists(pid_temp_path):
             os.remove(pid_temp_path)

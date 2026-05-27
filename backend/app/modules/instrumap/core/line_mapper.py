@@ -486,14 +486,23 @@ def map_instruments_to_lines(
 
     doc.close()
 
-    # ── Propagate Connected_Line within loop to all field instruments ──────────
-    # TIT gets mapped → TW and TE in the same loop should also show the line number.
-    # TI (soft tag) stays blank — it's a DCS display, not a physical pipe connection.
-    if "Loop" in instruments_df.columns:
-        for loop_val, group in instruments_df.groupby("Loop"):
+    # ── Propagate Connected_Line within loop instance to field instruments ───────
+    # FIT-1762P-12 gets mapped → FE-1762P-12 should show the same line.
+    # Group by full tag-minus-type-prefix ("1762P-12") not just Loop ("1762P"),
+    # so unrelated measurements that share a parent loop number stay independent.
+    if "Loop" in instruments_df.columns and "Tag_Number" in instruments_df.columns:
+        def _loop_instance(row):
+            tag = str(row.get("Tag_Number", "")).strip()
+            loop = str(row.get("Loop", "")).strip()
+            if tag and "-" in tag:
+                return tag.split("-", 1)[1]  # e.g. "1762P-12" from "FCV-1762P-12"
+            return loop
+
+        loop_key_series = instruments_df.apply(_loop_instance, axis=1)
+        for loop_val, group in instruments_df.groupby(loop_key_series):
             if not str(loop_val).strip():
                 continue
-            # Find best line in this loop (from any non-soft-tag member)
+            # Find best line in this loop instance (from any non-soft-tag member)
             best_line = ""
             for idx, row in group.iterrows():
                 if not _is_soft_tag(row, transmitter_set):
@@ -503,7 +512,7 @@ def map_instruments_to_lines(
                         break
             if not best_line:
                 continue
-            # Stamp it on every field instrument in the loop
+            # Stamp it on every field instrument in the loop instance
             for idx, row in group.iterrows():
                 if (not _is_soft_tag(row, transmitter_set)
                         and not str(instruments_df.at[idx, "Connected_Line"]).strip()):

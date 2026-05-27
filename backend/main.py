@@ -1,6 +1,7 @@
 """
 API server — white-label edition.
 """
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -44,3 +45,10 @@ app.include_router(mto_router, prefix=MTO_PREFIX)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/v1/llm/status")
+async def llm_status():
+    from app.modules.llm.service import _is_available, DEFAULT_MODEL
+    available = await asyncio.to_thread(_is_available)
+    return {"available": available, "model": DEFAULT_MODEL}
