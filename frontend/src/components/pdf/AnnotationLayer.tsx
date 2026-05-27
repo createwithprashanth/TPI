@@ -512,8 +512,6 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
     const x = e.clientX - box.left;
     const y = e.clientY - box.top;
 
-    console.log("Drawing started", { selectedTool, x, y, width, height });
-
     // Start drawing
     setDraft({ x, y, width: 0, height: 0 });
     if (selectedTool === "draw") {
@@ -882,18 +880,6 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
 
   // Touch behavior: allow panning/scrolling by default, only fully lock when free-drawing/erasing
   const wantsFreeDrawing = selectedTool === "draw" || selectedTool === "erase";
-
-  // Debug: Log when layer should be active
-  if (shouldEnablePointerEvents) {
-    console.log("AnnotationLayer should be active", { 
-      selectedTool, 
-      width, 
-      height, 
-      isDragTool, 
-      isClickTool,
-      shouldEnablePointerEvents 
-    });
-  }
 
 
   useEffect(() => {
@@ -1509,9 +1495,6 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
         touchAction: shouldEnablePointerEvents
           ? (wantsFreeDrawing ? "none" : "pan-y pan-x")
           : "auto",
-      }}
-      onClick={() => {
-        console.log("onClick fired!", { selectedTool, shouldEnablePointerEvents });
       }}
       onPointerLeave={(e) => {
         // Clear draft if pointer leaves while dragging

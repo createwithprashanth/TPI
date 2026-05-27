@@ -82,7 +82,7 @@ export default function ColorPicker({ currentColor, onColorChange, onClose, isOp
           }
         }}
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-6 h-6 rounded-xl border-2 border-gray-300 hover:border-brand-primary transition-all duration-300 cursor-pointer shadow-sm hover:shadow-md"
+        className="h-5 w-5 cursor-pointer rounded-[3px] border border-[#3c3c3c] transition-colors hover:border-[#3794ff]"
         style={{ backgroundColor: currentColor, pointerEvents: "auto" }}
         title="Pick color"
       />
@@ -90,14 +90,14 @@ export default function ColorPicker({ currentColor, onColorChange, onClose, isOp
       {/* Color Picker Dropdown */}
       {isOpen && (
         <div 
-          className="absolute top-full left-0 mt-2 bg-white/95 backdrop-blur-sm border-2 border-gray-200 rounded-2xl shadow-xl p-4 min-w-[200px]"
+          className="absolute left-0 top-full mt-1 min-w-[190px] border border-[#454545] bg-[#252526] p-3 shadow-2xl"
           style={{ zIndex: 99999, pointerEvents: "auto" }}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Preset Colors */}
           <div className="mb-3">
-            <div className="text-xs font-medium text-gray-700 mb-2">Preset Colors</div>
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[#858585]">Preset Colors</div>
             <div className="grid grid-cols-6 gap-2">
               {PRESET_COLORS.map((color) => (
                 <button
@@ -107,10 +107,10 @@ export default function ColorPicker({ currentColor, onColorChange, onClose, isOp
                     e.stopPropagation();
                     handlePresetClick(color);
                   }}
-                  className={`w-7 h-7 rounded-xl border-2 transition-all duration-300 cursor-pointer shadow-sm hover:shadow-md ${
+                  className={`h-6 w-6 cursor-pointer rounded-[3px] border transition-colors ${
                     currentColor.toLowerCase() === color.toLowerCase()
-                      ? "border-brand-primary scale-110 shadow-md"
-                      : "border-gray-300 hover:border-gray-400"
+                      ? "border-[#3794ff] ring-1 ring-[#3794ff]/50"
+                      : "border-[#3c3c3c] hover:border-[#cccccc]"
                   }`}
                   style={{ backgroundColor: color, pointerEvents: "auto" }}
                   title={color}
@@ -120,15 +120,15 @@ export default function ColorPicker({ currentColor, onColorChange, onClose, isOp
           </div>
 
           {/* Custom Color Picker */}
-          <div className="border-t border-gray-200 pt-3">
-            <div className="text-xs font-medium text-gray-700 mb-2">Custom Color</div>
+          <div className="border-t border-[#3c3c3c] pt-3">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[#858585]">Custom Color</div>
             <div className="flex items-center gap-2">
               <input
                 type="color"
                 value={currentColor}
                 onChange={handleCustomColorChange}
                 onClick={(e) => e.stopPropagation()}
-                className="w-12 h-10 rounded-xl border-2 border-gray-200 cursor-pointer focus:outline-none focus:ring-4 focus:ring-brand-primary/20 focus:border-brand-primary transition-all duration-300"
+                className="h-7 w-10 cursor-pointer rounded-[3px] border border-[#3c3c3c] bg-[#1e1e1e] transition-colors focus:border-[#3794ff] focus:outline-none"
                 style={{ pointerEvents: "auto" }}
               />
               <input
@@ -141,7 +141,7 @@ export default function ColorPicker({ currentColor, onColorChange, onClose, isOp
                   }
                 }}
                 onClick={(e) => e.stopPropagation()}
-                className="flex-1 px-3 py-2 text-xs border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-brand-primary/20 focus:border-brand-primary transition-all duration-300"
+                className="h-7 flex-1 rounded-[3px] border border-[#3c3c3c] bg-[#1e1e1e] px-2 text-xs text-[#cccccc] outline-none transition-colors focus:border-[#3794ff]"
                 placeholder="#000000"
                 pattern="^#[0-9A-Fa-f]{6}$"
                 style={{ pointerEvents: "auto" }}
@@ -153,4 +153,3 @@ export default function ColorPicker({ currentColor, onColorChange, onClose, isOp
     </div>
   );
 }
-

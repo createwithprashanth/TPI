@@ -43,7 +43,7 @@ export default function MiniMapOverlay({
     <button
       type="button"
       onPointerDown={handlePointerDown}
-      className="absolute bottom-6 right-6 z-20 overflow-hidden rounded-xl border border-slate-700/80 bg-slate-950/90 p-2 shadow-2xl backdrop-blur"
+      className="absolute bottom-6 right-6 z-20 overflow-hidden rounded-[3px] border border-[#454545] bg-[#252526]/95 p-2 shadow-2xl backdrop-blur transition-colors hover:border-[#3794ff]/70"
       style={{ width: miniWidth + 16, height: miniHeight + 16 }}
       title="Navigator"
       aria-label="Navigator minimap"

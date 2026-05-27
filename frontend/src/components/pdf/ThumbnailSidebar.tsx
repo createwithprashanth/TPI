@@ -79,11 +79,11 @@ export default function ThumbnailSidebar() {
   }, [pdfDoc, numPages]);
 
   return (
-    <div className="space-y-4 p-4">
-      <div className="sticky top-0 z-10 -mx-4 -mt-4 border-b border-slate-700 bg-slate-950/95 px-4 py-3 backdrop-blur-sm">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Pages</div>
+    <div className="space-y-3 p-3">
+      <div className="sticky top-0 z-10 -mx-3 -mt-3 border-b border-[#2b2b2b] bg-[#181818] px-3 py-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-[#858585]">Pages</div>
       </div>
-      {numPages === 0 && <div className="py-4 text-center text-xs text-slate-500">No pages</div>}
+      {numPages === 0 && <div className="py-4 text-center text-xs text-[#858585]">No pages</div>}
       {Array.from({ length: numPages }).map((_, idx) => {
         const p = idx + 1;
         return (
@@ -92,14 +92,14 @@ export default function ThumbnailSidebar() {
             className="cursor-pointer"
             onClick={() => dispatch({ type: "SET_PAGE", payload: p })}
           >
-            <div className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-sm transition-all duration-200 hover:border-brand-primary/40 hover:bg-slate-800">
+            <div className="w-full overflow-hidden rounded-[3px] border border-[#2b2b2b] bg-[#1e1e1e] transition-colors hover:border-[#3794ff]/60 hover:bg-[#252526]">
               {thumbs[p] ? (
                 <img src={thumbs[p]} alt={`Page ${p}`} className="block w-full" />
               ) : (
-                <div className="h-28 flex items-center justify-center text-xs text-gray-400">Loading…</div>
+                <div className="flex h-28 items-center justify-center text-xs text-[#858585]">Loading…</div>
               )}
             </div>
-            <div className="mt-2 text-center text-xs font-medium text-slate-400">Pg {p}</div>
+            <div className="mt-1.5 text-center text-[11px] font-medium text-[#858585]">Pg {p}</div>
           </div>
         );
       })}

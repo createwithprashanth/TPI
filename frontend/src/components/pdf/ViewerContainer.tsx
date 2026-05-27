@@ -369,7 +369,7 @@ function ViewInner({ onOpenFile }: { onOpenFile?: () => void }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#0f172a]">
+    <div className="flex h-full min-h-0 flex-col bg-[#181818]">
       <Toolbar
         onOpenFile={onOpenFile}
         isEmptyState={!pdfDoc}
@@ -381,7 +381,7 @@ function ViewInner({ onOpenFile }: { onOpenFile?: () => void }) {
       <div className="flex flex-1 overflow-hidden">
         {!pdfDoc ? (
           <div
-            className="relative flex-1 overflow-hidden bg-[linear-gradient(180deg,_#2d2f34_0%,_#262a31_100%)]"
+            className="relative flex-1 overflow-hidden bg-[#1e1e1e]"
             onDoubleClick={() => onOpenFile?.()}
           >
             <div className="absolute inset-0 opacity-[0.08]" style={{ backgroundImage: "radial-gradient(#ffffff 0.6px, transparent 0.6px)", backgroundSize: "6px 6px" }} />
@@ -395,14 +395,14 @@ function ViewInner({ onOpenFile }: { onOpenFile?: () => void }) {
           <>
         {/* Thumbnail sidebar: hidden on small screens to maximize space */}
         <div
-          className={`${showPages ? "hidden overflow-auto border-r border-slate-700 bg-slate-950 text-slate-200 md:block" : "hidden"}`}
+          className={`${showPages ? "hidden overflow-auto border-r border-[#2b2b2b] bg-[#181818] text-[#cccccc] md:block" : "hidden"}`}
           style={showPages ? { width: `${leftPanelWidth}px` } : undefined}
         >
           <ThumbnailSidebar />
         </div>
         {showPages ? (
           <div
-            className="hidden w-1 cursor-col-resize bg-slate-900 transition-colors hover:bg-brand-primary/60 md:block"
+            className="hidden w-1 cursor-col-resize bg-[#1e1e1e] transition-colors hover:bg-[#3794ff] md:block"
             onMouseDown={(event) => startResize("left", event)}
             role="separator"
             aria-orientation="vertical"
@@ -411,7 +411,7 @@ function ViewInner({ onOpenFile }: { onOpenFile?: () => void }) {
         ) : null}
         <div
           ref={scrollViewportRef}
-          className={`flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.08),_transparent_26%),linear-gradient(180deg,_#172033_0%,_#101827_100%)] p-2 md:p-3 ${selectedTool === "pan" ? (isPanning ? "cursor-grabbing" : "cursor-grab") : ""}`}
+          className={`flex-1 overflow-auto bg-[#1e1e1e] p-2 md:p-3 ${selectedTool === "pan" ? (isPanning ? "cursor-grabbing" : "cursor-grab") : ""}`}
           onPointerDown={handleViewportPointerDown}
           onPointerMove={handleViewportPointerMove}
           onPointerUp={endViewportPan}
@@ -460,12 +460,12 @@ function ViewInner({ onOpenFile }: { onOpenFile?: () => void }) {
         {showPidPanel && (
           <>
             <div
-              className="hidden w-1 bg-slate-900 md:block"
+              className="hidden w-1 bg-[#1e1e1e] md:block"
               role="separator"
               aria-orientation="vertical"
             />
             <div
-              className="hidden border-l border-slate-700 bg-slate-950 text-slate-200 md:block"
+              className="hidden border-l border-[#2b2b2b] bg-[#181818] text-[#cccccc] md:block"
               style={{ width: "260px" }}
             >
               <PIDSymbolPanel
@@ -485,7 +485,7 @@ function ViewInner({ onOpenFile }: { onOpenFile?: () => void }) {
         {/* Annotation list sidebar: hidden on small screens, annotations still work on the page */}
         {showAnnotations ? (
           <div
-            className="hidden w-1 cursor-col-resize bg-slate-900 transition-colors hover:bg-brand-primary/60 md:block"
+            className="hidden w-1 cursor-col-resize bg-[#1e1e1e] transition-colors hover:bg-[#3794ff] md:block"
             onMouseDown={(event) => startResize("right", event)}
             role="separator"
             aria-orientation="vertical"
@@ -493,7 +493,7 @@ function ViewInner({ onOpenFile }: { onOpenFile?: () => void }) {
           />
         ) : null}
         <div
-          className={`${showAnnotations ? "hidden overflow-auto border-l border-slate-700 bg-slate-950 text-slate-200 md:block" : "hidden"}`}
+          className={`${showAnnotations ? "hidden overflow-auto border-l border-[#2b2b2b] bg-[#181818] text-[#cccccc] md:block" : "hidden"}`}
           style={showAnnotations ? { width: `${rightPanelWidth}px` } : undefined}
         >
           <AnnotationSidebar onClose={() => setShowAnnotations(false)} />

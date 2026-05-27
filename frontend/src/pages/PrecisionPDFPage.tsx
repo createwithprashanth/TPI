@@ -118,7 +118,7 @@ function PrecisionPDFViewer({
           <p className="mb-4 text-sm text-red-300">{fileError || pdfError}</p>
           <button
             onClick={onClose}
-            className="rounded-xl bg-brand-primary px-6 py-2.5 text-white hover:bg-brand-primary-hover"
+            className="rounded-[3px] bg-[#0e639c] px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#1177bb]"
           >
             Back to Files
           </button>
@@ -204,11 +204,11 @@ const PrecisionPDFPage: React.FC = () => {
         </div>
 
         {error && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl border border-red-500/30 bg-slate-950 px-4 py-3 shadow-2xl">
-            <span className="text-sm text-red-300">{error}</span>
+          <div className="absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 border border-[#5a1d1d] bg-[#252526] px-3 py-2 shadow-2xl">
+            <span className="text-xs text-[#f48771]">{error}</span>
             <button
               onClick={() => setError(null)}
-              className="text-red-500 hover:text-red-300 transition-colors"
+              className="rounded-[3px] p-1 text-[#f48771] transition-colors hover:bg-[#5a1d1d] hover:text-white"
               aria-label="Dismiss error"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

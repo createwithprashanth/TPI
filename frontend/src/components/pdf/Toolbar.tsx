@@ -65,11 +65,11 @@ function ToolButton({
 }: ToolButtonProps) {
   const hasColor = showColorPicker && currentColor;
   const baseBtn = active
-    ? "border-brand-primary/35 bg-brand-primary/10 text-white shadow-sm"
-    : "border-slate-700 bg-slate-900 text-slate-300";
+    ? "bg-[#04395e] text-white ring-1 ring-[#3794ff]/45"
+    : "text-[#cccccc]";
   const hoverBtn = disabled
-    ? "cursor-not-allowed opacity-40"
-    : "hover:border-brand-primary/25 hover:bg-slate-800 hover:text-white";
+    ? "cursor-not-allowed opacity-35"
+    : "hover:bg-[#2a2d2e] hover:text-white";
 
   return (
     <div className="relative group shrink-0" style={{ zIndex: isColorPickerOpen ? 99999 : "auto" }}>
@@ -80,20 +80,22 @@ function ToolButton({
             e.stopPropagation();
             if (!disabled) onClick?.();
           }}
-          className={`flex h-9 items-center gap-2 border px-3 text-sm font-medium transition-all duration-200
-            ${hasColor ? "rounded-l-lg rounded-r-none border-r-0" : "rounded-lg"}
+          title={label}
+          aria-label={label}
+          className={`relative inline-flex h-8 w-8 items-center justify-center text-[13px] transition-colors
+            ${hasColor ? "rounded-l-[3px] rounded-r-none" : "rounded-[3px]"}
             ${baseBtn} ${hoverBtn}
           `}
         >
           {icon}
-          <span className="text-[12px]">{label}</span>
-          {dropdown && <ChevronDown className="w-3 h-3" />}
+          <span className="sr-only">{label}</span>
+          {dropdown && <ChevronDown className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 opacity-70" />}
         </button>
 
         {hasColor && (
           <div
-            className={`flex h-9 items-center px-1.5 rounded-r-lg border border-l-0 transition-all duration-200
-              ${active ? "border-brand-primary/35 bg-brand-primary/10" : "border-slate-700 bg-slate-900"}
+            className={`flex h-8 items-center rounded-r-[3px] px-1 transition-colors
+              ${active ? "bg-[#04395e] ring-1 ring-[#3794ff]/45" : "bg-transparent hover:bg-[#2a2d2e]"}
               ${disabled ? "opacity-40 pointer-events-none" : ""}
             `}
             onClick={(e) => e.stopPropagation()}
@@ -114,13 +116,28 @@ function ToolButton({
       </div>
 
       {dropdown && (
-        <div className="absolute top-full left-0 z-50 mt-2 hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-xl backdrop-blur-sm group-hover:block">
+        <div className="absolute top-full left-0 z-50 mt-1 hidden min-w-40 border border-[#454545] bg-[#252526] py-1 shadow-2xl group-hover:block">
           {dropdown}
         </div>
       )}
     </div>
   );
 }
+
+const iconButtonClass =
+  "inline-flex h-8 w-8 items-center justify-center rounded-[3px] text-[#cccccc] transition-colors hover:bg-[#2a2d2e] hover:text-white disabled:cursor-not-allowed disabled:opacity-35";
+
+const activeIconButtonClass =
+  "bg-[#04395e] text-white ring-1 ring-[#3794ff]/45";
+
+const toolbarGroupClass =
+  "flex h-9 items-center gap-0.5 border-r border-[#2b2b2b] px-1.5";
+
+const commandInputClass =
+  "h-7 rounded-[3px] border border-[#3c3c3c] bg-[#1e1e1e] px-2 text-xs text-[#cccccc] outline-none transition-colors placeholder:text-[#6a6a6a] focus:border-[#3794ff]";
+
+const menuButtonClass =
+  "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[#cccccc] transition-colors hover:bg-[#04395e] hover:text-white";
 
 export default function Toolbar({
   onOpenFile,
@@ -412,23 +429,24 @@ export default function Toolbar({
 
   return (
     <div
-      className="relative w-full border-b border-slate-700 bg-slate-950 px-3 py-2 text-slate-200"
+      className="relative w-full border-b border-[#2b2b2b] bg-[#181818] text-[#cccccc]"
       style={{ zIndex: 2000 }}
     >
-      <div className="w-full space-y-2 overflow-x-auto md:overflow-visible">
-        <div className="flex min-w-max items-center gap-2 md:min-w-0">
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-2 py-1">
+      <div className="w-full overflow-x-auto md:overflow-visible">
+        <div className="flex min-w-max items-center md:min-w-0">
+          <div className={toolbarGroupClass}>
             <button
               type="button"
               onClick={onOpenFile}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-primary px-4 text-sm font-medium text-white transition-all duration-200 hover:bg-brand-primary-hover"
+              className="inline-flex h-8 items-center gap-1.5 rounded-[3px] bg-[#0e639c] px-2.5 text-xs font-medium text-white transition-colors hover:bg-[#1177bb]"
+              title="Open PDF"
             >
               <Upload className="h-4 w-4" />
-              File
+              Open
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-2 py-1">
+          <div className={toolbarGroupClass}>
             <ToolButton
               icon={<Hand className="w-4 h-4" />}
               label="Hand"
@@ -445,7 +463,7 @@ export default function Toolbar({
             />
           </div>
 
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-2 py-1">
+          <div className={toolbarGroupClass}>
             <ToolButton
               icon={<Search className="w-4 h-4" />}
               label="Find"
@@ -455,21 +473,21 @@ export default function Toolbar({
             />
           </div>
 
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-2 py-1">
+          <div className={toolbarGroupClass}>
             <ToolButton
               icon={<LayoutDashboard className="w-4 h-4" />}
               label="Layout"
               disabled={!hasDocument}
               dropdown={
-                <div className="p-2">
+                <div>
                   <button
-                    className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-brand-primary/10"
+                    className={menuButtonClass}
                     onClick={() => dispatch({ type: "SET_VIEW_MODE", payload: "single" })}
                   >
                     Single Page
                   </button>
                   <button
-                    className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-brand-primary/10"
+                    className={menuButtonClass}
                     onClick={() => dispatch({ type: "SET_VIEW_MODE", payload: "continuous" })}
                   >
                     Continuous
@@ -482,7 +500,8 @@ export default function Toolbar({
               value={zoomLocal}
               onChange={(e) => updateZoom(Number(e.target.value))}
               disabled={!hasDocument}
-              className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium focus:border-brand-primary focus:outline-none focus:ring-4 focus:ring-brand-primary/20 transition-all duration-200"
+              className={`${commandInputClass} w-[72px]`}
+              title="Zoom level"
             >
               {zoomLevels.map((z) => (
                 <option key={z} value={z}>
@@ -494,7 +513,7 @@ export default function Toolbar({
             <button
               onClick={() => updateZoom(Math.max(50, zoomLocal - 25))}
               disabled={!hasDocument}
-              className="rounded-lg border border-gray-200 bg-white p-2 transition-all duration-200 hover:border-brand-primary/25 hover:bg-brand-primary/5"
+              className={iconButtonClass}
               title="Zoom out"
               aria-label="Zoom out"
             >
@@ -503,7 +522,7 @@ export default function Toolbar({
             <button
               onClick={() => updateZoom(Math.min(400, zoomLocal + 25))}
               disabled={!hasDocument}
-              className="rounded-lg border border-gray-200 bg-white p-2 transition-all duration-200 hover:border-brand-primary/25 hover:bg-brand-primary/5"
+              className={iconButtonClass}
               title="Zoom in"
               aria-label="Zoom in"
             >
@@ -514,11 +533,7 @@ export default function Toolbar({
             <button
               onClick={() => dispatch({ type: "SET_FIT_MODE", payload: "fit-page" })}
               disabled={!hasDocument}
-              className={`rounded-lg border p-2 transition-all duration-200 ${
-                fitMode === "fit-page"
-                  ? "border-brand-primary/35 bg-brand-primary/10 text-brand-primary"
-                  : "border-gray-200 bg-white text-gray-700 hover:border-brand-primary/25 hover:bg-brand-primary/5"
-              }`}
+              className={`${iconButtonClass} ${fitMode === "fit-page" ? activeIconButtonClass : ""}`}
               title="Fit page"
               aria-label="Fit page"
             >
@@ -527,11 +542,7 @@ export default function Toolbar({
             <button
               onClick={() => dispatch({ type: "SET_FIT_MODE", payload: "fit-width" })}
               disabled={!hasDocument}
-              className={`rounded-lg border p-2 transition-all duration-200 ${
-                fitMode === "fit-width"
-                  ? "border-brand-primary/35 bg-brand-primary/10 text-brand-primary"
-                  : "border-gray-200 bg-white text-gray-700 hover:border-brand-primary/25 hover:bg-brand-primary/5"
-              }`}
+              className={`${iconButtonClass} ${fitMode === "fit-width" ? activeIconButtonClass : ""}`}
               title="Fit width"
               aria-label="Fit width"
             >
@@ -542,7 +553,7 @@ export default function Toolbar({
             <button
               onClick={() => rotate("left")}
               disabled={!hasDocument}
-              className="rounded-lg border border-gray-200 bg-white p-2 transition-all duration-200 hover:border-brand-primary/25 hover:bg-brand-primary/5"
+              className={iconButtonClass}
               title="Rotate left"
               aria-label="Rotate left"
             >
@@ -551,7 +562,7 @@ export default function Toolbar({
             <button
               onClick={() => rotate("right")}
               disabled={!hasDocument}
-              className="rounded-lg border border-gray-200 bg-white p-2 transition-all duration-200 hover:border-brand-primary/25 hover:bg-brand-primary/5"
+              className={iconButtonClass}
               title="Rotate right"
               aria-label="Rotate right"
             >
@@ -559,18 +570,18 @@ export default function Toolbar({
             </button>
           </div>
 
-          <div className="ml-auto flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-2 py-1">
+          <div className="ml-auto flex h-9 items-center gap-1 border-l border-[#2b2b2b] px-1.5">
             <button
               disabled={!hasDocument || currentPage <= 1}
               onClick={() => dispatch({ type: "PREV_PAGE" })}
-              className="rounded-lg border border-gray-200 bg-white p-2 transition-all duration-200 hover:border-brand-primary/25 hover:bg-brand-primary/5 disabled:opacity-40"
+              className={iconButtonClass}
               title="Previous page"
               aria-label="Previous page"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <input
                 type="number"
                 value={currentPage}
@@ -583,15 +594,15 @@ export default function Toolbar({
                     payload: Number(e.target.value),
                   })
                 }
-                className="h-9 w-16 rounded-lg border border-gray-200 bg-white px-2 text-center text-sm font-medium focus:border-brand-primary focus:outline-none focus:ring-4 focus:ring-brand-primary/20 transition-all duration-200"
+                className={`${commandInputClass} w-14 text-center`}
               />
-              <span className="text-sm font-medium text-gray-400">/ {hasDocument ? numPages : 1}</span>
+              <span className="text-xs font-medium text-[#858585]">/ {hasDocument ? numPages : 1}</span>
             </div>
 
             <button
               disabled={!hasDocument || currentPage >= numPages}
               onClick={() => dispatch({ type: "NEXT_PAGE" })}
-              className="rounded-lg border border-gray-200 bg-white p-2 transition-all duration-200 hover:border-brand-primary/25 hover:bg-brand-primary/5 disabled:opacity-40"
+              className={iconButtonClass}
               title="Next page"
               aria-label="Next page"
             >
@@ -600,8 +611,8 @@ export default function Toolbar({
           </div>
         </div>
 
-        <div className="flex min-w-max items-center gap-2 md:min-w-0">
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-2 py-1">
+        <div className="flex min-w-max items-center border-t border-[#2b2b2b] md:min-w-0">
+          <div className={toolbarGroupClass}>
             <ToolButton
               icon={<Highlighter className="w-4 h-4 text-yellow-500" />}
               label="Highlight"
@@ -641,7 +652,7 @@ export default function Toolbar({
             />
 
             <ToolButton
-              icon={<Circle className="w-4 h-4 text-gray-600" />}
+              icon={<Circle className="w-4 h-4 text-[#cccccc]" />}
               label="Circle"
               active={selectedTool === "shape-circle"}
               disabled={!hasDocument}
@@ -698,7 +709,7 @@ export default function Toolbar({
             />
 
             <ToolButton
-              icon={<Pencil className="w-4 h-4 text-gray-600" />}
+              icon={<Pencil className="w-4 h-4 text-[#cccccc]" />}
               label="Draw"
               active={selectedTool === "draw"}
               disabled={!hasDocument}
@@ -717,7 +728,7 @@ export default function Toolbar({
             />
 
             <ToolButton
-              icon={<Eraser className="w-4 h-4 text-gray-700" />}
+              icon={<Eraser className="w-4 h-4 text-[#cccccc]" />}
               label="Erase"
               active={selectedTool === "erase"}
               disabled={!hasDocument}
@@ -751,13 +762,13 @@ export default function Toolbar({
               />
               {signatureDropdownOpen && (
                 <div 
-                  className="absolute top-full left-0 mt-2 bg-white/95 backdrop-blur-sm border-2 border-gray-200 shadow-xl rounded-2xl z-50 p-4 min-w-[200px]"
+                  className="absolute left-0 top-full z-50 mt-1 min-w-[220px] border border-[#454545] bg-[#252526] p-2 shadow-2xl"
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {signatureImage ? (
                     <>
-                      <div className="mb-3 p-3 border-2 border-gray-200 rounded-xl bg-gray-50">
+                      <div className="mb-2 border border-[#3c3c3c] bg-[#1e1e1e] p-2">
                         <img 
                           src={signatureImage} 
                           alt="Signature" 
@@ -771,7 +782,7 @@ export default function Toolbar({
                           onChange={handleSignatureUpload}
                           className="hidden"
                         />
-                        <div className="flex items-center gap-2 px-3 py-2 hover:bg-brand-primary/10 text-sm cursor-pointer rounded-xl transition-colors font-medium">
+                        <div className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs text-[#cccccc] transition-colors hover:bg-[#04395e] hover:text-white">
                           <Upload className="w-4 h-4" />
                           <span>Change Image</span>
                         </div>
@@ -781,7 +792,7 @@ export default function Toolbar({
                           dispatch({ type: "SET_SIGNATURE_IMAGE", payload: null });
                           setSignatureDropdownOpen(false);
                         }}
-                        className="w-full text-left px-3 py-2 hover:bg-red-50 text-sm text-red-600 rounded-xl mt-2 transition-colors font-medium"
+                        className="mt-1 w-full px-2 py-1.5 text-left text-xs text-[#f48771] transition-colors hover:bg-[#5a1d1d] hover:text-white"
                       >
                         Remove
                       </button>
@@ -794,14 +805,14 @@ export default function Toolbar({
                         onChange={handleSignatureUpload}
                         className="hidden"
                       />
-                      <div className="flex items-center gap-2 px-3 py-2 hover:bg-brand-primary/10 text-sm cursor-pointer rounded-xl transition-colors font-medium">
+                      <div className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs text-[#cccccc] transition-colors hover:bg-[#04395e] hover:text-white">
                         <Upload className="w-4 h-4" />
                         <span>Upload Image</span>
                       </div>
                     </label>
                   )}
                   {signatureImage && (
-                    <div className="mt-3 pt-3 border-t border-gray-200 text-xs text-gray-500">
+                    <div className="mt-2 border-t border-[#3c3c3c] pt-2 text-[11px] text-[#858585]">
                       Click on PDF to place signature
                     </div>
                   )}
@@ -810,9 +821,9 @@ export default function Toolbar({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-2 py-1">
+          <div className={toolbarGroupClass}>
             <ToolButton
-              icon={<Bookmark className="w-4 h-4 text-gray-600" />}
+              icon={<Bookmark className="w-4 h-4 text-[#cccccc]" />}
               label="Bookmark"
               disabled={!hasDocument}
               onClick={() =>
@@ -906,7 +917,7 @@ export default function Toolbar({
             />
           </div>
 
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-2 py-1">
+          <div className={toolbarGroupClass}>
             <ToolButton
               icon={<PanelLeft className="w-4 h-4" />}
               label="Pages"
@@ -927,20 +938,20 @@ export default function Toolbar({
 
       {/* SEARCH BOX */}
       {searchOpen && (
-        <div className="mt-3 border-t border-gray-200 pt-3">
-          <div className="flex items-center gap-2">
+        <div className="border-t border-[#2b2b2b] bg-[#1f1f1f] px-2 py-1.5">
+          <div className="flex items-center gap-1.5">
             <input
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={handleSearchKeyDown}
-              className="h-11 flex-1 rounded-xl border border-gray-200 bg-white px-4 text-sm focus:border-brand-primary focus:outline-none focus:ring-4 focus:ring-brand-primary/20 transition-all duration-200"
+              className={`${commandInputClass} flex-1`}
               placeholder="Search in document..."
               autoFocus
             />
             <button 
               onClick={handleFind}
               disabled={isSearching}
-              className="h-11 rounded-xl bg-brand-primary px-4 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:bg-brand-primary-hover hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-7 rounded-[3px] bg-[#0e639c] px-3 text-xs font-medium text-white transition-colors hover:bg-[#1177bb] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSearching ? "Searching..." : "Find"}
             </button>
@@ -957,20 +968,22 @@ export default function Toolbar({
                   <button
                     onClick={handlePrevMatch}
                     disabled={isSearching}
-                    className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm transition-all duration-200 hover:border-brand-primary/25 hover:bg-brand-primary/5 disabled:opacity-50"
+                    className={iconButtonClass}
                     title="Previous match"
+                    aria-label="Previous match"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <button
                     onClick={handleNextMatch}
                     disabled={isSearching}
-                    className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm transition-all duration-200 hover:border-brand-primary/25 hover:bg-brand-primary/5 disabled:opacity-50"
+                    className={iconButtonClass}
                     title="Next match"
+                    aria-label="Next match"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>
-                  <span className="text-sm text-gray-600 px-2 font-medium">
+                  <span className="px-2 text-xs font-medium text-[#858585]">
                     {currentMatch} of {totalMatches}
                   </span>
                 </>
@@ -983,14 +996,15 @@ export default function Toolbar({
                 dispatch({ type: "SET_SEARCH_RESULTS", payload: [] });
                 dispatch({ type: "CLEAR_SEARCH" });
               }}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 transition-all duration-200 hover:border-brand-primary/25 hover:bg-brand-primary/5"
+              className={iconButtonClass}
               title="Close search"
+              aria-label="Close search"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
           {searchTerm && searchResults.length === 0 && !isSearching && (
-            <div className="text-sm text-gray-500 mt-2 px-1">
+            <div className="mt-1 px-1 text-xs text-[#858585]">
               No matches found
             </div>
           )}

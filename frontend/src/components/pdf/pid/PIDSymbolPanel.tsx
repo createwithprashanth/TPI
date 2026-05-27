@@ -130,50 +130,47 @@ function SymbolTile({
   onToggleFavorite: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      title={`${symbol.name} — ${symbol.description}`}
-      className={`group relative flex flex-col items-center gap-1 rounded-xl border p-2 transition-all
+    <div
+      className={`group relative rounded-[3px] border transition-colors
         ${selected
-          ? "border-brand-primary/60 bg-brand-primary/10 shadow-sm"
-          : "border-slate-700/50 bg-slate-900 hover:border-slate-500 hover:bg-slate-800"
+          ? "border-[#3794ff]/60 bg-[#04395e]"
+          : "border-[#2b2b2b] bg-[#1e1e1e] hover:border-[#454545] hover:bg-[#2a2d2e]"
         }`}
     >
-      <span
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
+        onClick={onClick}
+        title={`${symbol.name} — ${symbol.description}`}
+        className="flex h-[72px] w-full flex-col items-center gap-1 px-2 pb-2 pt-3 text-left"
+      >
+        <div className="flex h-10 w-full items-center justify-center">
+          <svg
+            viewBox="0 0 100 100"
+            className="h-9 w-auto max-w-[56px]"
+            style={{ color }}
+            dangerouslySetInnerHTML={{ __html: symbol.svg }}
+          />
+        </div>
+        <span className="w-full truncate text-center text-[10px] leading-tight text-[#cccccc] group-hover:text-white">
+          {symbol.name}
+        </span>
+      </button>
+      <button
+        type="button"
         title={favorite ? "Remove from favourites" : "Add to favourites"}
         onClick={(event) => {
           event.stopPropagation();
           onToggleFavorite();
         }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            event.stopPropagation();
-            onToggleFavorite();
-          }
-        }}
-        className={`absolute right-1.5 top-1.5 rounded p-0.5 transition-colors ${
+        className={`absolute right-1 top-1 rounded-[3px] p-0.5 transition-colors ${
           favorite
             ? "text-yellow-300"
-            : "text-slate-600 opacity-0 hover:text-yellow-300 group-hover:opacity-100"
+            : "text-[#858585] opacity-0 hover:bg-[#3c3c3c] hover:text-yellow-300 group-hover:opacity-100"
         }`}
       >
         <Star className="h-3 w-3" fill={favorite ? "currentColor" : "none"} />
-      </span>
-      <div className="flex h-10 w-full items-center justify-center">
-        <svg
-          viewBox="0 0 100 100"
-          className="h-9 w-auto max-w-[56px]"
-          style={{ color }}
-          dangerouslySetInnerHTML={{ __html: symbol.svg }}
-        />
-      </div>
-      <span className="w-full truncate text-center text-[10px] leading-tight text-slate-400 group-hover:text-slate-200">
-        {symbol.name}
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -225,25 +222,25 @@ export default function PIDSymbolPanel({
     setCollapsed((prev) => ({ ...prev, [catId]: !prev[catId] }));
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-slate-950 text-slate-200">
+    <div className="flex h-full flex-col overflow-hidden bg-[#181818] text-[#cccccc]">
 
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2.5">
+      <div className="flex items-center justify-between border-b border-[#2b2b2b] px-3 py-2">
         <div>
-          <p className="text-xs font-semibold text-white">P&ID Symbol Library</p>
-          <p className="text-[10px] text-slate-500">ISA 5.1 standard symbols</p>
+          <p className="text-xs font-semibold text-[#cccccc]">P&ID Symbol Library</p>
+          <p className="text-[10px] text-[#858585]">ISA 5.1 standard symbols</p>
         </div>
         <button
           onClick={onClose}
-          className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+          className="rounded-[3px] p-1 text-[#cccccc] transition-colors hover:bg-[#2a2d2e] hover:text-white"
         >
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
 
       {/* Color selector */}
-      <div className="border-b border-slate-800 px-3 py-2.5">
-        <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-500">
+      <div className="border-b border-[#2b2b2b] px-3 py-2">
+        <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-[#858585]">
           Symbol colour
         </p>
         <div className="flex flex-wrap gap-1.5">
@@ -251,8 +248,8 @@ export default function PIDSymbolPanel({
             <button
               key={c}
               onClick={() => onColorChange(c)}
-              className={`h-5 w-5 rounded-full border-2 transition-all ${
-                activeColor === c ? "border-white scale-110" : "border-transparent hover:scale-105"
+              className={`h-5 w-5 rounded-[3px] border transition-colors ${
+                activeColor === c ? "border-[#3794ff] ring-1 ring-[#3794ff]/50" : "border-[#3c3c3c] hover:border-[#cccccc]"
               }`}
               style={{ backgroundColor: c }}
               title={c}
@@ -260,10 +257,10 @@ export default function PIDSymbolPanel({
           ))}
           {/* Custom color */}
           <label
-            className="relative flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-2 border-slate-600 bg-slate-800 hover:border-slate-400 transition-colors"
+            className="relative flex h-5 w-5 cursor-pointer items-center justify-center rounded-[3px] border border-[#3c3c3c] bg-[#1e1e1e] transition-colors hover:border-[#cccccc]"
             title="Custom colour"
           >
-            <Pipette className="h-3 w-3 text-slate-400" />
+            <Pipette className="h-3 w-3 text-[#cccccc]" />
             <input
               type="color"
               value={activeColor}
@@ -272,7 +269,7 @@ export default function PIDSymbolPanel({
             />
           </label>
           <div
-            className="h-5 w-5 rounded-full border-2 border-white/20"
+            className="h-5 w-5 rounded-[3px] border border-white/20"
             style={{ backgroundColor: activeColor }}
             title="Current colour"
           />
@@ -280,18 +277,18 @@ export default function PIDSymbolPanel({
       </div>
 
       {/* Search */}
-      <div className="border-b border-slate-800 px-3 py-2">
-        <div className="flex items-center gap-2 rounded-lg bg-slate-900 px-2.5 py-1.5 border border-slate-700/50">
-          <Search className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+      <div className="border-b border-[#2b2b2b] px-3 py-2">
+        <div className="flex items-center gap-2 rounded-[3px] border border-[#3c3c3c] bg-[#1e1e1e] px-2.5 py-1.5">
+          <Search className="h-3.5 w-3.5 shrink-0 text-[#858585]" />
           <input
             type="text"
             placeholder="Search symbols…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
+            className="w-full bg-transparent text-xs text-[#cccccc] placeholder:text-[#858585] focus:outline-none"
           />
           {search && (
-            <button onClick={() => setSearch("")} className="text-slate-500 hover:text-slate-300">
+            <button onClick={() => setSearch("")} className="rounded-[3px] text-[#858585] hover:bg-[#2a2d2e] hover:text-white">
               <X className="h-3 w-3" />
             </button>
           )}
@@ -300,8 +297,8 @@ export default function PIDSymbolPanel({
 
       {/* Symbol usage hint */}
       {selectedSymbolId && (
-        <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg border border-brand-primary/30 bg-brand-primary/10 px-3 py-2 text-[10px] text-brand-primary">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-brand-primary" />
+        <div className="mx-3 mt-2 flex items-center gap-2 border border-[#3794ff]/40 bg-[#04395e] px-3 py-2 text-[10px] text-white">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#3794ff]" />
           Click on the PDF to place symbol. Press Esc to cancel.
         </div>
       )}

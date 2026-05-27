@@ -9,17 +9,17 @@ export default function StatusBar({ mouseCoords }: { mouseCoords: { x: number; y
     "Custom";
 
   return (
-    <div className="flex h-11 items-center justify-between border-t border-slate-700 bg-slate-950 px-4 text-xs text-slate-300">
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="font-medium">Page <strong className="text-white">{currentPage}</strong> / {numPages}</div>
-        <div className="font-medium">Zoom <strong className="text-white">{Math.round((scale || 1) * 100)}%</strong></div>
-        <div className="font-medium">Fit <strong className="text-white">{fitLabel}</strong></div>
-        <div className="font-medium">View <strong className="text-white capitalize">{viewMode}</strong></div>
-        <div className="font-medium">Tool <strong className="text-white capitalize">{selectedTool.replace("-", " ")}</strong></div>
-        <div className="font-medium">Rotate <strong className="text-white">{((rotation % 360) + 360) % 360}°</strong></div>
+    <div className="flex h-6 items-center justify-between border-t border-[#2b2b2b] bg-[#007acc] px-2 text-[11px] text-white">
+      <div className="flex flex-wrap items-center gap-3">
+        <div>Page <strong>{currentPage}</strong> / {numPages}</div>
+        <div>Zoom <strong>{Math.round((scale || 1) * 100)}%</strong></div>
+        <div>Fit <strong>{fitLabel}</strong></div>
+        <div>View <strong className="capitalize">{viewMode}</strong></div>
+        <div>Tool <strong className="capitalize">{selectedTool.replace("-", " ")}</strong></div>
+        <div>Rotate <strong>{((rotation % 360) + 360) % 360}°</strong></div>
         <div className={`font-medium ${isDirty ? "text-amber-300" : "text-emerald-300"}`}>Status: {isDirty ? "Unsaved" : "Saved"}</div>
       </div>
-      <div className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 font-mono text-[11px] text-slate-400">
+      <div className="font-mono text-[11px] text-white/80">
         {mouseCoords ? `X: ${mouseCoords.x}, Y: ${mouseCoords.y}` : "-"}
       </div>
     </div>
