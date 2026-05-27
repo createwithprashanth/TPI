@@ -10,7 +10,9 @@ uvicorn main:app --port 8000 --reload &
 UVICORN_PID=$!
 
 echo "Starting RQ worker (instrumap queue)..."
-rq worker instrumap --with-scheduler &
+# OBJC_DISABLE_INITIALIZE_FORK_SAFETY suppresses macOS fork-safety crash
+# triggered by numpy/cv2 Objective-C frameworks being loaded before fork.
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES rq worker instrumap --with-scheduler &
 RQ_PID=$!
 
 echo "FastAPI PID: $UVICORN_PID | RQ worker PID: $RQ_PID"

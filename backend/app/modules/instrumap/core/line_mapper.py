@@ -43,7 +43,7 @@ _STUB_TOUCH_TOLERANCE_PT = 8.0
 _LINE_LABEL_PROXIMITY_PT = 50.0
 
 # Max BFS hops when walking the pipe run graph
-_MAX_RUN_STEPS = 80
+_MAX_RUN_STEPS = 40
 
 # Two segment endpoints are "shared" if they are within this distance (PDF points)
 _ENDPOINT_SNAP_PT = 4.0
@@ -51,12 +51,18 @@ _ENDPOINT_SNAP_PT = 4.0
 # Minimum aspect ratio to treat a rectangle as a pipe segment (thin rect)
 _MIN_RECT_ASPECT = 5.0
 
+# After BFS, only segments within this radius (PDF points) of the instrument
+# centre are used when searching for a line-number label.
+# 185 pt ≈ 770 px @ 300 DPI ≈ 2.6 inches — enough to cover stub + adjacent run,
+# but tight enough to prevent BFS from picking labels on the wrong pipe.
+_MAX_STUB_SEARCH_RADIUS_PT = 185.0
+
 # ── Directional fallback parameters ──────────────────────────────────────────
 # Maximum pixel distance to look for a line label from an instrument centre
-_FALLBACK_MAX_DIST_PX = 1200.0
+_FALLBACK_MAX_DIST_PX = 800.0
 # A label is "axially aligned" if it is within this many pixels of the
 # instrument's horizontal or vertical axis
-_FALLBACK_AXIS_BAND_PX = 80.0
+_FALLBACK_AXIS_BAND_PX = 60.0
 
 
 # ── Coordinate helpers ────────────────────────────────────────────────────────
@@ -93,6 +99,11 @@ def _extract_segments(page) -> List[Tuple[float, float, float, float]]:
     """
     segments = []
     for path in page.get_drawings():
+        # Skip dashed/dotted paths — these are instrument signal lines,
+        # pneumatic lines, or electrical connections, NOT process pipe runs.
+        dashes = path.get("dashes", "")
+        if dashes and dashes not in ("", "[] 0", "[]"):
+            continue
         items = path.get("items", [])
         current = None
         for item in items:
@@ -443,6 +454,16 @@ def map_instruments_to_lines(
                 stub_indices = _segments_crossing_circle(segments, cx_pt, cy_pt, r_pt)
                 if stub_indices:
                     run_indices = _bfs_run(stub_indices, adj)
+                    # Discard segments too far from the instrument — prevents BFS
+                    # from reaching labels on an entirely different pipe run.
+                    run_indices = [
+                        i for i in run_indices
+                        if _dist(
+                            ((segments[i][0] + segments[i][2]) / 2,
+                             (segments[i][1] + segments[i][3]) / 2),
+                            (cx_pt, cy_pt),
+                        ) <= _MAX_STUB_SEARCH_RADIUS_PT
+                    ]
                     matched_line = _find_line_for_run(run_indices, segments, page_lines, dpi)
                     if matched_line:
                         graph_matched += 1
