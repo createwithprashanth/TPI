@@ -13,12 +13,34 @@ services:
       timeout: 3s
       retries: 10
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ./models:/root/.ollama        # model files live in repo's models/ folder
+    ports:
+      - "11434:11434"                 # internal only — not exposed outside the server
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]    # GPU passthrough if available; ignored on CPU-only
+
   backend:
     build: ./backend
     restart: unless-stopped
     environment:
       - REDIS_URL=redis://redis:6379
       - GOOGLE_APPLICATION_CREDENTIALS=/app/google_credentials.json
+      - OLLAMA_HOST=http://ollama:11434
     env_file:
       - .env
     volumes:
@@ -29,6 +51,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
 
   worker:
     build: ./backend
@@ -37,6 +61,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - GOOGLE_APPLICATION_CREDENTIALS=/app/google_credentials.json
+      - OLLAMA_HOST=http://ollama:11434
     env_file:
       - .env
     volumes:
@@ -44,6 +69,8 @@ services:
       - ./google_credentials.json:/app/google_credentials.json:ro
     depends_on:
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
 
   frontend:

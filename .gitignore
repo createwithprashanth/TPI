@@ -21,3 +21,7 @@ instrumap-*.json
 # macOS
 .DS_Store
 frontend/dist/
+
+# LLM model files (large binaries — never commit)
+models/
+!models/.gitkeep

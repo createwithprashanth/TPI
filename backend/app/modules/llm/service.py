@@ -7,13 +7,16 @@ parseable without regex fallbacks.
 """
 import json
 import logging
+import os
 import urllib.request
 import urllib.error
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_BASE_URL = "http://localhost:11434"
+# In Docker, set OLLAMA_HOST=http://ollama:11434 so the backend can reach the
+# Ollama container by its service name. Falls back to localhost for local dev.
+OLLAMA_BASE_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 DEFAULT_MODEL = "qwen2.5:7b"
 DEFAULT_TIMEOUT = 60  # seconds per LLM call
 
