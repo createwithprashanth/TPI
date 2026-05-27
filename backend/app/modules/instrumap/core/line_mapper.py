@@ -52,10 +52,12 @@ _ENDPOINT_SNAP_PT = 4.0
 _MIN_RECT_ASPECT = 5.0
 
 # After BFS, only segments within this radius (PDF points) of the instrument
-# centre are used when searching for a line-number label.
-# 185 pt ≈ 770 px @ 300 DPI ≈ 2.6 inches — enough to cover stub + adjacent run,
-# but tight enough to prevent BFS from picking labels on the wrong pipe.
-_MAX_STUB_SEARCH_RADIUS_PT = 185.0
+# centre are considered when searching for a line-number label.
+# 350 pt ≈ 1 460 px @ 300 DPI ≈ 4.9 inches — covers branch stubs that tap off
+# a main pipe run whose label is several inches from the instrument.
+# Dashed-line filtering (added separately) prevents the BFS over-traversal that
+# originally required a tighter value here.
+_MAX_STUB_SEARCH_RADIUS_PT = 350.0
 
 # ── Directional fallback parameters ──────────────────────────────────────────
 # Maximum pixel distance to look for a line label from an instrument centre
@@ -145,9 +147,12 @@ def _segments_crossing_circle(
     tol: float = _STUB_TOUCH_TOLERANCE_PT,
 ) -> List[int]:
     """
-    Return indices of segments that cross the circle boundary.
-    A stub line from a CAD instrument starts inside the circle and exits outward:
-    one endpoint is inside (d <= r+tol), the other is outside (d > r+tol).
+    Return indices of segments that connect to the instrument circle.
+
+    Two cases:
+      1. One endpoint inside (d <= r+tol), one outside — classic stub line.
+      2. Both endpoints outside but the segment passes through the circle —
+         instrument symbol sits directly on the pipe run (valves, orifices).
     """
     result = []
     r_in = r + tol
@@ -156,9 +161,14 @@ def _segments_crossing_circle(
         d1 = _dist((x1, y1), (cx, cy))
         inside0 = d0 <= r_in
         inside1 = d1 <= r_in
-        # Segment crosses boundary: one end inside, one end outside
         if (inside0 and not inside1) or (inside1 and not inside0):
+            # Classic stub: one end inside the circle, one end outside
             result.append(i)
+        elif not inside0 and not inside1:
+            # Both outside — check if the segment passes through the circle.
+            # This catches valves/orifices drawn directly on a pipe run.
+            if _point_to_segment_dist(cx, cy, x0, y0, x1, y1) <= r_in:
+                result.append(i)
     return result
 
 
