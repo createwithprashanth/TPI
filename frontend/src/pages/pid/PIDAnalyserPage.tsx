@@ -45,9 +45,10 @@ const STEPS = [
 interface PIDAnalyserPageProps {
   areaCode: string;
   onOpenFiles: () => void;
+  onDropFiles?: (files: File[]) => void;
 }
 
-const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles }) => {
+const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles, onDropFiles }) => {
   const { pidFiles, currentPidIndex, isPreviewLoading } = useWorkspace();
   const { project } = useProject();
 
@@ -411,6 +412,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
         floats={floats}
         onClick={handleImageClick}
         onOpenFiles={onOpenFiles}
+        onDropFiles={onDropFiles}
       />
       <StatusBar
         label={statusText.label}

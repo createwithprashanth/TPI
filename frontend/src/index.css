@@ -18,3 +18,6 @@ body {
   color: #fff;
   -webkit-font-smoothing: antialiased;
 }
+
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }

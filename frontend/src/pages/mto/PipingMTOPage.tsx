@@ -25,9 +25,10 @@ const truncate = (name: string, max = 36) =>
 
 interface PipingMTOPageProps {
   onOpenFiles: () => void;
+  onDropFiles?: (files: File[]) => void;
 }
 
-const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles }) => {
+const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles }) => {
   const { pidFiles, currentPidIndex, pageCount, isPreviewLoading, zoom, setZoom, baseDims } = useWorkspace();
   const { project } = useProject();
 
@@ -655,6 +656,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles }) => {
         onMouseUp={handleMouseUp}
         onMouseLeave={() => { dragAnchorRef.current = null; setDragAnchor(null); setDragHead(null); }}
         onOpenFiles={onOpenFiles}
+        onDropFiles={onDropFiles}
       />
 
       <StatusBar

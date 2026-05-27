@@ -1,14 +1,11 @@
 import React, { useRef, useEffect } from 'react';
-import { FolderOpen } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 
 interface PDFViewerProps {
-  /** Ref forwarded to the <img> — callers use it for coordinate calculations */
   imageRef: React.RefObject<HTMLImageElement | null>;
   cursor?: string;
-  /** DOM overlays rendered inside the image wrapper (SVG, absolute divs) */
   overlays?: React.ReactNode;
-  /** Absolute-positioned UI outside the image wrapper (panels, extract button) */
   floats?: React.ReactNode;
   onMouseDown?: React.MouseEventHandler<HTMLDivElement>;
   onMouseMove?: React.MouseEventHandler<HTMLDivElement>;
@@ -16,16 +13,19 @@ interface PDFViewerProps {
   onMouseLeave?: React.MouseEventHandler<HTMLDivElement>;
   onClick?: React.MouseEventHandler<HTMLImageElement>;
   onOpenFiles?: () => void;
+  onDropFiles?: (files: File[]) => void;
 }
 
 const PDFViewer: React.FC<PDFViewerProps> = ({
   imageRef, cursor = 'default', overlays, floats,
-  onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onClick, onOpenFiles,
+  onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onClick,
+  onOpenFiles, onDropFiles,
 }) => {
   const { hdPreviewBase64, isPreviewLoading, zoom, setZoom, baseDims, setBaseDims } = useWorkspace();
   const viewerRef = useRef<HTMLDivElement>(null);
+  const [dragOver, setDragOver] = React.useState(false);
 
-  // Ctrl+scroll zoom
+  // Ctrl/Cmd+scroll zoom
   useEffect(() => {
     const el = viewerRef.current;
     if (!el) return;
@@ -39,9 +39,8 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   }, [setZoom]);
 
   const handleImgLoad = () => {
-    if (imageRef.current) {
+    if (imageRef.current)
       setBaseDims({ w: imageRef.current.clientWidth, h: imageRef.current.clientHeight });
-    }
   };
 
   const imgStyle: React.CSSProperties = baseDims
@@ -51,10 +50,24 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         maxHeight: viewerRef.current ? viewerRef.current.clientHeight : 'calc(100vh - 5rem)',
       };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!onDropFiles) return;
+    e.preventDefault();
+    setDragOver(true);
+  };
+  const handleDragLeave = () => setDragOver(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (!onDropFiles) return;
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+    if (files.length) onDropFiles(files);
+  };
+
   return (
     <div
       ref={viewerRef}
-      className="flex-1 relative bg-gray-900 min-h-0"
+      className="flex-1 relative bg-[#111114] min-h-0"
       style={{
         overflow: zoom > 1 ? 'auto' : 'hidden',
         display: 'flex',
@@ -64,33 +77,54 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseLeave}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
-      {/* Empty state */}
-      {!hdPreviewBase64 && !isPreviewLoading && (
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-gray-700 flex items-center justify-center">
-            <FolderOpen className="w-7 h-7 text-gray-600" />
+      {/* Drag-over overlay */}
+      {dragOver && (
+        <div className="absolute inset-0 z-50 bg-blue-500/10 border-2 border-blue-400/50 border-dashed rounded-sm flex items-center justify-center pointer-events-none">
+          <div className="flex flex-col items-center gap-2">
+            <Upload className="w-8 h-8 text-blue-400" />
+            <p className="text-blue-300 text-sm font-medium">Drop PDFs here</p>
           </div>
-          <div className="text-center">
-            <p className="text-gray-300 font-medium text-sm">Open P&ID files to begin</p>
-            <p className="text-gray-600 text-xs mt-1">PDF · single file or batch</p>
-          </div>
-          {onOpenFiles && (
-            <button
-              onClick={onOpenFiles}
-              className="text-xs font-semibold text-white bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-colors"
-            >
-              Open Files
-            </button>
-          )}
         </div>
       )}
 
-      {/* Preview loading */}
+      {/* Empty state */}
+      {!hdPreviewBase64 && !isPreviewLoading && (
+        <div
+          className="flex flex-col items-center gap-6 select-none cursor-pointer group"
+          onClick={onOpenFiles}
+        >
+          {/* Logo + wordmark */}
+          <div className="flex flex-col items-center gap-3">
+            <img src="/favicon.png" alt="XYRA" className="w-10 h-10 opacity-40 group-hover:opacity-60 transition-opacity" />
+            <p className="text-[11px] font-bold text-gray-700 tracking-[0.2em] uppercase">XYRA Studio</p>
+          </div>
+
+          {/* Drop zone card */}
+          <div className="flex flex-col items-center gap-3 border border-dashed border-white/[0.08] rounded-2xl px-10 py-8 group-hover:border-white/[0.15] transition-colors">
+            <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center group-hover:bg-white/[0.07] transition-colors">
+              <Upload className="w-5 h-5 text-gray-500 group-hover:text-gray-300 transition-colors" />
+            </div>
+            <div className="text-center">
+              <p className="text-gray-300 text-sm font-medium group-hover:text-white transition-colors">
+                Drop P&ID drawings here
+              </p>
+              <p className="text-gray-600 text-xs mt-1">
+                or click to browse &nbsp;·&nbsp; PDF &nbsp;·&nbsp; multi-page &nbsp;·&nbsp; batch
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading state */}
       {isPreviewLoading && (
         <div className="flex flex-col items-center gap-3">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-700 border-t-gray-300" />
-          <p className="text-gray-500 text-xs">Loading P&ID…</p>
+          <div className="animate-spin rounded-full h-7 w-7 border-2 border-white/[0.08] border-t-gray-400" />
+          <p className="text-gray-600 text-xs">Loading drawing…</p>
         </div>
       )}
 
@@ -112,18 +146,18 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           </div>
 
           {/* Zoom controls */}
-          <div className="absolute bottom-4 left-4 z-20 flex items-center gap-1 bg-gray-950/80 backdrop-blur-sm border border-white/[0.08] rounded-lg px-1.5 py-1">
+          <div className="absolute bottom-4 left-4 z-20 flex items-center gap-1 bg-[#0c0c0e]/90 backdrop-blur-sm border border-white/[0.07] rounded-lg px-1.5 py-1">
             <button
               onClick={() => setZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2)))}
-              className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-white hover:bg-white/10 transition-colors text-sm font-bold"
+              className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors text-sm font-bold"
             >−</button>
             <button
               onClick={() => setZoom(1.0)}
-              className="px-2 h-6 text-[11px] text-gray-400 hover:text-white hover:bg-white/10 rounded transition-colors font-mono"
+              className="px-2 h-6 text-[11px] text-gray-500 hover:text-white hover:bg-white/10 rounded transition-colors font-mono"
             >{zoom === 1.0 ? 'fit' : `${Math.round(zoom * 100)}%`}</button>
             <button
               onClick={() => setZoom(z => Math.min(4, +(z + 0.25).toFixed(2)))}
-              className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-white hover:bg-white/10 transition-colors text-sm font-bold"
+              className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors text-sm font-bold"
             >+</button>
           </div>
 

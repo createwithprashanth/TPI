@@ -1,6 +1,6 @@
 import React from 'react';
 
-type DotColor = 'blue' | 'green' | 'emerald' | 'gray';
+export type DotColor = 'blue' | 'green' | 'emerald' | 'gray';
 
 interface StatusBarProps {
   label: string;
@@ -11,27 +11,56 @@ interface StatusBarProps {
   rightLabel?: string;
 }
 
-const DOT_CLASS: Record<DotColor, string> = {
-  blue:    'bg-blue-400 animate-pulse',
-  green:   'bg-green-500',
-  emerald: 'bg-emerald-500',
-  gray:    'bg-gray-600',
-};
+const StatusBar: React.FC<StatusBarProps> = ({ label, dim, accent, loading, dot, rightLabel }) => {
+  const isRunning = loading;
+  const isDone = !loading && (accent || dot === 'green' || dot === 'emerald');
+  const isActive = !loading && dot && dot !== 'gray';
 
-const StatusBar: React.FC<StatusBarProps> = ({ label, dim, accent, loading, dot, rightLabel }) => (
-  <div className="h-6 shrink-0 flex items-center justify-between px-4 bg-gray-950 border-t border-white/[0.05]">
-    <div className="flex items-center gap-1.5 min-w-0">
-      {loading && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse shrink-0" />}
-      {!loading && dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${DOT_CLASS[dot]}`} />}
-      <span className={`text-[11px] truncate ${accent ? 'text-emerald-400' : 'text-gray-400'}`}>
-        {label}
-      </span>
-      {dim && <span className="text-[11px] text-gray-600 truncate shrink-0">{dim}</span>}
+  return (
+    <div className="h-[22px] shrink-0 flex items-stretch bg-[#0c0c0e] border-t border-white/[0.05] text-[11px]">
+
+      {/* Left accent segment — blue when running, green when done */}
+      {(isRunning || isDone) && (
+        <div
+          className={`flex items-center gap-1.5 px-3 shrink-0 border-r border-white/[0.06] font-medium ${
+            isRunning
+              ? 'bg-blue-500/[0.15] text-blue-300'
+              : 'bg-emerald-500/[0.12] text-emerald-400'
+          }`}
+        >
+          {isRunning && (
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+          )}
+          {isDone && (
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          )}
+          <span className="text-[10px] font-bold tracking-wider">
+            {isRunning ? 'RUNNING' : 'DONE'}
+          </span>
+        </div>
+      )}
+
+      {/* Status message */}
+      <div className="flex-1 flex items-center gap-1.5 px-3 min-w-0">
+        {!isRunning && !isDone && isActive && (
+          <span className="w-1.5 h-1.5 rounded-full bg-gray-600 shrink-0" />
+        )}
+        <span className={`truncate ${accent ? 'text-emerald-400' : 'text-gray-500'}`}>
+          {label}
+        </span>
+        {dim && (
+          <span className="text-gray-700 shrink-0 truncate">{dim}</span>
+        )}
+      </div>
+
+      {/* Right label — tool identifier */}
+      {rightLabel && (
+        <div className="flex items-center px-3 border-l border-white/[0.05] shrink-0">
+          <span className="text-[10px] text-gray-700 font-medium">{rightLabel}</span>
+        </div>
+      )}
     </div>
-    {rightLabel && (
-      <span className="text-[11px] text-gray-700 shrink-0 ml-4">{rightLabel}</span>
-    )}
-  </div>
-);
+  );
+};
 
 export default StatusBar;

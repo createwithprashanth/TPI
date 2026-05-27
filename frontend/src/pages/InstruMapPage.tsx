@@ -1,27 +1,32 @@
-/**
- * InstruMap workspace shell.
- * Owns: layout, routing between products, file input, top bar.
- * All product logic lives in pages/pid/, pages/mto/, pages/precisionpdf/.
- * To add a new product: create a page, add a NAV_ITEM in WorkspaceSidebar.
- */
 import React, { useRef, useState, Suspense, lazy } from 'react';
-import { FolderOpen, X } from 'lucide-react';
 import { ProjectProvider } from '../contexts/ProjectContext';
 import { WorkspaceProvider, useWorkspace } from '../contexts/WorkspaceContext';
-import WorkspaceSidebar, { type WorkspaceView } from '../components/workspace/WorkspaceSidebar';
-import FileNavigator from '../components/workspace/FileNavigator';
+import ActivityBar from '../components/workspace/ActivityBar';
+import SidePanel from '../components/workspace/SidePanel';
+import FileTabs from '../components/workspace/FileTabs';
+import Breadcrumb from '../components/workspace/Breadcrumb';
+import type { WorkspaceView } from '../components/workspace/WorkspaceSidebar';
 import PIDAnalyserPage from './pid/PIDAnalyserPage';
 import PipingMTOPage from './mto/PipingMTOPage';
 
 const PrecisionPDFPage = lazy(() => import('./PrecisionPDFPage'));
 
-// ── Inner shell (needs WorkspaceContext) ──────────────────────────────────────
+const TOOL_LABELS: Record<WorkspaceView, string> = {
+  pid: 'Instrumentation',
+  piping: 'Piping MTO',
+  precisionpdf: 'PrecisionPDF',
+};
+
+// ── Inner shell ───────────────────────────────────────────────────────────────
 
 const WorkspaceShell: React.FC = () => {
-  const { pidFiles, loadFiles, clearFiles, isPreviewLoading } = useWorkspace();
+  const { pidFiles, loadFiles, isPreviewLoading } = useWorkspace();
   const [view, setView] = useState<WorkspaceView>('pid');
   const [areaCode, setAreaCode] = useState('');
+  const [panelOpen, setPanelOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const openFiles = () => fileInputRef.current?.click();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -29,91 +34,118 @@ const WorkspaceShell: React.FC = () => {
     e.target.value = '';
   };
 
-  const openFiles = () => fileInputRef.current?.click();
+  const handleDropFiles = (files: File[]) => loadFiles(files);
 
-  const handleViewChange = (v: WorkspaceView) => setView(v);
+  const currentFile = pidFiles[0] ?? null;
 
-  const truncate = (name: string, max = 36) =>
-    name.length > max ? `${name.slice(0, max - 1)}…` : name;
+  // Breadcrumb items
+  const breadcrumbItems = [
+    { label: 'XYRA Studio', dim: true },
+    { label: TOOL_LABELS[view] },
+    ...(currentFile && view !== 'precisionpdf'
+      ? [{ label: currentFile.name }]
+      : []),
+  ];
 
   return (
-    <div className="h-full flex bg-gray-950 overflow-hidden">
-      {/* ── Sidebar ── */}
-      <WorkspaceSidebar view={view} onViewChange={handleViewChange} />
+    <div className="h-full flex flex-col bg-[#0c0c0e] overflow-hidden">
 
-      {/* ── Main area ── */}
-      {view === 'precisionpdf' ? (
-        <div className="flex-1 overflow-hidden">
-          <Suspense fallback={<div className="flex h-full items-center justify-center bg-slate-900"><span className="text-sm text-slate-400">Loading…</span></div>}>
-            <PrecisionPDFPage />
-          </Suspense>
-        </div>
-      ) : (
-        <div className="flex-1 flex flex-col overflow-hidden">
+      {/* ── Main row ── */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
 
-          {/* Top bar */}
-          <div className="h-11 shrink-0 flex items-center justify-between px-4 border-b border-white/[0.06] bg-gray-950 z-20">
-            <div className="flex items-center gap-2.5">
-              <span className="text-white font-semibold text-sm tracking-tight">
-                {view === 'pid' ? 'Instrumentation' : 'Piping MTO'}
-              </span>
-              {pidFiles.length === 1 && (
-                <span className="text-[11px] text-gray-500 bg-white/[0.06] px-2 py-0.5 rounded-full max-w-[220px] truncate">
-                  {truncate(pidFiles[0].name)}
+        {/* Activity bar */}
+        <ActivityBar
+          view={view}
+          onViewChange={setView}
+          panelOpen={panelOpen}
+          onTogglePanel={() => setPanelOpen(v => !v)}
+        />
+
+        {/* Project side panel */}
+        <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} />
+
+        {/* ── Editor area ── */}
+        {view === 'precisionpdf' ? (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <Suspense fallback={
+              <div className="flex h-full items-center justify-center bg-[#111114]">
+                <span className="text-sm text-gray-600">Loading…</span>
+              </div>
+            }>
+              <PrecisionPDFPage />
+            </Suspense>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+            {/* Top bar — tool controls */}
+            <div className="h-11 shrink-0 flex items-center justify-between px-4 border-b border-white/[0.05] bg-[#0c0c0e]">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-semibold text-white tracking-tight">
+                  {TOOL_LABELS[view]}
                 </span>
-              )}
-              {pidFiles.length > 1 && (
-                <span className="text-[11px] text-gray-500 bg-white/[0.06] px-2 py-0.5 rounded-full">
-                  {pidFiles.length} files
-                </span>
-              )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {view === 'pid' && (
+                  <input
+                    type="text"
+                    value={areaCode}
+                    onChange={e => setAreaCode(e.target.value)}
+                    placeholder="Area code"
+                    className="h-7 w-28 rounded-md border border-white/[0.07] bg-white/[0.04] px-2.5 text-xs text-white placeholder:text-gray-600 outline-none focus:border-white/[0.15] transition-colors"
+                  />
+                )}
+                <button
+                  onClick={openFiles}
+                  disabled={isPreviewLoading}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-gray-900 bg-white hover:bg-gray-100 disabled:opacity-50 px-3 py-1.5 rounded-md transition-colors"
+                >
+                  Open Files
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            {/* File tabs */}
+            <FileTabs onOpenFiles={openFiles} />
+
+            {/* Breadcrumb */}
+            <Breadcrumb items={breadcrumbItems} />
+
+            {/* Active product */}
+            <div className="flex-1 flex flex-col overflow-hidden min-h-0">
               {view === 'pid' && (
-                <input
-                  type="text" value={areaCode} onChange={e => setAreaCode(e.target.value)}
-                  placeholder="Area code"
-                  className="h-8 w-28 rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 text-xs text-white placeholder:text-gray-500 outline-none transition-colors focus:border-white/[0.16]"
+                <PIDAnalyserPage
+                  areaCode={areaCode}
+                  onOpenFiles={openFiles}
+                  onDropFiles={handleDropFiles}
                 />
               )}
-              <button
-                onClick={openFiles}
-                className="flex items-center gap-1.5 text-xs font-semibold text-gray-900 bg-white hover:bg-gray-100 px-3 py-1.5 rounded-md transition-colors"
-              >
-                <FolderOpen className="w-3.5 h-3.5" />
-                Open Files
-              </button>
-              {pidFiles.length > 0 && !isPreviewLoading && (
-                <button
-                  onClick={clearFiles}
-                  className="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 hover:text-white hover:bg-white/10 transition-colors"
-                  title="Close drawings"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+              {view === 'piping' && (
+                <PipingMTOPage
+                  onOpenFiles={openFiles}
+                  onDropFiles={handleDropFiles}
+                />
               )}
             </div>
+
           </div>
-
-          {/* File navigator (shared across products) */}
-          <FileNavigator />
-
-          {/* Active product */}
-          {view === 'pid' && <PIDAnalyserPage areaCode={areaCode} onOpenFiles={openFiles} />}
-          {view === 'piping' && <PipingMTOPage onOpenFiles={openFiles} />}
-        </div>
-      )}
+        )}
+      </div>
 
       <input
-        ref={fileInputRef} type="file" accept=".pdf" multiple
-        onChange={handleFileChange} className="hidden"
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf"
+        multiple
+        onChange={handleFileChange}
+        className="hidden"
       />
     </div>
   );
 };
 
-// ── Root: wrap with context providers ────────────────────────────────────────
+// ── Root ──────────────────────────────────────────────────────────────────────
 
 const InstruMapPage: React.FC = () => (
   <ProjectProvider>

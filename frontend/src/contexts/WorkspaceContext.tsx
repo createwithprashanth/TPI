@@ -11,6 +11,7 @@ interface WorkspaceContextType {
   setCurrentPidIndex: Dispatch<SetStateAction<number>>;
   loadFiles: (files: File[]) => void;
   clearFiles: () => void;
+  closeFile: (index: number) => void;
   // Preview (auto-loads when files or index change)
   hdPreviewBase64: string | null;
   pageCount: number;
@@ -41,7 +42,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setPageCount(1);
       return;
     }
-    cancelRef.current = true; // cancel any in-flight load
+    cancelRef.current = true;
     cancelRef.current = false;
     const localCancelled = { value: false };
 
@@ -81,9 +82,27 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setBaseDims(null);
   }, []);
 
+  const closeFile = useCallback((index: number) => {
+    setPidFiles(prev => {
+      const next = prev.filter((_, i) => i !== index);
+      if (!next.length) {
+        setHdPreviewBase64(null);
+        setPageCount(1);
+        setZoom(1.0);
+        setBaseDims(null);
+      }
+      return next;
+    });
+    setCurrentPidIndex(prev => {
+      if (index < prev) return prev - 1;
+      if (index === prev) return Math.max(0, prev - 1);
+      return prev;
+    });
+  }, []);
+
   return (
     <WorkspaceContext.Provider value={{
-      pidFiles, currentPidIndex, setCurrentPidIndex, loadFiles, clearFiles,
+      pidFiles, currentPidIndex, setCurrentPidIndex, loadFiles, clearFiles, closeFile,
       hdPreviewBase64, pageCount, isPreviewLoading,
       zoom, setZoom, baseDims, setBaseDims,
     }}>
