@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X } from 'lucide-react';
+import { X, RotateCcw, ScanLine, Pencil, FileSpreadsheet, FileDown, FileText, Image, Trash2 } from 'lucide-react';
 import {
   fetchLibrary,
   saveLibrarySymbol,
@@ -438,7 +438,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                 {mtoRunningCountRef.current > 0 ? `${mtoRunningCountRef.current} symbol type${mtoRunningCountRef.current > 1 ? 's' : ''}` : ''}
                 {pidFiles.length > 1 ? ` · ${mtoProgress} / ${pidFiles.length} drawings` : pageCount > 1 ? ` · ${pageCount} pages` : ''}
               </p>
-              <button onClick={cancelDetection} className="mt-3 text-[11px] text-red-400 hover:text-red-300 border border-red-900 hover:border-red-700 px-3 py-1 rounded-lg transition-colors">Stop</button>
+              <button onClick={cancelDetection} className="mt-4 text-xs font-semibold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/50 px-4 py-1.5 rounded-lg transition-colors">Stop detection</button>
             </div>
           </div>
         </>
@@ -533,9 +533,9 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                           <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: session.color }} />
                           <span className="text-xs text-gray-300 flex-1 truncate">{session.label}</span>
                           <span className={`text-xs font-bold tabular-nums w-6 text-right ${session.count === 0 ? 'text-amber-400' : 'text-white'}`}>{session.count === 0 ? '!' : session.count}</span>
-                          <button onClick={() => setShowMatchZone(v => v === session.id ? null : session.id)} title={showMatchZone === session.id ? 'Hide match zone' : 'Show match zone on drawing'} className={`text-[12px] transition-colors ${showMatchZone === session.id ? 'text-yellow-400' : 'text-gray-600 hover:text-yellow-400'}`}>⊡</button>
-                          <button onClick={() => rerunSession(session)} disabled={mtoLoading} title="Re-run with current sensitivity" className="text-gray-600 hover:text-emerald-400 disabled:opacity-30 transition-colors">↺</button>
-                          <button onClick={() => setMtoSessions(prev => prev.filter(s => s.id !== session.id))} className="text-gray-600 hover:text-red-400 transition-colors"><X className="w-3 h-3" /></button>
+                          <button onClick={() => setShowMatchZone(v => v === session.id ? null : session.id)} title={showMatchZone === session.id ? 'Hide match zone' : 'Show match zone'} className={`transition-colors ${showMatchZone === session.id ? 'text-yellow-400' : 'text-gray-600 hover:text-yellow-400'}`}><ScanLine className="w-3 h-3" /></button>
+                          <button onClick={() => rerunSession(session)} disabled={mtoLoading} title="Re-run" className="text-gray-600 hover:text-emerald-400 disabled:opacity-30 transition-colors"><RotateCcw className="w-3 h-3" /></button>
+                          <button onClick={() => setMtoSessions(prev => prev.filter(s => s.id !== session.id))} title="Remove" className="text-gray-600 hover:text-red-400 transition-colors"><X className="w-3 h-3" /></button>
                         </div>
                         {session.fileResults.length > 1 && (
                           <div className="flex flex-wrap gap-x-2.5 gap-y-0 mt-0.5 pl-5">
@@ -573,23 +573,43 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                         onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0.40 && v <= 0.95) setMtoThreshold(+v.toFixed(2)); }}
                         className="w-20 rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-xs text-white font-mono outline-none focus:border-emerald-500 transition-colors"
                       />
-                      <span className="text-[10px] text-gray-600">(0.40 – 0.95)</span>
+                      <span className="text-[10px] text-gray-600">(0.40–0.95)</span>
                     </div>
-                    <button onClick={() => { mtoSessions.forEach(s => rerunSession(s)); }} disabled={mtoLoading} className="w-full text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 disabled:opacity-30 border border-emerald-900 hover:border-emerald-700 py-1.5 rounded-lg transition-colors">
-                      ↺ Re-run All
+                    <button
+                      onClick={() => { mtoSessions.forEach(s => rerunSession(s)); }}
+                      disabled={mtoLoading}
+                      className="w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 disabled:opacity-30 bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-500/25 hover:border-emerald-500/40 py-1.5 rounded-lg transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" /> Re-run All
                     </button>
                   </div>
 
-                  <div className="px-4 pb-3 border-t border-white/[0.06] pt-2 flex flex-col gap-1.5">
-                    <button onClick={exportMtoExcel} className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 transition-colors text-right">Export Excel (with images)</button>
-                    <button onClick={exportAllMtoCsv} className="text-xs font-semibold text-gray-500 hover:text-gray-300 transition-colors text-right">Export CSV</button>
-                    <button onClick={exportMtoPDF} disabled={mtoExportingPdf} className="text-xs font-semibold text-purple-400 hover:text-purple-300 disabled:opacity-40 transition-colors text-right">
-                      {mtoExportingPdf ? 'Building PDF…' : 'Export PDF Report'}
+                  <div className="px-4 pb-3 border-t border-white/[0.06] pt-2 space-y-1">
+                    <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-wider mb-2">Export</p>
+                    {[
+                      { icon: FileSpreadsheet, label: 'Excel', sub: 'with images', onClick: exportMtoExcel, disabled: false },
+                      { icon: FileText,        label: 'CSV',   sub: undefined,       onClick: exportAllMtoCsv,  disabled: false },
+                      { icon: FileDown,        label: mtoExportingPdf ? 'Building…' : 'PDF Report', sub: undefined, onClick: exportMtoPDF, disabled: mtoExportingPdf },
+                      { icon: Image,           label: mtoImageDownloading ? 'Preparing…' : pidFiles.length > 1 ? `Images (${pidFiles.length})` : 'Image', sub: 'annotated', onClick: downloadMtoImage, disabled: mtoImageDownloading },
+                    ].map(({ icon: Icon, label, sub, onClick, disabled }) => (
+                      <button
+                        key={label}
+                        onClick={onClick}
+                        disabled={disabled}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-left hover:bg-white/[0.05] disabled:opacity-40 transition-colors group"
+                      >
+                        <Icon className="w-3.5 h-3.5 text-gray-500 group-hover:text-gray-300 shrink-0 transition-colors" />
+                        <span className="text-xs text-gray-400 group-hover:text-gray-200 transition-colors flex-1">{label}</span>
+                        {sub && <span className="text-[10px] text-gray-700">{sub}</span>}
+                      </button>
+                    ))}
+                    <button
+                      onClick={clearAllSessions}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-left hover:bg-red-500/10 transition-colors group mt-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-gray-700 group-hover:text-red-400 shrink-0 transition-colors" />
+                      <span className="text-xs text-gray-600 group-hover:text-red-400 transition-colors">Clear all sessions</span>
                     </button>
-                    <button onClick={downloadMtoImage} disabled={mtoImageDownloading} className="text-xs font-semibold text-blue-400 hover:text-blue-300 disabled:opacity-40 transition-colors text-right">
-                      {mtoImageDownloading ? 'Preparing images…' : pidFiles.length > 1 ? `Download Images (${pidFiles.length})` : 'Download Image'}
-                    </button>
-                    <button onClick={clearAllSessions} className="text-xs text-gray-600 hover:text-red-400 transition-colors text-right">Clear All</button>
                   </div>
                 </>
               )}
@@ -634,7 +654,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                   {selected && !isRecapturing && <span className="text-emerald-400 text-[10px]">✓</span>}
                   {isRecapturing && <span className="text-amber-400 text-[10px]">draw…</span>}
                 </button>
-                <button onClick={() => { setRecaptureTarget(sym); setMtoStep('pick_template'); setMtoError(null); }} title="Re-draw template" className="text-gray-600 hover:text-amber-400 transition-colors text-xs px-0.5">✏</button>
+                <button onClick={() => { setRecaptureTarget(sym); setMtoStep('pick_template'); setMtoError(null); }} title="Re-draw template" className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:text-amber-400 hover:bg-white/[0.05] transition-colors"><Pencil className="w-3 h-3" /></button>
               </div>
             );
           })}

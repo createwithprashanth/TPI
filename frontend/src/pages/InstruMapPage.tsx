@@ -1,4 +1,5 @@
 import React, { useRef, useState, Suspense, lazy } from 'react';
+import { FolderOpen } from 'lucide-react';
 import { ProjectProvider } from '../contexts/ProjectContext';
 import { WorkspaceProvider, useWorkspace } from '../contexts/WorkspaceContext';
 import WorkspaceBar from '../components/workspace/WorkspaceBar';
@@ -90,6 +91,7 @@ const WorkspaceShell: React.FC = () => {
                   disabled={isPreviewLoading}
                   className="flex items-center gap-1.5 text-xs font-semibold text-gray-900 bg-white hover:bg-gray-100 disabled:opacity-50 px-3 py-1.5 rounded-md transition-colors"
                 >
+                  <FolderOpen className="w-3.5 h-3.5" />
                   Open Files
                 </button>
               </div>
