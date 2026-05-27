@@ -1,0 +1,4 @@
+# Ignore all generated log files; keep the directory skeleton
+*.jsonl
+*.txt
+!.gitkeep

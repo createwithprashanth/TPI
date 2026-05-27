@@ -43,6 +43,11 @@ except ImportError:
     _LLM_AVAILABLE = False
     _llm_map = None
 
+try:
+    from ...telemetry import RunLogger as _RunLogger
+except ImportError:
+    _RunLogger = None
+
 # --- UTILITY FUNCTIONS ---
 def _calculate_dynamic_radius(calibration_radius, config_params):
     """
@@ -281,11 +286,14 @@ class InstrumentProcessor:
         all_instruments_data = []
         all_lines_data = []
         debug_output_images = []
+        _rl = _RunLogger(filename_base) if _RunLogger else None
 
         try:
             # --- Dynamic Radius Determination ---
             if calibration_radius is None:
                 status_update_fn("ERROR: Calibration radius is missing.")
+                if _rl:
+                    _rl.flush()
                 return pd.DataFrame(), pd.DataFrame(), []
             
             dynamic_min_radius, dynamic_max_radius = _calculate_dynamic_radius(
@@ -316,6 +324,8 @@ class InstrumentProcessor:
                     )
                     if not pymupdf_instruments_df.empty:
                         ocr_needed = False
+                        if _rl:
+                            _rl.log_path("pymupdf")
                         status_update_fn(
                             f"PyMuPDF: extracted {len(pymupdf_instruments_df)} instruments "
                             f"and {len(pymupdf_lines_df)} line numbers directly — skipping OCR."
@@ -344,6 +354,14 @@ class InstrumentProcessor:
                         all_instruments_data.append(pymupdf_instruments_df)
                         if not pymupdf_lines_df.empty:
                             all_lines_data.append(pymupdf_lines_df)
+                        if _rl:
+                            _tag_col = "Tag_Number" if "Tag_Number" in pymupdf_instruments_df.columns else "Instrument_Tag"
+                            for _pg in sorted(pymupdf_instruments_df.get("P&ID_Page", pd.Series([1])).unique()):
+                                _pg = int(_pg)
+                                _i_mask = pymupdf_instruments_df.get("P&ID_Page", pd.Series([_pg] * len(pymupdf_instruments_df))) == _pg
+                                _l_mask = pymupdf_lines_df.get("P&ID_Page", pd.Series([_pg] * len(pymupdf_lines_df))) == _pg if not pymupdf_lines_df.empty else pd.Series([], dtype=bool)
+                                _rl.log_lines(_pg, list(pymupdf_lines_df.loc[_l_mask, "Line_Number"].astype(str)) if not pymupdf_lines_df.empty else [])
+                                _rl.log_instruments(_pg, list(pymupdf_instruments_df.loc[_i_mask, _tag_col].astype(str)))
                         # Generate highlighted images for visual cross-checking
                         if output_folder:
                             self._render_pymupdf_highlights(
@@ -358,6 +376,8 @@ class InstrumentProcessor:
 
             # --- OCR Pipeline (only runs if PyMuPDF found nothing) ---
             if ocr_needed:
+                if _rl:
+                    _rl.log_path("ocr")
                 status_update_fn("Starting PDF conversion (DPI 300)...")
                 if self.poppler_path:
                     images = convert_from_bytes(pdf_content, dpi=config_params['PDF_DPI'], poppler_path=self.poppler_path)
@@ -366,6 +386,8 @@ class InstrumentProcessor:
 
                 if not images:
                     status_update_fn("ERROR: No images converted from PDF.")
+                    if _rl:
+                        _rl.flush()
                     return pd.DataFrame(), pd.DataFrame(), []
 
                 status_update_fn(f"PDF converted to {len(images)} page(s).")
@@ -401,6 +423,11 @@ class InstrumentProcessor:
                         default_area_code=default_area_code,
                     )
 
+                    if _rl:
+                        _rl.log_lines(page_number, list(page_lines_df["Line_Number"].astype(str)) if not page_lines_df.empty else [])
+                        _tag_col_ocr = "Tag_Number" if "Tag_Number" in final_instruments_df_page.columns else "Instrument_Tag"
+                        _rl.log_instruments(page_number, list(final_instruments_df_page[_tag_col_ocr].astype(str)) if not final_instruments_df_page.empty else [])
+
                     if not final_instruments_df_page.empty:
                         final_instruments_df_page['P&ID_Page'] = page_number
 
@@ -411,6 +438,8 @@ class InstrumentProcessor:
                                     final_instruments_df_page,
                                     page_lines_df,
                                     status_fn=lambda msg: status_update_fn(f"LLM P{page_number}: {msg}"),
+                                    run_logger=_rl,
+                                    page=page_number,
                                 )
                             except Exception as _llm_exc:
                                 status_update_fn(f"LLM mapping skipped (non-fatal): {_llm_exc}")
@@ -469,12 +498,18 @@ class InstrumentProcessor:
                     f"Finished processing. Total instruments: {len(final_instruments_df)}, "
                     f"line numbers: {len(final_lines_df)}."
                 )
+                if _rl:
+                    _rl.flush()
                 return final_instruments_df, final_lines_df, debug_output_images
             else:
                 status_update_fn("Finished processing. No instruments found.")
+                if _rl:
+                    _rl.flush()
                 return pd.DataFrame(), final_lines_df, debug_output_images
 
         except Exception as e:
             status_update_fn(f"CRITICAL ERROR: {e.__class__.__name__}. See console for details.")
             logger.error(f"Error processing {filename_base}.pdf: {e}", exc_info=True)
+            if _rl:
+                _rl.flush()
             return pd.DataFrame(), pd.DataFrame(), debug_output_images

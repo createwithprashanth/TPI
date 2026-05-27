@@ -16,6 +16,7 @@ Adds three columns to the instruments DataFrame:
 import logging
 import math
 import re
+import time
 from typing import Optional
 
 import pandas as pd
@@ -130,16 +131,16 @@ def _build_prompt(tag: str, ix: int, iy: int, candidates: list) -> str:
 
 
 def _query_llm(tag: str, ix: int, iy: int, candidates: list, model: str) -> tuple:
-    """Call the LLM for one instrument. Returns (line_no, confidence, reason) or ('', 0, '')."""
+    """Call the LLM for one instrument. Returns (line_no, confidence, reason, raw) or ('', 0, '', None)."""
     prompt = _build_prompt(tag, ix, iy, candidates)
     result = generate(prompt, model=model, system=_SYSTEM_PROMPT)
     if result is None:
-        return "", 0.0, ""
+        return "", 0.0, "", None
 
     line_no = _resolve_line_no(str(result.get("line_number", "")).strip(), candidates)
     confidence = float(result.get("confidence", 0.0))
     reason = str(result.get("reason", "")).strip()
-    return line_no, confidence, reason
+    return line_no, confidence, reason, result
 
 
 def _parse_line_records(lines_df: pd.DataFrame) -> list:
@@ -165,6 +166,8 @@ def map_instruments_to_lines_llm(
     lines_df: pd.DataFrame,
     status_fn=None,
     model: str = "qwen2.5:7b",
+    run_logger=None,
+    page: int = 1,
 ) -> pd.DataFrame:
     """
     Augment instruments_df with LLM-derived line assignments.
@@ -183,15 +186,21 @@ def map_instruments_to_lines_llm(
 
     if lines_df.empty:
         _log("LLM line mapper: no line numbers on this page — skipping.")
+        if run_logger:
+            run_logger.log_llm_skip(page=page, reason="no line numbers on this page")
         return instruments_df
 
     if not _is_available(model):
         _log(f"LLM line mapper: Ollama/{model} not available — skipping.")
+        if run_logger:
+            run_logger.log_llm_skip(page=page, reason=f"Ollama/{model} not available")
         return instruments_df
 
     line_records = _parse_line_records(lines_df)
     if not line_records:
         _log("LLM line mapper: line coordinates not parseable — skipping.")
+        if run_logger:
+            run_logger.log_llm_skip(page=page, reason="line coordinates not parseable")
         return instruments_df
 
     unmatched_mask = instruments_df["Connected_Line"].fillna("") == ""
@@ -200,7 +209,10 @@ def map_instruments_to_lines_llm(
         return instruments_df
 
     _log(f"LLM line mapper: querying {model} for {unmatched_count} unmatched instruments…")
-    matched = _map_rows(instruments_df, instruments_df.index[unmatched_mask], line_records, model)
+    matched = _map_rows(
+        instruments_df, instruments_df.index[unmatched_mask],
+        line_records, model, run_logger=run_logger, page=page,
+    )
     _log(f"LLM line mapper: matched {matched}/{unmatched_count} instruments.")
     return instruments_df
 
@@ -210,6 +222,8 @@ def _map_rows(
     row_indices,
     line_records: list,
     model: str,
+    run_logger=None,
+    page: int = 1,
 ) -> int:
     """Process each unmatched row and write results directly into df. Returns match count."""
     matched = 0
@@ -222,9 +236,22 @@ def _map_rows(
 
         ix, iy = coords
         candidates = _build_candidates(ix, iy, line_records)
-        line_no, confidence, reason = _query_llm(tag, ix, iy, candidates, model)
 
-        if line_no and confidence >= _MIN_CONFIDENCE:
+        t0 = time.monotonic()
+        line_no, confidence, reason, raw = _query_llm(tag, ix, iy, candidates, model)
+        latency_ms = (time.monotonic() - t0) * 1000
+
+        accepted = bool(line_no and confidence >= _MIN_CONFIDENCE)
+
+        if run_logger:
+            run_logger.log_llm_call(
+                page=page, tag=tag, ix=ix, iy=iy,
+                candidates=candidates, raw_response=raw,
+                resolved_line=line_no, confidence=confidence,
+                reason=reason, latency_ms=latency_ms, accepted=accepted,
+            )
+
+        if accepted:
             df.at[row_idx, "Connected_Line"] = line_no
             df.at[row_idx, "Line_Confidence"] = round(confidence, 2)
             df.at[row_idx, "Line_Reason"] = reason
