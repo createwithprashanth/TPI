@@ -55,7 +55,7 @@ const WorkspaceShell: React.FC = () => {
           <div className="h-11 shrink-0 flex items-center justify-between px-4 border-b border-white/[0.06] bg-gray-950 z-20">
             <div className="flex items-center gap-2.5">
               <span className="text-white font-semibold text-sm tracking-tight">
-                {view === 'pid' ? 'P&ID Analyser' : 'Piping MTO'}
+                {view === 'pid' ? 'Instrumentation' : 'Piping MTO'}
               </span>
               {pidFiles.length === 1 && (
                 <span className="text-[11px] text-gray-500 bg-white/[0.06] px-2 py-0.5 rounded-full max-w-[220px] truncate">

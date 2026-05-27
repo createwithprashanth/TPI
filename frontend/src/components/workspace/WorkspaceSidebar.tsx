@@ -29,7 +29,7 @@ const NavItem: React.FC<NavItemProps> = ({ icon: Icon, label, active, onClick })
 
 // Registry — add new products here only
 const NAV_ITEMS: { view: WorkspaceView; icon: React.ElementType; label: string }[] = [
-  { view: 'pid',          icon: FileUp,      label: 'P&ID Analyser' },
+  { view: 'pid',          icon: FileUp,      label: 'Instrumentation' },
   { view: 'piping',       icon: BoxSelect,   label: 'Piping MTO' },
   { view: 'precisionpdf', icon: FileText,    label: 'PrecisionPDF' },
 ];
@@ -41,7 +41,7 @@ interface WorkspaceSidebarProps {
 }
 
 const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
-  view, onViewChange, appName = 'InstruMap',
+  view, onViewChange, appName = 'XYRA Studio',
 }) => {
   const { project, setProject } = useProject();
   const [showProjectForm, setShowProjectForm] = useState(false);

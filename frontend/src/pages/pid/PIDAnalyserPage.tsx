@@ -418,7 +418,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
         accent={(statusText as any).accent}
         loading={isLoading || isPreviewLoading}
         dot={dotColor}
-        rightLabel="P&ID Analyser"
+        rightLabel="Instrumentation"
       />
     </div>
   );
