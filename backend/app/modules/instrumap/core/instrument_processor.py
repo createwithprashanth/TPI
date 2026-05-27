@@ -62,8 +62,11 @@ def _calculate_dynamic_radius(calibration_radius, config_params):
 
 class InstrumentProcessor:
     def __init__(self):
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_APPLICATION_CREDENTIALS_PATH
-        self.vision_client = GoogleVisionClient().client
+        # Vision client is intentionally NOT initialised here.
+        # GoogleVisionClient() starts gRPC threads which crash macOS fork()
+        # inside the RQ worker.  Initialised lazily in _get_vision_client(),
+        # called only when the OCR path is actually needed.
+        self._vision_client = None
         self.poppler_path = POPPLER_PATH
         self.debug_mode = DEBUG_MODE
         self.debug_output_folder = DEBUG_OUTPUT_FOLDER
@@ -99,6 +102,11 @@ class InstrumentProcessor:
             'DEBUG_OUTPUT_FOLDER': DEBUG_OUTPUT_FOLDER
         }
 
+    def _get_vision_client(self):
+        if self._vision_client is None:
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_APPLICATION_CREDENTIALS_PATH
+            self._vision_client = GoogleVisionClient().client
+        return self._vision_client
 
     @staticmethod
     def _parse_legend(legend_df: pd.DataFrame):
@@ -409,7 +417,7 @@ class InstrumentProcessor:
                     final_instruments_df_page, page_lines_df = extract_instruments(
                         pil_image=pil_image,
                         blurred_image=blurred_image_page,
-                        vision_client=self.vision_client,
+                        vision_client=self._get_vision_client(),
                         dynamic_min_radius=dynamic_min_radius,
                         dynamic_max_radius=dynamic_max_radius,
                         legend_df=_legend_df,

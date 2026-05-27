@@ -159,6 +159,31 @@ def process_pid_task(
                 if not results_df.empty:
                     _pymupdf_succeeded = True
                     logger.info(f"[Job {job_id}] PyMuPDF: {len(results_df)} instruments found")
+
+                    # Geometry-based line mapping (vector path)
+                    if not lines_df.empty:
+                        try:
+                            from app.modules.instrumap.core.line_mapper import map_instruments_to_lines
+                            results_df = map_instruments_to_lines(
+                                results_df, lines_df, pid_temp_path, instrumap_config.PDF_DPI,
+                            )
+                            matched = (results_df.get("Connected_Line", pd.Series()) != "").sum()
+                            logger.info(f"[Job {job_id}] Line mapper: {matched}/{len(results_df)} matched")
+                        except Exception as lm_exc:
+                            logger.warning(f"[Job {job_id}] Line mapping failed (non-fatal): {lm_exc}")
+
+                    # LLM fallback for instruments still unmatched
+                    try:
+                        from app.modules.llm.line_mapper import map_instruments_to_lines_llm
+                        results_df = map_instruments_to_lines_llm(
+                            results_df, lines_df,
+                            status_fn=lambda m: logger.info(f"[Job {job_id}] LLM: {m}"),
+                        )
+                        llm_matched = (results_df.get("Connected_Line", pd.Series()) != "").sum()
+                        logger.info(f"[Job {job_id}] After LLM: {llm_matched}/{len(results_df)} matched")
+                    except Exception as llm_exc:
+                        logger.warning(f"[Job {job_id}] LLM mapping failed (non-fatal): {llm_exc}")
+
                     try:
                         processor._render_pymupdf_highlights(
                             pdf_content, results_df, batch_dir,
