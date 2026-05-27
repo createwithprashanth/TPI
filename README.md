@@ -1,56 +1,56 @@
-# InstruMap — Deployment Guide
+# XYRA Studio
 
-## Prerequisites
+Internal engineering platform for P&ID analysis. Runs on your server, accessed through a browser. No data leaves the network.
 
-- Docker Desktop installed and running
-- Google Vision API credentials file (`google_credentials.json`)
+## Tools
 
-## Setup
+| Tool | What it does |
+|---|---|
+| **Instrumentation** | Extracts instrument tags from P&ID drawings. Generates engineering Excel reports — Instrument Index, IO List, Verification Log, Line List. |
+| **Piping MTO** | Rubber-band a symbol on any drawing, counts every occurrence across all uploaded P&IDs. Exports MTO Excel, CSV, annotated drawings. |
+| **PrecisionPDF** | Full-featured PDF viewer and annotation editor for reviewing drawings. |
 
-1. Copy `.env.example` to `.env`:
-   ```
-   cp .env.example .env
-   ```
+## Quick Start (Docker)
 
-2. Place your Google Vision API credentials file in this folder:
-   ```
-   MTO/google_credentials.json
-   ```
+**Prerequisites:** Docker Desktop installed and running.
 
-3. Build and start all services:
-   ```
-   docker compose up --build
-   ```
+```bash
+# 1. Clone
+git clone https://github.com/XYRA-AI-ENGINEERING/XYRA_Studio
+cd XYRA_Studio
 
-4. Open the app in your browser:
-   ```
-   http://localhost
-   ```
+# 2. Add credentials
+cp .env.example .env          # edit as needed
+# Place Google Vision key at: ./google_credentials.json
 
-## How to use
+# 3. Start
+docker compose up --build
 
-1. **(Optional) Enter project details** — click "Project Details" in the left sidebar to fill in project name, client, etc. These appear on the Excel deliverables.
+# 4. Open in browser
+http://localhost
+```
 
-2. **Open P&ID** — click "Open Files" and select one or more PDF drawings.
+On first start, the Ollama container will download the Qwen2.5 7B model (~4.7 GB). This takes a few minutes and only happens once.
 
-3. **Set reference point** — click on any instrument circle in the drawing to set the calibration reference.
+## Windows Server (Customer Deployment)
 
-4. **Extract & Download** — click the "Extract & Download" button. The results ZIP (Excel files) downloads automatically when processing is complete.
+See [deploy/install.ps1](deploy/install.ps1) for the guided installer.  
+For air-gapped sites with no internet: see [deploy/install-offline.ps1](deploy/install-offline.ps1).
 
 ## Stopping
 
-```
-docker compose down
-```
-
-To also remove stored data (batch results, Redis data):
-```
-docker compose down -v
+```bash
+docker compose down          # stop services, keep data
+docker compose down -v       # stop and delete all stored data
 ```
 
 ## Updating
 
-Pull the latest files and rebuild:
-```
+```bash
+git pull
 docker compose up --build
 ```
+
+---
+
+Full technical documentation: [DOCUMENTATION.md](DOCUMENTATION.md)
