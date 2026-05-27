@@ -1,4 +1,4 @@
-# P&ID Platform — Technical Documentation
+# XYRA Studio — Technical Documentation
 
 ---
 
@@ -17,23 +17,26 @@
 
 ## Overview
 
-The P&ID Platform is an internal web application for process engineers working with Piping and Instrumentation Diagrams (P&IDs). It runs on a customer's internal server and is accessed through a browser by multiple users simultaneously.
+XYRA Studio is an internal web application for process engineers working with Piping and Instrumentation Diagrams (P&IDs). It runs on a customer's internal server and is accessed through a browser by multiple users simultaneously.
 
 The platform currently has three tools, each operating on uploaded PDF drawings:
 
 | Tool | Purpose |
 |---|---|
-| **P&ID Analyser** | Extracts instrument tags from P&ID drawings and generates engineering Excel reports |
+| **Instrumentation** | Extracts instrument tags from P&ID drawings and generates engineering Excel reports |
 | **Piping MTO** | Counts piping symbols (valves, fittings, etc.) across drawings using template matching |
 | **PrecisionPDF** | Full-featured PDF viewer and annotation editor for reviewing drawings |
 
 All tools share a common workspace shell: a single file upload, a file navigator for multi-drawing sets, and per-drawing page navigation. The user opens a set of P&ID PDF files once and switches between tools without re-uploading.
 
+**Repository:** [XYRA-AI-ENGINEERING/XYRA_Studio](https://github.com/XYRA-AI-ENGINEERING/XYRA_Studio) (previously `MTO_OCR`)
+**Frontend package name:** `xyra-studio-frontend`
+
 ---
 
 ## Tools
 
-### 1. P&ID Analyser
+### 1. Instrumentation
 
 Automatically identifies and extracts instrument tags from P&ID drawings using OCR and a multi-stage processing pipeline.
 
@@ -137,7 +140,7 @@ Browser
                                                     │
                                     ┌───────────────┼───────────────┐
                                     │               │               │
-                             pid_analyser     piping_mto     (future modules)
+                           instrumentation  piping_mto     (future modules)
                              routes/service   routes/service
                                     │               │
                                     │         OpenCV detection
@@ -162,7 +165,7 @@ Browser
 
 - **Async API, sync CPU work** — FastAPI handlers are `async def`. CPU-bound work (OpenCV, pdf2image) is offloaded to `ThreadPoolExecutor` via `run_in_executor` so the event loop is never blocked.
 
-- **RQ for long jobs** — P&ID analysis (OCR + Excel generation) can take 30–120 seconds per drawing. It runs in a separate worker process so the API stays responsive. Frontend polls `GET /api/v1/pid/job/{job_id}`.
+- **RQ for long jobs** — Instrumentation analysis (OCR + Excel generation) can take 30–120 seconds per drawing. It runs in a separate worker process so the API stays responsive. Frontend polls `GET /api/v1/pid/job/{job_id}`.
 
 - **Shared workspace context** — the React `WorkspaceContext` owns file state and PDF preview. All three tools read from it; none owns the files independently. This makes switching tools without re-uploading natural.
 
@@ -261,7 +264,7 @@ frontend/src/
 ├── pages/
 │   ├── InstruMapPage.tsx            Workspace shell — layout, file input, view routing
 │   ├── pid/
-│   │   └── PIDAnalyserPage.tsx      P&ID Analyser UI — calibration, job polling, results
+│   │   └── PIDAnalyserPage.tsx      Instrumentation UI — calibration, job polling, results
 │   ├── mto/
 │   │   ├── PipingMTOPage.tsx        Piping MTO UI — rubber-band draw, results panel, exports
 │   │   └── hooks/
@@ -300,7 +303,7 @@ frontend/src/
 
 ## Data Flow
 
-### P&ID Analyser — Job lifecycle
+### Instrumentation — Job lifecycle
 
 ```
 POST /api/v1/pid/preview        ← PDF bytes
@@ -412,7 +415,7 @@ The architecture is designed for new tools to be added as independent modules. A
 2. Register its router in `main.py`
 3. Create `frontend/src/pages/{tool}/` with a page component and hooks
 4. Add a `services/{tool}.ts` for API calls
-5. Add a nav item in `WorkspaceSidebar.tsx`
+5. Add a nav item in `WorkspaceSidebar.tsx` (nav labels live in the `NAV_ITEMS` registry at the top of that file)
 
 ### Planned
 
