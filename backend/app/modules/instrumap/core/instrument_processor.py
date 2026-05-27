@@ -36,6 +36,13 @@ if USE_PYMUPDF:
     from .level2_extraction_pymupdf import extract_from_pdf as pymupdf_extract
     from .line_mapper import map_instruments_to_lines
 
+try:
+    from ...llm.line_mapper import map_instruments_to_lines_llm as _llm_map
+    _LLM_AVAILABLE = True
+except ImportError:
+    _LLM_AVAILABLE = False
+    _llm_map = None
+
 # --- UTILITY FUNCTIONS ---
 def _calculate_dynamic_radius(calibration_radius, config_params):
     """
@@ -396,6 +403,18 @@ class InstrumentProcessor:
 
                     if not final_instruments_df_page.empty:
                         final_instruments_df_page['P&ID_Page'] = page_number
+
+                        # LLM line mapping — runs after OCR; no-op if Ollama is down
+                        if _LLM_AVAILABLE and not page_lines_df.empty:
+                            try:
+                                final_instruments_df_page = _llm_map(
+                                    final_instruments_df_page,
+                                    page_lines_df,
+                                    status_fn=lambda msg: status_update_fn(f"LLM P{page_number}: {msg}"),
+                                )
+                            except Exception as _llm_exc:
+                                status_update_fn(f"LLM mapping skipped (non-fatal): {_llm_exc}")
+
                         all_instruments_data.append(final_instruments_df_page)
 
                     if not page_lines_df.empty:
