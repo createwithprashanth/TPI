@@ -87,6 +87,13 @@ _FALLBACK_MAX_DIST_PX = 1500.0
 # excludes panel instruments at the top of a drawing whose labels are far off.
 _FALLBACK_AXIS_BAND_PX = 350.0
 
+# Loop propagation distance gate — an instrument inherits its loop-mate's line
+# only if it is within this many pixels of the line-number label.
+# 1800 px ≈ 6 in @ 300 DPI covers legitimate same-area propagation (TW/TE/TIT
+# on the same stub) while excluding panel instruments (y≈1834) from inheriting
+# lines whose labels sit 2 000–5 000 px away on process runs.
+_PROPAGATION_MAX_DIST_PX = 1800.0
+
 
 # ── Coordinate helpers ────────────────────────────────────────────────────────
 
@@ -527,6 +534,21 @@ def map_instruments_to_lines(
     # FIT-1762P-12 gets mapped → FE-1762P-12 should show the same line.
     # Group by full tag-minus-type-prefix ("1762P-12") not just Loop ("1762P"),
     # so unrelated measurements that share a parent loop number stay independent.
+    #
+    # Distance gate: only propagate to instruments within _PROPAGATION_MAX_DIST_PX
+    # of the line label — prevents panel instruments (far from process runs) from
+    # inheriting a line number via a nearby loop-mate on the process piping.
+
+    # Build label pixel-coordinate lookup for the distance gate
+    _label_coords: Dict[str, Tuple[float, float]] = {}
+    if "Coordinates" in lines_df.columns and "Line_Number" in lines_df.columns:
+        for _, _lr in lines_df.iterrows():
+            try:
+                _lx, _ly = map(float, str(_lr["Coordinates"]).split(","))
+                _label_coords[str(_lr["Line_Number"])] = (_lx, _ly)
+            except Exception:
+                pass
+
     if "Loop" in instruments_df.columns and "Tag_Number" in instruments_df.columns:
         def _loop_instance(row):
             tag = str(row.get("Tag_Number", "")).strip()
@@ -549,10 +571,20 @@ def map_instruments_to_lines(
                         break
             if not best_line:
                 continue
-            # Stamp it on every field instrument in the loop instance
+            # Stamp it on every field instrument in the loop instance,
+            # but only if the instrument is close enough to the line label.
+            lbl_coord = _label_coords.get(best_line)
             for idx, row in group.iterrows():
                 if (not _is_soft_tag(row, transmitter_set)
                         and not str(instruments_df.at[idx, "Connected_Line"]).strip()):
+                    if lbl_coord is not None:
+                        try:
+                            ic = str(row.get("Coordinates", "")).split(",")
+                            ix, iy = float(ic[0]), float(ic[1])
+                            if _dist((ix, iy), lbl_coord) > _PROPAGATION_MAX_DIST_PX:
+                                continue  # too far — likely a panel instrument
+                        except Exception:
+                            pass
                     instruments_df.at[idx, "Connected_Line"] = best_line
                     graph_matched += 1  # count as matched for logging
 
