@@ -28,6 +28,20 @@ _MIN_CONFIDENCE = 0.50
 # Regex that identifies OCR noise / annotation fragments — never send to LLM
 _NOISE_RE = re.compile(r"^(NOTE[-_]|[A-Z]{1,2}$)", re.IGNORECASE)
 
+# ISA-5.1 first-letter decode table — injected into the prompt so the model
+# never has to recall it from weights (avoids VT→Temperature confusion, etc.)
+_ISA_FIRST = {
+    "A": "Analysis", "B": "Burner/Combustion", "C": "Conductivity",
+    "D": "Density", "E": "Voltage", "F": "Flow",
+    "G": "Gauging/Glass", "H": "Hand/Manual", "I": "Current (electrical)",
+    "J": "Power", "K": "Time/Schedule", "L": "Level",
+    "M": "Moisture/Humidity", "N": "User-defined", "O": "User-defined",
+    "P": "Pressure", "Q": "Quantity/Totalizer", "R": "Radiation",
+    "S": "Speed/Frequency", "T": "Temperature", "U": "Multivariable",
+    "V": "Vibration/Mechanical", "W": "Weight/Force", "X": "Unclassified/Project-specific",
+    "Y": "Event/Relay/Converter", "Z": "Position/Stroke",
+}
+
 # IO_Type values that need enrichment
 _REVIEW_IO = {"REVIEW"}
 
@@ -73,14 +87,17 @@ def _needs_enrichment(row: pd.Series) -> bool:
 
 def _build_prompt(tag: str, instr_type: str, loop: str) -> str:
     """
-    Minimal prompt — the ISA-5.1 knowledge is baked into the model's
-    system context via the Modelfile, so we only need to supply the tag.
+    Include explicit ISA first-letter decode so the model never has to recall
+    it from base weights (prevents VT→Temperature, ST→Temperature Switch, etc.).
     """
-    ctx = f"\nLoop/system context: {loop}" if loop and loop not in ("nan", "") else ""
+    first = instr_type[0].upper() if instr_type else ""
+    meaning = _ISA_FIRST.get(first, "")
+    decode = f"  First letter {first} = {meaning} (ISA-5.1)\n" if meaning else ""
+    ctx = f"  Loop/system: {loop}\n" if loop and loop not in ("nan", "") else ""
     return (
-        f"Classify this P&ID instrument tag:\n"
-        f"  Tag:       {tag}\n"
-        f"  Type code: {instr_type}{ctx}\n\n"
+        f"Classify P&ID tag {tag} (type code: {instr_type}).\n"
+        f"{decode}"
+        f"{ctx}"
         f"Return ONLY the JSON object."
     )
 
