@@ -23,6 +23,7 @@ from app.modules.instrumap.core.standard_library import (
     compute_programmatic_fields,
 )
 from app.modules.instrumap.core.tag_validator import validate_tag_formats
+from app.modules.instrumap.core.type_enricher import enrich_review_types
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +298,7 @@ def process_pid_task(
                 master_df = full_df.drop_duplicates(subset=["Tag_Number"]).copy()
                 master_df = refine_descriptions_by_loop_context(master_df)
                 master_df = compute_programmatic_fields(master_df)
+                master_df = enrich_review_types(master_df)
 
                 write_engineering_excel(
                     batch_dir, master_df, full_df,
