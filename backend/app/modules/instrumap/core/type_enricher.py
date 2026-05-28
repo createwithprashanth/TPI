@@ -28,8 +28,8 @@ _MIN_CONFIDENCE = 0.50
 # Regex that identifies OCR noise / annotation fragments — never send to LLM
 _NOISE_RE = re.compile(r"^(NOTE[-_]|[A-Z]{1,2}$)", re.IGNORECASE)
 
-# ISA-5.1 first-letter decode table — injected into the prompt so the model
-# never has to recall it from weights (avoids VT→Temperature confusion, etc.)
+# ISA-5.1 first-letter decode — injected into the prompt to avoid base-weight
+# confusion (VT→Temperature, ST→Temperature Switch, etc.)
 _ISA_FIRST = {
     "A": "Analysis", "B": "Burner/Combustion", "C": "Conductivity",
     "D": "Density", "E": "Voltage", "F": "Flow",
@@ -40,6 +40,24 @@ _ISA_FIRST = {
     "S": "Speed/Frequency", "T": "Temperature", "U": "Multivariable",
     "V": "Vibration/Mechanical", "W": "Weight/Force", "X": "Unclassified/Project-specific",
     "Y": "Event/Relay/Converter", "Z": "Position/Stroke",
+}
+
+# ISA-5.1 last-letter (function) decode — injected when the final letter of the
+# type code could be ambiguous (T after V or S is Transmitter, not Temperature/Switch)
+_ISA_LAST = {
+    "T": "Transmitter (physical field device, outputs 4-20mA)",
+    "E": "Element/Sensor (passive — no standalone electrical output)",
+    "W": "Well/Thermowell (passive mechanical fitting)",
+    "C": "Controller (DCS software block)",
+    "S": "Switch (discrete physical contact)",
+    "V": "Valve (final control element)",
+    "I": "Indicator (display)",
+    "A": "Alarm (DCS software setpoint)",
+    "R": "Recorder (DCS historian)",
+    "Y": "Relay/Converter/Solenoid",
+    "Z": "Driver/Actuator",
+    "G": "Gauge/Sight Glass (mechanical, no electrical output)",
+    "O": "Orifice/Restriction",
 }
 
 # IO_Type values that need enrichment
@@ -87,16 +105,36 @@ def _needs_enrichment(row: pd.Series) -> bool:
 
 def _build_prompt(tag: str, instr_type: str, loop: str) -> str:
     """
-    Include explicit ISA first-letter decode so the model never has to recall
-    it from base weights (prevents VT→Temperature, ST→Temperature Switch, etc.).
+    Decode first letter, last letter, and HH/LL qualifier explicitly so the
+    model doesn't have to recall any ISA-5.1 rule from base weights.
     """
-    first = instr_type[0].upper() if instr_type else ""
-    meaning = _ISA_FIRST.get(first, "")
-    decode = f"  First letter {first} = {meaning} (ISA-5.1)\n" if meaning else ""
+    code  = instr_type.upper()
+    first = code[0] if code else ""
+    last  = code[-1] if len(code) > 1 else ""
+
+    first_line = (f"  First letter {first} = {_ISA_FIRST[first]} (ISA-5.1 measured variable)\n"
+                  if first in _ISA_FIRST else "")
+    last_line  = (f"  Last letter  {last} = {_ISA_LAST[last]} (ISA-5.1 function)\n"
+                  if last in _ISA_LAST and last != first else "")
+
+    # Decode HH / LL safety qualifiers explicitly
+    qualifier = ""
+    if code.endswith("HH"):
+        qualifier = "  Suffix HH = High High (second-level safety trip, System=SIS/ESD)\n"
+    elif code.endswith("LL"):
+        qualifier = "  Suffix LL = Low Low (second-level safety trip, System=SIS/ESD)\n"
+    elif code.endswith("H") and not code.endswith("HH"):
+        qualifier = "  Suffix H = High (first-level alarm or trip)\n"
+    elif code.endswith("L") and not code.endswith("LL") and not code.endswith("AL"):
+        qualifier = "  Suffix L = Low (first-level alarm or trip)\n"
+
     ctx = f"  Loop/system: {loop}\n" if loop and loop not in ("nan", "") else ""
+
     return (
-        f"Classify P&ID tag {tag} (type code: {instr_type}).\n"
-        f"{decode}"
+        f"Classify P&ID tag {tag} (type code: {code}).\n"
+        f"{first_line}"
+        f"{last_line}"
+        f"{qualifier}"
         f"{ctx}"
         f"Return ONLY the JSON object."
     )
