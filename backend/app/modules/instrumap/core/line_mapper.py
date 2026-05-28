@@ -89,10 +89,10 @@ _FALLBACK_AXIS_BAND_PX = 350.0
 
 # Loop propagation distance gate — an instrument inherits its loop-mate's line
 # only if it is within this many pixels of the line-number label.
-# 1800 px ≈ 6 in @ 300 DPI covers legitimate same-area propagation (TW/TE/TIT
+# 2000 px ≈ 6.7 in @ 300 DPI covers legitimate same-area propagation (TW/TE/TIT
 # on the same stub) while excluding panel instruments (y≈1834) from inheriting
 # lines whose labels sit 2 000–5 000 px away on process runs.
-_PROPAGATION_MAX_DIST_PX = 1800.0
+_PROPAGATION_MAX_DIST_PX = 2000.0
 
 
 # ── Coordinate helpers ────────────────────────────────────────────────────────
@@ -578,32 +578,46 @@ def map_instruments_to_lines(
         for loop_val, group in instruments_df.groupby(loop_key_series):
             if not str(loop_val).strip():
                 continue
-            # Find best line in this loop instance (from any non-soft-tag member)
-            best_line = ""
+
+            # Collect every (line_number, label_coord) already matched in this group.
+            # A group can have members matched to different lines (e.g. TW on the main
+            # run vs PIT on a branch), so we build the full set rather than just taking
+            # the first match.
+            available: List[Tuple[str, Tuple[float, float]]] = []
             for idx, row in group.iterrows():
                 if not _is_soft_tag(row, transmitter_set):
                     cl = str(instruments_df.at[idx, "Connected_Line"]).strip()
-                    if cl:
-                        best_line = cl
-                        break
-            if not best_line:
+                    if cl and cl in _label_coords:
+                        entry = (cl, _label_coords[cl])
+                        if entry not in available:
+                            available.append(entry)
+
+            if not available:
                 continue
-            # Stamp it on every field instrument in the loop instance,
-            # but only if the instrument is close enough to the line label.
-            lbl_coord = _label_coords.get(best_line)
+
+            # For each unmatched field instrument in the group, assign the CLOSEST
+            # available line whose label is within the propagation distance gate.
             for idx, row in group.iterrows():
-                if (not _is_soft_tag(row, transmitter_set)
-                        and not str(instruments_df.at[idx, "Connected_Line"]).strip()):
-                    if lbl_coord is not None:
-                        try:
-                            ic = str(row.get("Coordinates", "")).split(",")
-                            ix, iy = float(ic[0]), float(ic[1])
-                            if _dist((ix, iy), lbl_coord) > _PROPAGATION_MAX_DIST_PX:
-                                continue  # too far — likely a panel instrument
-                        except Exception:
-                            pass
+                if (_is_soft_tag(row, transmitter_set)
+                        or str(instruments_df.at[idx, "Connected_Line"]).strip()):
+                    continue
+                try:
+                    ic = str(row.get("Coordinates", "")).split(",")
+                    ix, iy = float(ic[0]), float(ic[1])
+                except Exception:
+                    continue
+
+                best_line = ""
+                best_dist = float("inf")
+                for line_num, (lx, ly) in available:
+                    d = _dist((ix, iy), (lx, ly))
+                    if d <= _PROPAGATION_MAX_DIST_PX and d < best_dist:
+                        best_dist = d
+                        best_line = line_num
+
+                if best_line:
                     instruments_df.at[idx, "Connected_Line"] = best_line
-                    graph_matched += 1  # count as matched for logging
+                    graph_matched += 1
 
     total_field = sum(
         1 for _, r in instruments_df.iterrows()
