@@ -165,7 +165,7 @@ def map_instruments_to_lines_llm(
     instruments_df: pd.DataFrame,
     lines_df: pd.DataFrame,
     status_fn=None,
-    model: str = "qwen2.5:7b",
+    model: str = "xyra-pid-engineer",
     run_logger=None,
     page: int = 1,
 ) -> pd.DataFrame:
