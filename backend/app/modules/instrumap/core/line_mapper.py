@@ -121,8 +121,9 @@ def _extract_segments(page) -> List[Tuple[float, float, float, float]]:
     Extract all straight line segments from PDF vector paths.
     Returns list of (x0, y0, x1, y1) in PDF points.
 
-    Two sources:
+    Sources:
       - m+l path items (explicit lineto drawing commands)
+      - h (closepath) items: adds the implicit segment back to the subpath start
       - re (rectangle) items where aspect ratio >= _MIN_RECT_ASPECT:
         these are the "hairline" filled rectangles that many CAD exporters
         use for pipe runs instead of plain line strokes.
@@ -136,15 +137,23 @@ def _extract_segments(page) -> List[Tuple[float, float, float, float]]:
             continue
         items = path.get("items", [])
         current = None
+        subpath_start = None
         for item in items:
             kind = item[0]
             if kind == "m":
                 current = (item[1].x, item[1].y)
+                subpath_start = current
             elif kind == "l" and current is not None:
                 end = (item[1].x, item[1].y)
                 if _dist(current, end) > 1.0:
                     segments.append((current[0], current[1], end[0], end[1]))
                 current = end
+            elif kind == "h" and current is not None and subpath_start is not None:
+                # Closepath: draws an implicit line from current back to subpath start.
+                # Many CAD tools use this to close pipe-rectangle paths.
+                if _dist(current, subpath_start) > 1.0:
+                    segments.append((current[0], current[1], subpath_start[0], subpath_start[1]))
+                current = subpath_start
             elif kind == "re":
                 # Convert thin rectangle to a centre-line segment.
                 rect = item[1]  # fitz.Rect
@@ -496,6 +505,14 @@ def map_instruments_to_lines(
                 r_pt = _px_to_pt(r_px, dpi)
 
                 stub_indices = _segments_crossing_circle(segments, cx_pt, cy_pt, r_pt)
+                if not stub_indices:
+                    # Second pass with wider tolerance — handles small gaps between
+                    # the pipe segment endpoint and the instrument symbol boundary.
+                    # Cap at 20pt (~67px @300 DPI) to avoid false matches in dense drawings.
+                    wider_tol = _STUB_TOUCH_TOLERANCE_PT + min(r_pt * 0.8, 20.0)
+                    stub_indices = _segments_crossing_circle(
+                        segments, cx_pt, cy_pt, r_pt, tol=wider_tol
+                    )
                 if stub_indices:
                     run_indices = _bfs_run(stub_indices, adj)
                     # Discard segments too far from the instrument — prevents BFS
