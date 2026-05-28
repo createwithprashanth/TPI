@@ -100,6 +100,18 @@ Examples: PIT, FIT, TIT, LIT, PDT, AT, ZT, VT, WT, ST, FQT, PDIT
 Exception: ZT (position) → Signal = "4-20mA"
 Exception: FQT (flow totalizer transmitter) → AI, often with pulse output
 
+CRITICAL — MULTI-LETTER TRANSMITTER DISAMBIGUATION:
+The FULL type code determines the variable, NOT just the last letter T.
+  VT   = V(Vibration) + T(Transmitter) → VIBRATION Transmitter, IO_Type=AI
+         Do NOT read as V=Valve + T=Temperature. VT is always Vibration Transmitter.
+  ST   = S(Speed) + T(Transmitter)     → SPEED Transmitter, IO_Type=AI
+  WT   = W(Weight) + T(Transmitter)    → WEIGHT Transmitter, IO_Type=AI
+  DT   = D(Density) + T(Transmitter)   → DENSITY Transmitter, IO_Type=AI
+  AT   = A(Analysis) + T(Transmitter)  → ANALYSER Transmitter, IO_Type=AI
+  FQT  = F(Flow) + Q(Totalizer) + T    → Flow Totalizer Transmitter, IO_Type=AI
+  PDT  = P(Pressure) + D(Differential) + T → Pressure Differential Transmitter, AI
+  PDIT = P + D + I(Indicating) + T     → Pressure Differential Indicating Transmitter, AI
+
 ── ELEMENTS & WELLS (ends in E or W) ────────────────────────────
 Primary passive sensor — no standalone electrical output.
 IO_Type = ""  |  Signal = ""  |  Power = ""  |  Mounting = "Field / Direct"
@@ -529,3 +541,84 @@ Confidence scale:
 For non-instruments:
   {"description": "", "io_type": "", "system": "", "confidence": 0.0}
 """
+
+MESSAGE user Classify P&ID tag VT-101 (type VT). Return ONLY JSON.
+MESSAGE assistant {"description": "Vibration Transmitter", "io_type": "AI", "system": "DCS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag ST-102 (type ST). Return ONLY JSON.
+MESSAGE assistant {"description": "Speed Transmitter", "io_type": "AI", "system": "DCS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag WT-103 (type WT). Return ONLY JSON.
+MESSAGE assistant {"description": "Weight Transmitter", "io_type": "AI", "system": "DCS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag VSHH-201 (type VSHH). Return ONLY JSON.
+MESSAGE assistant {"description": "Vibration Switch High High", "io_type": "DI", "system": "SIS/ESD", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag SSHH-202 (type SSHH). Return ONLY JSON.
+MESSAGE assistant {"description": "Speed Switch High High (Overspeed Trip)", "io_type": "DI", "system": "SIS/ESD", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag SY-301 (type SY). Return ONLY JSON.
+MESSAGE assistant {"description": "Solenoid Valve", "io_type": "DO", "system": "DCS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag FY-302 (type FY). Return ONLY JSON.
+MESSAGE assistant {"description": "Flow Signal Converter", "io_type": "AO", "system": "DCS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag PY-303 (type PY). Return ONLY JSON.
+MESSAGE assistant {"description": "Pressure Converter (I/P Transducer)", "io_type": "AO", "system": "DCS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag PDIT-401 (type PDIT). Return ONLY JSON.
+MESSAGE assistant {"description": "Pressure Differential Indicating Transmitter", "io_type": "AI", "system": "DCS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag PDIC-402 (type PDIC). Return ONLY JSON.
+MESSAGE assistant {"description": "Pressure Differential Indicating Controller", "io_type": "Soft Link", "system": "DCS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag XFD-501 (type XFD). Return ONLY JSON.
+MESSAGE assistant {"description": "Flame Detector", "io_type": "DI", "system": "F&GS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag XTGD-502 (type XTGD). Return ONLY JSON.
+MESSAGE assistant {"description": "Toxic Gas Detector", "io_type": "AI", "system": "F&GS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag XGD-503 (type XGD). Return ONLY JSON.
+MESSAGE assistant {"description": "Combustible Gas Detector", "io_type": "AI", "system": "F&GS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag XTGA-504 (type XTGA). Return ONLY JSON.
+MESSAGE assistant {"description": "Toxic Gas Alarm", "io_type": "Soft Link", "system": "F&GS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag XMCA-505 (type XMCA). Return ONLY JSON.
+MESSAGE assistant {"description": "Fire & Gas Motor Control Annunciator", "io_type": "Soft Link", "system": "F&GS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag PAHH-601 (type PAHH). Return ONLY JSON.
+MESSAGE assistant {"description": "Pressure Alarm High High", "io_type": "Soft Link", "system": "SIS/ESD", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag LSLL-602 (type LSLL). Return ONLY JSON.
+MESSAGE assistant {"description": "Level Switch Low Low", "io_type": "DI", "system": "SIS/ESD", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag HSD-701 (type HSD). Return ONLY JSON.
+MESSAGE assistant {"description": "Hand Switch (Shutdown)", "io_type": "DI", "system": "SIS/ESD", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag CVZT-702 (type CVZT). Return ONLY JSON.
+MESSAGE assistant {"description": "Control Valve Position Transmitter", "io_type": "AI", "system": "DCS", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag SZSH-703 (type SZSH). Return ONLY JSON.
+MESSAGE assistant {"description": "Safety Position Switch High (Open)", "io_type": "DI", "system": "SIS/ESD", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag TP-801 (type TP). Return ONLY JSON.
+MESSAGE assistant {"description": "Test Point", "io_type": "", "system": "", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag NOTE-5R (type NOTE). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag S-R (type S). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag I (type I). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag PPHS-101A (type PPHS). Return ONLY JSON.
+MESSAGE assistant {"description": "Pump Position High Speed Switch", "io_type": "DI", "system": "DCS", "confidence": 0.8}
+
+MESSAGE user Classify P&ID tag EI-101 (type EI). Return ONLY JSON.
+MESSAGE assistant {"description": "Electrical Indicator", "io_type": "Soft Link", "system": "DCS", "confidence": 0.9}
+
+MESSAGE user Classify P&ID tag CC-101 (type CC). Return ONLY JSON.
+MESSAGE assistant {"description": "Combustion Controller", "io_type": "Soft Link", "system": "DCS", "confidence": 0.8}
