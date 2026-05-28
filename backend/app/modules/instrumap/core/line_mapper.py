@@ -60,11 +60,16 @@ _MIN_RECT_ASPECT = 5.0
 _MAX_STUB_SEARCH_RADIUS_PT = 350.0
 
 # ── Directional fallback parameters ──────────────────────────────────────────
-# Maximum pixel distance to look for a line label from an instrument centre
-_FALLBACK_MAX_DIST_PX = 800.0
+# Maximum pixel distance to look for a line label from an instrument centre.
+# 1500 px ≈ 5 inches @ 300 DPI — covers branch instruments whose nearest pipe
+# label sits several inches away on the main run.
+_FALLBACK_MAX_DIST_PX = 1500.0
 # A label is "axially aligned" if it is within this many pixels of the
-# instrument's horizontal or vertical axis
-_FALLBACK_AXIS_BAND_PX = 60.0
+# instrument's horizontal or vertical axis.
+# 350 px ≈ 1.2 inches — generous enough to handle labels that sit slightly
+# offset from the instrument's exact axis on wide pipe runs, yet still
+# excludes panel instruments at the top of a drawing whose labels are far off.
+_FALLBACK_AXIS_BAND_PX = 350.0
 
 
 # ── Coordinate helpers ────────────────────────────────────────────────────────
