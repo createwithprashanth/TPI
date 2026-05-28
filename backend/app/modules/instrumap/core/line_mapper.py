@@ -35,6 +35,22 @@ except ImportError:
 # has no wired IO but is still a physical field device.
 _SOFT_IO_TYPES = {"Soft Link"}
 
+# Instrument types that are always physically mounted on a process pipe,
+# regardless of IO_Type.  The extraction layer sometimes tags these as
+# "Soft Link" (e.g. because they have pneumatic/hydraulic signal lines),
+# but they still have a hard process-pipe connection that must be recorded.
+_ALWAYS_PHYSICAL = frozenset({
+    # Shutoff / safety valves
+    "SSV", "SSSV", "SSOV", "MSOV", "SDV", "ESDV", "BDV",
+    "PSV", "PRV", "POSV",
+    # Control valves and their actuators
+    "FCV", "LCV", "PCV", "TCV", "HCV", "MOV", "ASDV", "CVA",
+    # In-line metering elements
+    "RO", "FO",
+    # Test points
+    "TP",
+})
+
 # Tolerance added to circle radius when checking which side of the boundary
 # a segment endpoint is on.  8 pt ≈ 0.11 inch at 300 DPI — generous.
 _STUB_TOUCH_TOLERANCE_PT = 8.0
@@ -343,15 +359,21 @@ def _is_soft_tag(row: pd.Series, transmitter_set: set) -> bool:
     Return True if this instrument is a soft tag (no physical pipe connection).
 
     Rules applied in order:
-    1. IO_Type is 'Soft Link' or empty — InstrumentLogicEngine already flagged it
+    0. Type is in _ALWAYS_PHYSICAL → never a soft tag (overrides IO_Type).
+    1. IO_Type is 'Soft Link' → flagged as soft by the extraction layer.
     2. Type ends in 'I' (Indicator) or 'R' (Recorder) AND a transmitter with the
-       same loop number exists → DCS faceplate, not a field device
+       same loop number exists → DCS faceplate, not a field device.
     """
+    instr_type = str(row.get("Type", "")).strip().upper()
+
+    # Physical inline devices always have a process-pipe connection.
+    if instr_type in _ALWAYS_PHYSICAL:
+        return False
+
     io_type = str(row.get("IO_Type", "")).strip()
     if io_type in _SOFT_IO_TYPES:
         return True
 
-    instr_type = str(row.get("Type", "")).strip().upper()
     loop = str(row.get("Loop", "")).strip()
 
     if instr_type.endswith("I") or instr_type.endswith("R"):
