@@ -13,7 +13,7 @@ type ResizeHandle = "nw" | "ne" | "sw" | "se" | null;
 
 export default function AnnotationLayer({ pageNumber, width, height }: Props) {
   const { selectedTool, annotations, dispatch, toolColors, signatureImage, selectedAnnotationId,
-          pidSelectedSymbolId, pidColor } = usePdfContext();
+          pidSelectedSymbolId, pidColor, stampText, measureUnit, measureScale } = usePdfContext();
 
   const [draft, setDraft] = useState<{
     x: number; y: number; width: number; height: number;
@@ -77,7 +77,9 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
   // Helper function to check if annotation type supports drag/resize
   const isDraggableType = (type: string): boolean => {
     return type === "shape-rect" || type === "shape-circle" || type === "arrow"
-        || type === "textbox" || type === "draw" || type === "pid-symbol";
+        || type === "textbox" || type === "draw" || type === "pid-symbol"
+        || type === "stamp" || type === "measure"
+        || type === "form-text" || type === "form-checkbox" || type === "form-date" || type === "form-signature";
   };
   
   // Start drag for moving/resizing annotations
@@ -240,20 +242,26 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
                      selectedTool === "shape-rect" || 
                      selectedTool === "shape-circle" || 
                      selectedTool === "arrow" ||
+                     selectedTool === "measure" ||
                      selectedTool === "draw";
   
   // Tools that use click interaction
-  const isClickTool = selectedTool === "textbox" || selectedTool === "signature"
-                   || selectedTool === "pid-symbol";
+  const isClickTool = selectedTool === "textbox" || selectedTool === "signature" || selectedTool === "stamp"
+                   || selectedTool === "pid-symbol" || selectedTool === "form-text"
+                   || selectedTool === "form-checkbox" || selectedTool === "form-date"
+                   || selectedTool === "form-signature";
 
   // Get cursor style based on tool
   const getCursor = () => {
     if (selectedTool === "highlight") return "crosshair";
     if (selectedTool === "shape-rect" || selectedTool === "shape-circle") return "crosshair";
     if (selectedTool === "arrow") return "crosshair";
+    if (selectedTool === "measure") return "crosshair";
     if (selectedTool === "draw") return "crosshair";
     if (selectedTool === "erase") return "crosshair";
     if (selectedTool === "textbox") return "text";
+    if (selectedTool === "stamp") return "copy";
+    if (selectedTool.startsWith("form-")) return "copy";
     if (selectedTool === "pid-symbol") return pidSelectedSymbolId ? "crosshair" : "not-allowed";
     if (selectedTool === "pan") return isPanning ? "grabbing" : "grab";
     if (selectedTool === "select") return "text";
@@ -394,6 +402,79 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
         updatedAt: Date.now(),
       };
       dispatch({ type: "ADD_ANNOTATION", payload: annotation });
+      return;
+    }
+
+    if (selectedTool === "stamp" && e.button === 0) {
+      const box = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - box.left;
+      const y = e.clientY - box.top;
+      const stampWidth = Math.min(160, width * 0.28);
+      const stampHeight = 44;
+      const annotation: Annotation = {
+        id: crypto.randomUUID?.() ?? Date.now().toString(),
+        type: "stamp",
+        page: pageNumber,
+        rect: {
+          x: Math.max(0, Math.min(1 - stampWidth / width, (x - stampWidth / 2) / width)),
+          y: Math.max(0, Math.min(1 - stampHeight / height, (y - stampHeight / 2) / height)),
+          width: stampWidth / width,
+          height: stampHeight / height,
+        },
+        meta: {
+          text: stampText || "APPROVED",
+          color: toolColors.stamp,
+          opacity: 0.92,
+        },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      dispatch({ type: "ADD_ANNOTATION", payload: annotation });
+      return;
+    }
+
+    if (selectedTool.startsWith("form-") && e.button === 0) {
+      const box = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - box.left;
+      const y = e.clientY - box.top;
+      const isCheckbox = selectedTool === "form-checkbox";
+      const fieldWidth = isCheckbox ? 22 : selectedTool === "form-signature" ? 180 : 160;
+      const fieldHeight = isCheckbox ? 22 : selectedTool === "form-signature" ? 54 : 32;
+      const fieldIndex = Object.values(annotations).flat().filter((ann) => ann.type.startsWith("form-")).length + 1;
+      const fieldLabel = selectedTool === "form-text"
+        ? "Text"
+        : selectedTool === "form-checkbox"
+          ? "Checkbox"
+          : selectedTool === "form-date"
+            ? "Date"
+            : "Signature";
+
+      const annotation: Annotation = {
+        id: crypto.randomUUID?.() ?? Date.now().toString(),
+        type: selectedTool,
+        page: pageNumber,
+        rect: {
+          x: Math.max(0, Math.min(1 - fieldWidth / width, (x - fieldWidth / 2) / width)),
+          y: Math.max(0, Math.min(1 - fieldHeight / height, (y - fieldHeight / 2) / height)),
+          width: fieldWidth / width,
+          height: fieldHeight / height,
+        },
+        meta: {
+          fieldName: `${fieldLabel.replace(/\s/g, "").toLowerCase()}_${fieldIndex}`,
+          label: fieldLabel,
+          value: "",
+          checked: false,
+          required: false,
+          fontSize: 12,
+          color: toolColors[selectedTool],
+          borderColor: toolColors[selectedTool],
+        },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      dispatch({ type: "ADD_ANNOTATION", payload: annotation });
+      dispatch({ type: "SELECT_ANNOTATION", payload: { page: pageNumber, id: annotation.id } });
       return;
     }
 
@@ -689,6 +770,19 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
     } else if (selectedTool === "arrow") {
       type = "arrow";
       meta = { color: toolColors.arrow, strokeWidth: 2 };
+    } else if (selectedTool === "measure") {
+      type = "measure";
+      const pageWidthUnits = Math.max(measureScale || 1, 0.01);
+      const normalizedLength = Math.sqrt((w / width) ** 2 + (h / width) ** 2);
+      const measuredValue = normalizedLength * pageWidthUnits;
+      meta = {
+        color: toolColors.measure,
+        strokeWidth: 2,
+        unit: measureUnit || "m",
+        scale: pageWidthUnits,
+        value: measuredValue,
+        label: `${measuredValue.toFixed(2)} ${measureUnit || "m"}`,
+      };
     } else if (selectedTool === "highlight") {
       type = "highlight";
       meta = { color: toolColors.highlight };
@@ -866,6 +960,28 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
               markerEnd="url(#draft-arrowhead)"
             />
           </svg>
+        </div>
+      );
+    }
+
+    if (selectedTool === "measure") {
+      const measureLength = Math.sqrt(draft.width * draft.width + draft.height * draft.height);
+      const angle = Math.atan2(draft.height, draft.width) * (180 / Math.PI);
+      return (
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            left: draft.x,
+            top: draft.y,
+            width: measureLength,
+            height: 2,
+            transformOrigin: "0 50%",
+            transform: `rotate(${angle}deg)`,
+          }}
+        >
+          <div className="absolute left-0 top-[-5px] h-3 border-l-2 border-[#4ec9b0]" />
+          <div className="absolute right-0 top-[-5px] h-3 border-r-2 border-[#4ec9b0]" />
+          <div className="mt-[1px] border-t-2 border-dashed border-[#4ec9b0]" />
         </div>
       );
     }
@@ -1084,7 +1200,7 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
     let boundingWidth = w;
     let boundingHeight = h;
     
-    if (ann.type === "arrow") {
+    if (ann.type === "arrow" || ann.type === "measure") {
       const endX = left + w;
       const endY = top + h;
       boundingLeft = Math.min(left, endX);
@@ -1094,10 +1210,10 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
     }
 
     const baseStyle: React.CSSProperties = {
-      left: ann.type === "arrow" ? boundingLeft : left,
-      top: ann.type === "arrow" ? boundingTop : top,
-      width: Math.max(ann.type === "arrow" ? boundingWidth : w, 1), // Ensure minimum width
-      height: Math.max(ann.type === "arrow" ? boundingHeight : h, 1), // Ensure minimum height
+      left: ann.type === "arrow" || ann.type === "measure" ? boundingLeft : left,
+      top: ann.type === "arrow" || ann.type === "measure" ? boundingTop : top,
+      width: Math.max(ann.type === "arrow" || ann.type === "measure" ? boundingWidth : w, 1), // Ensure minimum width
+      height: Math.max(ann.type === "arrow" || ann.type === "measure" ? boundingHeight : h, 1), // Ensure minimum height
       position: "absolute",
       cursor: selected && isDraggable ? "move" : "default",
       // Disable pointer events when erase tool is active so clicks pass through to layer
@@ -1257,6 +1373,123 @@ export default function AnnotationLayer({ pageNumber, width, height }: Props) {
             style={{ color: ann.meta?.color || toolColors.textbox }}
           >
             {ann.meta?.text}
+          </div>
+        )}
+
+        {ann.type === "stamp" && (
+          <div
+            className="flex h-full w-full rotate-[-3deg] items-center justify-center border-2 bg-white/10 px-2 text-center font-mono text-sm font-bold uppercase tracking-wide"
+            style={{
+              borderColor: ann.meta?.color || toolColors.stamp,
+              color: ann.meta?.color || toolColors.stamp,
+            }}
+          >
+            {ann.meta?.text || "APPROVED"}
+          </div>
+        )}
+
+        {ann.type === "measure" && (
+          <div
+            style={{
+              left: left - boundingLeft,
+              top: top - boundingTop,
+              width: arrowLength,
+              height: 2,
+              transformOrigin: "0 50%",
+              transform: `rotate(${arrowAngle}deg)`,
+              pointerEvents: "none",
+              position: "absolute",
+            }}
+          >
+            <div className="absolute left-0 top-[-5px] h-3 border-l-2" style={{ borderColor: ann.meta?.color || toolColors.measure }} />
+            <div className="absolute right-0 top-[-5px] h-3 border-r-2" style={{ borderColor: ann.meta?.color || toolColors.measure }} />
+            <div className="mt-[1px] border-t-2 border-dashed" style={{ borderColor: ann.meta?.color || toolColors.measure }} />
+            <div
+              className="absolute left-1/2 top-[-24px] -translate-x-1/2 whitespace-nowrap border border-[#2b2b2b] bg-[#1e1e1e] px-1.5 py-0.5 text-[10px] font-semibold"
+              style={{ color: ann.meta?.color || toolColors.measure }}
+            >
+              {ann.meta?.label || `${Number(ann.meta?.value ?? 0).toFixed(2)} ${ann.meta?.unit || measureUnit}`}
+            </div>
+          </div>
+        )}
+
+        {ann.type === "form-text" && (
+          <input
+            value={ann.meta?.value ?? ""}
+            placeholder={ann.meta?.label || ann.meta?.fieldName || "Text"}
+            onPointerDown={(event) => event.stopPropagation()}
+            onChange={(event) => dispatch({
+              type: "UPDATE_ANNOTATION",
+              payload: {
+                page: pageNumber,
+                id: ann.id,
+                updates: { meta: { ...ann.meta, value: event.target.value } },
+              },
+            })}
+            className="h-full w-full rounded-[2px] border bg-white/95 px-2 text-xs outline-none focus:ring-2 focus:ring-[#3794ff]"
+            style={{
+              borderColor: ann.meta?.borderColor || toolColors["form-text"],
+              color: ann.meta?.color || "#111827",
+              fontSize: ann.meta?.fontSize ?? 12,
+            }}
+          />
+        )}
+
+        {ann.type === "form-date" && (
+          <input
+            type="date"
+            value={ann.meta?.value ?? ""}
+            onPointerDown={(event) => event.stopPropagation()}
+            onChange={(event) => dispatch({
+              type: "UPDATE_ANNOTATION",
+              payload: {
+                page: pageNumber,
+                id: ann.id,
+                updates: { meta: { ...ann.meta, value: event.target.value } },
+              },
+            })}
+            className="h-full w-full rounded-[2px] border bg-white/95 px-2 text-xs outline-none focus:ring-2 focus:ring-[#3794ff]"
+            style={{
+              borderColor: ann.meta?.borderColor || toolColors["form-date"],
+              color: ann.meta?.color || "#111827",
+              fontSize: ann.meta?.fontSize ?? 12,
+            }}
+          />
+        )}
+
+        {ann.type === "form-checkbox" && (
+          <label
+            className="flex h-full w-full items-center justify-center rounded-[2px] border bg-white/95"
+            style={{ borderColor: ann.meta?.borderColor || toolColors["form-checkbox"] }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={Boolean(ann.meta?.checked)}
+              onChange={(event) => dispatch({
+                type: "UPDATE_ANNOTATION",
+                payload: {
+                  page: pageNumber,
+                  id: ann.id,
+                  updates: { meta: { ...ann.meta, checked: event.target.checked, value: event.target.checked ? "Yes" : "" } },
+                },
+              })}
+              className="h-4 w-4 accent-[#3794ff]"
+            />
+          </label>
+        )}
+
+        {ann.type === "form-signature" && (
+          <div
+            className="flex h-full w-full items-end rounded-[2px] border bg-white/90 px-2 pb-1 text-[10px] font-medium uppercase tracking-wide"
+            style={{
+              borderColor: ann.meta?.borderColor || toolColors["form-signature"],
+              color: ann.meta?.color || toolColors["form-signature"],
+            }}
+          >
+            <div className="w-full border-t" style={{ borderColor: ann.meta?.color || toolColors["form-signature"] }}>
+              {ann.meta?.value || ann.meta?.label || "Signature"}
+            </div>
           </div>
         )}
 

@@ -18,6 +18,7 @@ from .standard_library import InstrumentLogicEngine
 # Import the New Text Scavenger
 from .text_engine import find_text_only_instruments, detect_text_full_page
 from .line_extractor import extract_line_numbers
+from .equipment_extractor import extract_equipment_from_ocr_words
 
 # --- HELPER FUNCTIONS ---
 
@@ -353,18 +354,19 @@ def extract_instruments(
                 # Green for Pass 1/Pass 2 merged
                 output_draw.ellipse(
                     (center_x - radius, center_y - radius, center_x + radius, center_y + radius),
-                    outline=(50, 205, 50), width=5
+                    outline=(255, 215, 0), width=5
                 )
                 text_pos = (center_x + radius, center_y - radius)
                 left, top, right, bottom = output_draw.textbbox(text_pos, ref_id, font=font)
                 output_draw.rectangle((left-2, top-2, right+2, bottom+2), fill="black")
-                output_draw.text(text_pos, ref_id, fill=(255, 0, 0), font=font)
+                output_draw.text(text_pos, ref_id, fill=(50, 205, 50), font=font)
 
 
     # =========================================================
     # PHASE 2: TEXT ENGINE (The "Ruthless" Scavenger - 10%)
     # =========================================================
     lines_df = pd.DataFrame()
+    equipment_df = pd.DataFrame()
     if pil_image:
         # Single OCR call — reused by both instrument text engine and line extractor
         full_text_data = detect_text_full_page(pil_image, vision_client)
@@ -373,6 +375,7 @@ def extract_instruments(
             full_text_data=full_text_data,
         )
         lines_df = extract_line_numbers(full_text_data, filename_base)
+        equipment_df = extract_equipment_from_ocr_words(full_text_data, filename_base)
         
         for item in text_only_results:
             epc = item['Specs']
@@ -419,4 +422,4 @@ def extract_instruments(
         except Exception as e:
             logger.warning(f"Error saving highlighted image: {e}")
 
-    return pd.DataFrame(final_instruments_data), lines_df
+    return pd.DataFrame(final_instruments_data), lines_df, equipment_df

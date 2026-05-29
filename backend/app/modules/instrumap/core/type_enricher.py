@@ -20,13 +20,24 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-_PRIMARY_MODEL  = "xyra-pid-engineer"   # custom model with ISA-5.1 knowledge
-_FALLBACK_MODEL = "qwen2.5:7b"          # plain base model if custom not built yet
+_PRIMARY_MODEL  = None   # resolved at runtime from env via _resolve_model()
+_FALLBACK_MODEL = None   # resolved at runtime from env via _resolve_model()
 
 _MIN_CONFIDENCE = 0.50
 
-# Regex that identifies OCR noise / annotation fragments — never send to LLM
-_NOISE_RE = re.compile(r"^(NOTE[-_]|[A-Z]{1,2}$)", re.IGNORECASE)
+# Regex that identifies OCR noise / annotation fragments — never send to LLM,
+# and never inject ISA letter decodes for these (they would mislead the model).
+_NOISE_RE = re.compile(
+    r"^(?:"
+    r"NOTE[-_\d]"                                   # NOTE-1, NOTE-5R
+    r"|[A-Za-z]{1,5}$"                              # A, I, CC, PIT, FIT, TIT (bare 1-5 letters — legend entries)
+    r"|[A-Z]-[A-Za-z]$"                             # S-R, R-S (flip-flop symbols)
+    r"|[A-Z]-\d"                                    # V-201, P-101 (single-letter equip tag)
+    r"|[A-Za-z]\d+$"                                # P1, R1 (letter + digits only)
+    r"|(?:REV|HOLD|DRG|MTO|VFD|PLC|MCC)(?:-|$)"   # known non-instruments
+    r")",
+    re.IGNORECASE,
+)
 
 # ISA-5.1 first-letter decode — injected into the prompt to avoid base-weight
 # confusion (VT→Temperature, ST→Temperature Switch, etc.)
@@ -83,13 +94,13 @@ _VALID_SYSTEMS = {"DCS", "SIS/ESD", "F&GS", ""}
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _resolve_model() -> str:
-    """Return the best available Ollama model."""
+    """Return the best available Ollama model for instrument classification."""
     try:
-        from app.modules.llm.service import _is_available
-        if _is_available(_PRIMARY_MODEL):
-            return _PRIMARY_MODEL
-        if _is_available(_FALLBACK_MODEL):
-            return _FALLBACK_MODEL
+        from app.modules.llm.service import _is_available, INSTRUMENT_MODEL, INSTRUMENT_MODEL_FALLBACK
+        if _is_available(INSTRUMENT_MODEL):
+            return INSTRUMENT_MODEL
+        if _is_available(INSTRUMENT_MODEL_FALLBACK):
+            return INSTRUMENT_MODEL_FALLBACK
     except Exception:
         pass
     return ""
@@ -103,12 +114,28 @@ def _needs_enrichment(row: pd.Series) -> bool:
     return io_type in _REVIEW_IO
 
 
-def _build_prompt(tag: str, instr_type: str, loop: str) -> str:
+def _build_prompt(tag: str, instr_type: str, loop: str, project_legend_notes: str | None = None) -> str:
     """
     Decode first letter, last letter, and HH/LL qualifier explicitly so the
     model doesn't have to recall any ISA-5.1 rule from base weights.
     """
+    from app.modules.instrumap.core.project_legend import build_legend_prompt_block
+
     code  = instr_type.upper()
+    legend_block = build_legend_prompt_block(project_legend_notes)
+
+    # For noise-pattern tags skip ISA letter decode entirely — injecting
+    # "A = Analysis" would override the system-prompt noise rules and cause
+    # the model to classify equipment tags / fragments as instruments.
+    if _NOISE_RE.match(tag):
+        ctx = f"  Loop/system: {loop}\n" if loop and loop not in ("nan", "") else ""
+        return (
+            f"{legend_block}"
+            f"Classify P&ID tag {tag} (type code: {code}).\n"
+            f"{ctx}"
+            f"Return ONLY the JSON object."
+        )
+
     first = code[0] if code else ""
     last  = code[-1] if len(code) > 1 else ""
 
@@ -131,6 +158,7 @@ def _build_prompt(tag: str, instr_type: str, loop: str) -> str:
     ctx = f"  Loop/system: {loop}\n" if loop and loop not in ("nan", "") else ""
 
     return (
+        f"{legend_block}"
         f"Classify P&ID tag {tag} (type code: {code}).\n"
         f"{first_line}"
         f"{last_line}"
@@ -144,10 +172,10 @@ def _derive_signal(io_type: str) -> Tuple[str, str]:
     return _IO_SIGNAL.get(io_type, ("", ""))
 
 
-def _call_llm(tag: str, instr_type: str, loop: str, model: str) -> dict | None:
+def _call_llm(tag: str, instr_type: str, loop: str, model: str, project_legend_notes: str | None = None) -> dict | None:
     try:
         from app.modules.llm.service import generate
-        result = generate(_build_prompt(tag, instr_type, loop), model=model)
+        result = generate(_build_prompt(tag, instr_type, loop, project_legend_notes), model=model)
         return result
     except Exception as exc:
         logger.debug("TypeEnricher LLM call failed for %s: %s", tag, exc)
@@ -194,7 +222,7 @@ def _apply_result(df: pd.DataFrame, idx, result: dict) -> bool:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def enrich_review_types(df: pd.DataFrame) -> pd.DataFrame:
+def enrich_review_types(df: pd.DataFrame, project_legend_notes: str | None = None) -> pd.DataFrame:
     """
     Attempt LLM classification for every row with IO_Type='REVIEW'.
 
@@ -226,7 +254,7 @@ def enrich_review_types(df: pd.DataFrame) -> pd.DataFrame:
         loop       = str(row.get("Loop", "")).strip()
 
         t0     = time.monotonic()
-        result = _call_llm(tag, instr_type, loop, model)
+        result = _call_llm(tag, instr_type, loop, model, project_legend_notes)
         elapsed_ms = (time.monotonic() - t0) * 1000
 
         if result is None:

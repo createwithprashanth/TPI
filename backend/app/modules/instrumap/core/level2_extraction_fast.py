@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 from .standard_library import InstrumentLogicEngine
 from .text_engine import find_text_only_instruments, detect_text_full_page
 from .line_extractor import extract_line_numbers
+from .equipment_extractor import extract_equipment_from_ocr_words
 
 # Y-tolerance (px) for grouping words into the same text line within a circle.
 # Slightly larger than per-circle crop value because coordinates are full-page scale.
@@ -205,12 +206,12 @@ def extract_instruments(
             if output_draw:
                 output_draw.ellipse(
                     (cx - radius, cy - radius, cx + radius, cy + radius),
-                    outline=(50, 205, 50), width=5,
+                    outline=(255, 215, 0), width=5,
                 )
                 text_pos = (cx + radius, cy - radius)
                 left, top, right, bottom = output_draw.textbbox(text_pos, ref_id, font=font)
                 output_draw.rectangle((left - 2, top - 2, right + 2, bottom + 2), fill='black')
-                output_draw.text(text_pos, ref_id, fill=(255, 0, 0), font=font)
+                output_draw.text(text_pos, ref_id, fill=(50, 205, 50), font=font)
 
     # ── Phase 2: text-only instruments (same OCR data, zero extra calls) ──────
     text_only_results = find_text_only_instruments(
@@ -218,6 +219,7 @@ def extract_instruments(
         full_text_data=full_text_data,
     )
     lines_df = extract_line_numbers(full_text_data, filename_base)
+    equipment_df = extract_equipment_from_ocr_words(full_text_data, filename_base)
 
     for item in text_only_results:
         epc = item['Specs']
@@ -260,4 +262,4 @@ def extract_instruments(
         except Exception as e:
             logger.warning(f"Error saving highlighted image: {e}")
 
-    return pd.DataFrame(final_instruments_data), lines_df
+    return pd.DataFrame(final_instruments_data), lines_df, equipment_df

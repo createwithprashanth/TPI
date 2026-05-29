@@ -2,13 +2,21 @@ import React, { createContext, useContext, useState } from 'react';
 import type { ProjectInfo } from '../services/pid';
 
 const STORAGE_KEY = 'instrumap_project';
+const EMPTY_PROJECT: ProjectInfo = {
+  project_name: '',
+  project_no: '',
+  client_name: '',
+  contractor_name: '',
+  location: '',
+  project_legend_notes: '',
+};
 
 function loadProject(): ProjectInfo {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) return { ...EMPTY_PROJECT, ...JSON.parse(raw) };
   } catch { /* ignore */ }
-  return { project_name: '', project_no: '', client_name: '', contractor_name: '', location: '' };
+  return EMPTY_PROJECT;
 }
 
 interface ProjectContextType {

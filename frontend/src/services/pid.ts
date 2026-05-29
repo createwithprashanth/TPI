@@ -8,6 +8,7 @@ export interface ProjectInfo {
   client_name: string;
   contractor_name: string;
   location: string;
+  project_legend_notes: string;
 }
 
 export interface ProcessResponse {
@@ -87,6 +88,7 @@ export const processAsync = async ({
   if (project?.client_name) form.append('client_name', project.client_name);
   if (project?.contractor_name) form.append('contractor_name', project.contractor_name);
   if (project?.location) form.append('location', project.location);
+  if (project?.project_legend_notes) form.append('project_legend_notes', project.project_legend_notes);
 
   const resp = await api.post('/api/v1/pid/process', form, {
     headers: { 'Content-Type': 'multipart/form-data' },

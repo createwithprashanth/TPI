@@ -13,7 +13,13 @@ export type ToolName =
   | "signature"
   | "erase"
   | "arrow"
-  | "pid-symbol";
+  | "pid-symbol"
+  | "stamp"
+  | "measure"
+  | "form-text"
+  | "form-checkbox"
+  | "form-date"
+  | "form-signature";
 
 export interface Annotation {
   id: string;
@@ -88,6 +94,11 @@ export interface PdfState {
   pidSelectedSymbolId: string | null;
   pidColor: string;
   showPidPanel: boolean;
+
+  // Editor tools
+  stampText: string;
+  measureUnit: string;
+  measureScale: number;
 }
 
 export const initialPdfState: PdfState = {
@@ -145,6 +156,12 @@ export const initialPdfState: PdfState = {
     signature: "#000000",
     erase: "#000000",
     "pid-symbol": "#ef4444",
+    stamp: "#d16969",
+    measure: "#4ec9b0",
+    "form-text": "#3794ff",
+    "form-checkbox": "#3794ff",
+    "form-date": "#3794ff",
+    "form-signature": "#c586c0",
   },
   selectedAnnotationId: null,
   // Signature image
@@ -154,4 +171,9 @@ export const initialPdfState: PdfState = {
   pidSelectedSymbolId: null,
   pidColor: "#ef4444",
   showPidPanel: false,
+
+  // Editor tools
+  stampText: "APPROVED",
+  measureUnit: "m",
+  measureScale: 1,
 };

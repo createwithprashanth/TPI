@@ -21,9 +21,22 @@ from app.modules.instrumap.core.excel_writer import write_engineering_excel
 from app.modules.instrumap.core.standard_library import (
     refine_descriptions_by_loop_context,
     compute_programmatic_fields,
+    apply_output_sanity_rules,
 )
 from app.modules.instrumap.core.tag_validator import validate_tag_formats
 from app.modules.instrumap.core.type_enricher import enrich_review_types
+from app.modules.instrumap.core.service_enricher import (
+    enrich_instrument_services,
+    build_service_enrichment,
+)
+from app.modules.instrumap.core.equipment_extractor import extract_equipment_from_pdf
+from app.modules.project_context.extractor import (
+    extract_project_context_from_pdf,
+    legacy_project_info,
+    load_project_context,
+    merge_project_context,
+    save_project_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +135,7 @@ def process_pid_task(
     client_name: Optional[str] = None,
     contractor_name: Optional[str] = None,
     location: Optional[str] = None,
+    project_legend_notes: Optional[str] = None,
 ) -> Dict[str, Any]:
     pid_temp_path = None
     _rl = None  # telemetry logger — flushed in finally
@@ -147,9 +161,29 @@ def process_pid_task(
             tmp.write(pdf_content)
             pid_temp_path = tmp.name
 
+        # ── Shared project context ───────────────────────────────────────────
+        # Drawings can carry project/title-block metadata. Extract it once here,
+        # merge with previous files in the same batch, then let user-entered
+        # fields win. The resulting context is reusable by other tools later.
+        context_path = os.path.join(batch_dir, "batch_meta.json")
+        existing_context = load_project_context(context_path)
+        detected_context = extract_project_context_from_pdf(pdf_content, pdf_filename)
+        user_context = {
+            "project_name": project_name or "",
+            "project_no": project_no or "",
+            "client_name": client_name or "",
+            "contractor_name": contractor_name or "",
+            "location": location or "",
+            "project_legend_notes": project_legend_notes or "",
+        }
+        project_context = merge_project_context(existing_context, detected_context, user_context)
+        project_info = legacy_project_info(project_context)
+        save_project_context(context_path, project_context)
+
         # ── PyMuPDF first pass (vector PDFs, no calibration needed) ─────────
         results_df = pd.DataFrame()
         lines_df = pd.DataFrame()
+        equipment_df = pd.DataFrame()
         _pymupdf_succeeded = False
         final_calibration_radius = None
 
@@ -166,6 +200,9 @@ def process_pid_task(
                 )
                 if not results_df.empty:
                     _pymupdf_succeeded = True
+                    equipment_df = extract_equipment_from_pdf(
+                        pid_temp_path, pid_filename_base, instrumap_config.PDF_DPI,
+                    )
                     if _rl:
                         _rl.log_path("pymupdf")
                     logger.info(f"[Job {job_id}] PyMuPDF: {len(results_df)} instruments found")
@@ -233,7 +270,7 @@ def process_pid_task(
                 }
 
             _report_progress(job_id, "extraction", "Extracting instruments from P&ID…")
-            results_df, lines_df, _ = processor.process_pid_file(
+            processor_result = processor.process_pid_file(
                 pid_temp_path,
                 pid_filename_base,
                 lambda m: logger.info(f"[STATUS] {m}"),
@@ -242,11 +279,17 @@ def process_pid_task(
                 area_code,
                 pd.DataFrame(),
             )
+            if len(processor_result) == 4:
+                results_df, lines_df, equipment_df, _ = processor_result
+            else:
+                results_df, lines_df, _ = processor_result
 
         # Save CSVs
         instruments_count = 0
         results_table = []
         if not results_df.empty:
+            results_df = apply_output_sanity_rules(results_df)
+            results_df = enrich_instrument_services(results_df, lines_df, equipment_df)
             instruments_count = len(results_df)
             results_df.to_csv(os.path.join(batch_dir, f"{pid_filename_base}_data.csv"), index=False)
             results_table = results_df.to_dict(orient="records")
@@ -254,16 +297,8 @@ def process_pid_task(
         if not lines_df.empty:
             lines_df.to_csv(os.path.join(batch_dir, f"{pid_filename_base}_lines.csv"), index=False)
 
-        # Save batch meta (project details for Excel cover)
-        project_info = {
-            "project_name": project_name or "",
-            "project_no": project_no or "",
-            "client_name": client_name or "",
-            "contractor_name": contractor_name or "",
-            "location": location or "",
-        }
-        with open(os.path.join(batch_dir, "batch_meta.json"), "w") as f:
-            json.dump(project_info, f)
+        if not equipment_df.empty:
+            equipment_df.to_csv(os.path.join(batch_dir, f"{pid_filename_base}_equipment.csv"), index=False)
 
         _report_progress(job_id, "excel", "Building deliverables…")
 
@@ -289,6 +324,18 @@ def process_pid_task(
                 if all_lines else pd.DataFrame()
             )
 
+            all_equipment = []
+            for fname in sorted(os.listdir(batch_dir)):
+                if fname.endswith("_equipment.csv"):
+                    try:
+                        all_equipment.append(pd.read_csv(os.path.join(batch_dir, fname)))
+                    except Exception:
+                        pass
+            all_equipment_df = (
+                pd.concat(all_equipment, ignore_index=True).drop_duplicates(subset=["Equipment_Tag", "P&ID_Page"])
+                if all_equipment else pd.DataFrame()
+            )
+
             if all_dfs:
                 full_df = pd.concat(all_dfs, ignore_index=True)
                 if "Loop" in full_df.columns:
@@ -298,12 +345,16 @@ def process_pid_task(
                 master_df = full_df.drop_duplicates(subset=["Tag_Number"]).copy()
                 master_df = refine_descriptions_by_loop_context(master_df)
                 master_df = compute_programmatic_fields(master_df)
-                master_df = enrich_review_types(master_df)
+                master_df = enrich_review_types(master_df, project_legend_notes=project_legend_notes)
+                master_df = apply_output_sanity_rules(master_df)
+                master_df = enrich_instrument_services(master_df, all_lines_df, all_equipment_df)
+                service_enrichment = build_service_enrichment(master_df, all_lines_df, all_equipment_df)
 
                 write_engineering_excel(
                     batch_dir, master_df, full_df,
-                    enrichment={},
+                    enrichment=service_enrichment,
                     lines_df=all_lines_df,
+                    equipment_df=all_equipment_df,
                     project_info=project_info if any(project_info.values()) else None,
                 )
         except Exception as exc:
@@ -330,6 +381,7 @@ def process_pid_task(
             "batch_id": batch_id,
             "instrument_count": instruments_count,
             "detected_radius": final_calibration_radius,
+            "project_context": project_info,
             "results_table": results_table,
         }
 

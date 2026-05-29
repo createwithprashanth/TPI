@@ -31,6 +31,11 @@ import {
   Download,
   FolderOpen,
   Save,
+  Stamp,
+  Ruler,
+  CheckSquare,
+  CalendarDays,
+  PenLine,
   PanelLeft,
   PanelRight,
   Workflow,
@@ -174,6 +179,9 @@ export default function Toolbar({
     toolColors,
     signatureImage,
     showPidPanel,
+    stampText,
+    measureUnit,
+    measureScale,
   } = usePdfContext();
 
   const [zoomLocal, setZoomLocal] = useState(Math.round(scale * 100));
@@ -755,6 +763,102 @@ export default function Toolbar({
                 dispatch({ type: "SET_SHOW_PID_PANEL", payload: opening });
                 dispatch({ type: "SET_SELECTED_TOOL", payload: opening ? "pid-symbol" : "select" });
               }}
+            />
+
+            <ToolButton
+              icon={<Stamp className="w-4 h-4 text-[#d16969]" />}
+              label="Stamp"
+              active={selectedTool === "stamp"}
+              disabled={!hasDocument}
+              onClick={() => dispatch({ type: "SET_SELECTED_TOOL", payload: "stamp" })}
+              dropdown={
+                <div>
+                  {["APPROVED", "REVIEWED", "REJECTED", "VOID", "DRAFT"].map((label) => (
+                    <button
+                      key={label}
+                      className={menuButtonClass}
+                      onClick={() => {
+                        dispatch({ type: "SET_STAMP_TEXT", payload: label });
+                        dispatch({ type: "SET_SELECTED_TOOL", payload: "stamp" });
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <div className="border-t border-[#3c3c3c] p-2">
+                    <input
+                      value={stampText}
+                      onChange={(event) => dispatch({ type: "SET_STAMP_TEXT", payload: event.target.value.toUpperCase() })}
+                      className={commandInputClass}
+                      placeholder="Custom stamp"
+                    />
+                  </div>
+                </div>
+              }
+            />
+
+            <ToolButton
+              icon={<Ruler className="w-4 h-4 text-[#4ec9b0]" />}
+              label="Measure"
+              active={selectedTool === "measure"}
+              disabled={!hasDocument}
+              onClick={() => dispatch({ type: "SET_SELECTED_TOOL", payload: "measure" })}
+              dropdown={
+                <div className="w-52 p-2">
+                  <label className="mb-2 block text-[11px] text-[#858585]">
+                    Unit
+                    <input
+                      value={measureUnit}
+                      onChange={(event) => dispatch({ type: "SET_MEASURE_SETTINGS", payload: { unit: event.target.value } })}
+                      className={commandInputClass}
+                      placeholder="m"
+                    />
+                  </label>
+                  <label className="block text-[11px] text-[#858585]">
+                    Units per page width
+                    <input
+                      type="number"
+                      min={0.01}
+                      step={0.1}
+                      value={measureScale}
+                      onChange={(event) => dispatch({ type: "SET_MEASURE_SETTINGS", payload: { scale: Number(event.target.value) || 1 } })}
+                      className={commandInputClass}
+                    />
+                  </label>
+                </div>
+              }
+            />
+
+            <ToolButton
+              icon={<Type className="w-4 h-4 text-[#3794ff]" />}
+              label="Form Text Field"
+              active={selectedTool === "form-text"}
+              disabled={!hasDocument}
+              onClick={() => dispatch({ type: "SET_SELECTED_TOOL", payload: "form-text" })}
+            />
+
+            <ToolButton
+              icon={<CheckSquare className="w-4 h-4 text-[#3794ff]" />}
+              label="Form Checkbox"
+              active={selectedTool === "form-checkbox"}
+              disabled={!hasDocument}
+              onClick={() => dispatch({ type: "SET_SELECTED_TOOL", payload: "form-checkbox" })}
+            />
+
+            <ToolButton
+              icon={<CalendarDays className="w-4 h-4 text-[#3794ff]" />}
+              label="Form Date Field"
+              active={selectedTool === "form-date"}
+              disabled={!hasDocument}
+              onClick={() => dispatch({ type: "SET_SELECTED_TOOL", payload: "form-date" })}
+            />
+
+            <ToolButton
+              icon={<PenLine className="w-4 h-4 text-[#c586c0]" />}
+              label="Form Signature Field"
+              active={selectedTool === "form-signature"}
+              disabled={!hasDocument}
+              onClick={() => dispatch({ type: "SET_SELECTED_TOOL", payload: "form-signature" })}
             />
 
             <div className="relative signature-dropdown-container">

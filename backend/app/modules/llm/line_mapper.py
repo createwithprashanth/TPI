@@ -165,7 +165,7 @@ def map_instruments_to_lines_llm(
     instruments_df: pd.DataFrame,
     lines_df: pd.DataFrame,
     status_fn=None,
-    model: str = "xyra-pid-engineer",
+    model: str = None,
     run_logger=None,
     page: int = 1,
 ) -> pd.DataFrame:
@@ -175,6 +175,10 @@ def map_instruments_to_lines_llm(
     Only processes rows where Connected_Line is absent or empty.
     Returns the modified DataFrame (new columns added in-place).
     """
+    if model is None:
+        from app.modules.llm.service import LINE_MAPPER_MODEL
+        model = LINE_MAPPER_MODEL
+
     def _log(msg: str) -> None:
         logger.info(msg)
         if status_fn:

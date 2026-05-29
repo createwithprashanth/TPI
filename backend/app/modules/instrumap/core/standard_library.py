@@ -19,6 +19,76 @@ _PHYSICAL_GAUGE_DESC = {
     'M': 'Moisture Indicator (Local)',
 }
 
+_NOISE_TAG_RE = re.compile(
+    r"^(?:"
+    r"[A-Z]$|"
+    r"[A-Z]-[A-Z]$|"
+    r"NOTE(?:[-_ ][A-Z0-9]+)?|NOTES?|"
+    r"REV(?:[-_ ][A-Z0-9]+)?|"
+    r"J-K|R-S|S-R|"
+    r"DRAWN|CHECKED|APPROVED|SCALE|SHEET|HOLD|TYP|"
+    r"\d+"
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def apply_output_sanity_rules(master_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Final non-destructive cleanup after extraction, enrichment, and line mapping.
+
+    This intentionally does not delete rows. It clears impossible line links and
+    marks obvious OCR/admin fragments for review so engineers can filter them.
+    """
+    if master_df is None or master_df.empty:
+        return master_df
+
+    df = master_df.copy()
+
+    for col, default in (
+        ("Review_Required", False),
+        ("Connected_Line", ""),
+        ("System", ""),
+        ("IO_Type", ""),
+        ("Signal_Type", ""),
+        ("Power_Supply", ""),
+        ("Instrument_Description", ""),
+    ):
+        if col not in df.columns:
+            df[col] = default
+
+    # F&GS area detectors/alarms are not connected to process pipe numbers.
+    fgs_mask = df["System"].astype(str).str.strip().eq("F&GS")
+    df.loc[fgs_mask, "Connected_Line"] = ""
+
+    def _is_type_only_fragment(row) -> bool:
+        tag = str(row.get("Tag_Number", "") or "").strip().upper()
+        typ = str(row.get("Type", "") or "").strip().upper()
+        loop = str(row.get("Loop", "") or "").strip()
+        suffix = str(row.get("Suffix", "") or "").strip()
+        loop_blank = loop == "" or loop.lower() == "nan"
+        suffix_blank = suffix == "" or suffix.lower() == "nan"
+        if not tag or not typ:
+            return False
+        return tag == typ and loop_blank and suffix_blank
+
+    noise_mask = df.apply(
+        lambda row: bool(_NOISE_TAG_RE.match(str(row.get("Tag_Number", "") or "").strip()))
+        or _is_type_only_fragment(row),
+        axis=1,
+    )
+    if noise_mask.any():
+        df.loc[noise_mask, "Review_Required"] = True
+        df.loc[noise_mask, "Connected_Line"] = ""
+        df.loc[noise_mask, "System"] = ""
+        df.loc[noise_mask, "IO_Type"] = "Soft Link"
+        df.loc[noise_mask, "Signal_Type"] = ""
+        df.loc[noise_mask, "Power_Supply"] = ""
+        empty_desc = df["Instrument_Description"].astype(str).str.strip().eq("")
+        df.loc[noise_mask & empty_desc, "Instrument_Description"] = "Review Required"
+
+    return df
+
 
 def _loop_key(row) -> tuple:
     """Return a hashable key that uniquely identifies a loop.
@@ -106,7 +176,13 @@ def compute_programmatic_fields(master_df: pd.DataFrame) -> pd.DataFrame:
     df['SIL_Level']   = df.apply(_sil_level,   axis=1)
     df['Criticality'] = df.apply(_criticality, axis=1)
     df['Enclosure']   = df.apply(_enclosure,   axis=1)
-    return df
+
+    # F&GS area monitors are not connected to process pipes — clear any line assigned
+    if 'Connected_Line' in df.columns:
+        fgs_mask = df['System'].astype(str) == 'F&GS'
+        df.loc[fgs_mask, 'Connected_Line'] = ''
+
+    return apply_output_sanity_rules(df)
 
 
 def refine_descriptions_by_loop_context(master_df: pd.DataFrame) -> pd.DataFrame:
@@ -175,7 +251,10 @@ class InstrumentLogicEngine:
         "SZHS": "Safety Hand Switch (Position)",
         "HOV":  "Hand Operated Valve",
         "MOV":  "Motor Operated Valve",
+        "SY":   "Signal Relay / Converter",
         # Position / actuator feedback
+        "CVA":  "Control Valve Actuator",
+        "CVZI": "Control Valve Position Indicator",
         "CVZT": "Control Valve Position Transmitter",
         "FZT":  "Flow Element Position Transmitter",
         "ZSC":  "Position Switch (Closed)",
@@ -186,6 +265,12 @@ class InstrumentLogicEngine:
         "SZSH": "Safety Position Switch (High/Open)",
         "SZIL": "Safety Position Indicator (Low)",
         "SZIH": "Safety Position Indicator (High)",
+        "ZI":   "Position Indicator",
+        "ZIH":  "Position Indicator High",
+        "ZIL":  "Position Indicator Low",
+        "ZIT":  "Position Indicating Transmitter",
+        "ZIAH": "Position Indicator Alarm High",
+        "ZIAL": "Position Indicator Alarm Low",
         # Totalizer / integrators
         "FQI":  "Flow Totalizer Indicator",
         "FQT":  "Flow Totalizer Transmitter",
@@ -208,6 +293,13 @@ class InstrumentLogicEngine:
         "SDV":  "Shutdown Valve",
         "BDV":  "Blowdown Valve",
         "ESV":  "Emergency Shutdown Valve",
+        "ESDV": "Emergency Shutdown Valve",
+        "SSV":  "Surface Safety Valve",
+        "SSSV": "Subsurface Safety Valve",
+        "SSOV": "Subsurface Safety Valve",
+        "SVHC": "Safety Valve Hydraulic Close Solenoid",
+        "SVHO": "Safety Valve Hydraulic Open Solenoid",
+        "SVZA": "Safety Valve Position Alarm",
         "PSV":  "Pressure Safety Valve",
         "PRV":  "Pressure Relief Valve",
         # Direct-read gauges (no electrical signal)
@@ -217,6 +309,17 @@ class InstrumentLogicEngine:
         # Misc
         "BMS":  "Burner Management System",
         "WIT":  "Weight / Mass Flow Indicating Transmitter",
+        # Fire & Gas detection (F&GS system — not on process pipes)
+        "XFD":  "Flame Detector",
+        "XGD":  "Gas Detector",
+        "XTGD": "Toxic Gas Detector",
+        "XHMD": "Combustible Gas Detector",
+        "XTGA": "Toxic Gas Alarm",
+        "XGA":  "Gas Alarm",
+        "XMCA": "Fire & Gas Monitor Alarm",
+        # Temperature passive points (no electrical signal)
+        "TP":   "Temperature Point",
+        "THP":  "Temperature High Point",
         # Common OCR typos
         "P1":   "Pressure Indicator",
         "T1":   "Temperature Indicator",
@@ -343,17 +446,55 @@ class InstrumentLogicEngine:
 
             # Apply Engineering Rules to Overrides
             desc = specs['Instrument_Description']
-            if "Switch" in desc:
+            if "Detector" in desc:
+                specs['System'] = "F&GS"
+                if "Flame" in desc:
+                    specs['IO_Type'] = "DI"
+                    specs['Signal_Type'] = "24VDC (Dry Contact)"
+                    specs['Power_Supply'] = "24VDC"
+                else:
+                    specs['IO_Type'] = "AI"
+                    specs['Signal_Type'] = "4-20mA + HART"
+                    specs['Power_Supply'] = "24VDC (Loop Powered)"
+                    specs['Mounting'] = "Field / Direct"
+            elif "Gas Alarm" in desc or "Toxic Gas Alarm" in desc or "Fire & Gas Monitor" in desc:
+                specs['System'] = "F&GS"
+                specs['IO_Type'] = "Soft Link"
+            elif "Temperature Point" in desc or "Temperature High Point" in desc:
+                specs['IO_Type'] = ""
+                specs['Signal_Type'] = ""
+                specs['Power_Supply'] = ""
+                specs['System'] = ""
+                specs['Mounting'] = "Field / Direct"
+            elif "Control Valve Position Indicator" in desc:
+                specs['IO_Type'] = "Soft Link"
+                specs['System'] = "DCS"
+            elif "Solenoid" in desc:
+                specs['IO_Type'] = "DO"
+                specs['Signal_Type'] = "24VDC"
+                specs['Power_Supply'] = "24VDC"
+                specs['System'] = "SIS/ESD" if "Safety" in desc else "DCS"
+            elif "Safety Valve Position Alarm" in desc:
+                specs['IO_Type'] = "DI"
+                specs['Signal_Type'] = "24VDC (Dry Contact)"
+                specs['Power_Supply'] = "24VDC"
+                specs['System'] = "SIS/ESD"
+            elif "Switch" in desc:
                 specs['IO_Type'] = "DI"
                 specs['Signal_Type'] = "24VDC (Dry Contact)"
                 specs['Power_Supply'] = "24VDC"
                 if "Safety" in desc or "Shutdown" in desc:
                     specs['System'] = "SIS/ESD"
-            elif "Control Valve" in desc:
+            elif "Control Valve" in desc and "Transmitter" not in desc:
                 specs['IO_Type'] = "AO"
                 specs['Signal_Type'] = "4-20mA"
                 specs['Power_Supply'] = "Loop Powered"
                 specs['System'] = "DCS"
+            elif code in {"SSV", "SSSV", "SSOV"}:
+                specs['IO_Type'] = "DO"
+                specs['Signal_Type'] = "24VDC"
+                specs['Power_Supply'] = "24VDC"
+                specs['System'] = "SIS/ESD"
             elif "Valve" in desc and "Control" not in desc:
                 if "Hand" in desc or "Relief" in desc or "Safety Valve" in desc:
                     # Manually operated or spring-loaded — no electrical actuator
@@ -382,9 +523,8 @@ class InstrumentLogicEngine:
                 specs['System'] = ""
                 specs['Mounting'] = "Field / Direct"
             elif "Indicator" in desc and "Totalizer" not in desc:
-                # Panel/HMI soft indicator
                 specs['IO_Type'] = "Soft Link"
-                specs['System'] = "DCS"
+                specs['System'] = "SIS/ESD" if "Safety" in desc else "DCS"
 
             # Catch-all: anything that didn't match above is a DCS soft display
             if specs['IO_Type'] == 'REVIEW':
@@ -488,11 +628,16 @@ class InstrumentLogicEngine:
             specs['System'] = "DCS"
             specs['IO_Type'] = "Soft Link"
 
-        elif "Gauge" in desc or "Indicator" in desc:
+        elif "Gauge" in desc:
+            # Physical direct-read gauge — no electrical signal, no system
             specs['System'] = ""
             specs['IO_Type'] = ""
             specs['Mounting'] = "Field / Direct"
-            if "Indicator" in desc and "Transmitter" not in desc:
-                specs['IO_Type'] = "Soft Link"  # panel/HMI indicator
+
+        elif "Indicator" in desc:
+            # Panel / HMI soft indicator — DCS display, not a hardwired device
+            specs['System'] = "DCS"
+            if "Transmitter" not in desc:
+                specs['IO_Type'] = "Soft Link"
 
         return specs

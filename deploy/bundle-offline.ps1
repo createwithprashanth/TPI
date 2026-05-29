@@ -11,10 +11,12 @@
 $ErrorActionPreference = "Stop"
 $RepoRoot  = Split-Path $MyInvocation.MyCommand.Path -Parent | Split-Path -Parent
 $OutputDir = Join-Path $RepoRoot "deploy\XYRA_Studio_offline_bundle"
+$ModelDir = Join-Path $OutputDir "models"
 
 Write-Host "Building offline bundle → $OutputDir" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 New-Item -ItemType Directory -Force -Path "$OutputDir\docker-images" | Out-Null
+New-Item -ItemType Directory -Force -Path $ModelDir | Out-Null
 
 # ── 1. Build Docker images ────────────────────────────────────────────────────
 Write-Host "[1/4] Building Docker images..." -ForegroundColor Yellow
@@ -35,15 +37,16 @@ Write-Host "[3/4] Exporting Ollama model (qwen2.5:7b)..." -ForegroundColor Yello
 docker run --rm -v ollama_models:/root/.ollama ollama/ollama:latest pull qwen2.5:7b
 docker run --rm `
     -v ollama_models:/root/.ollama `
-    -v "${OutputDir}:/export" `
+    -v "${ModelDir}:/export" `
     alpine `
-    tar czf /export/ollama-models.tar.gz -C /root/.ollama .
+    sh -c "cd /root/.ollama && tar cf - . | tar xf - -C /export"
 
 # ── 4. Copy deploy files ──────────────────────────────────────────────────────
 Write-Host "[4/4] Copying deploy files..." -ForegroundColor Yellow
-Copy-Item "$RepoRoot\docker-compose.yml"         $OutputDir
+Copy-Item "$RepoRoot\deploy\docker-compose.offline.yml" (Join-Path $OutputDir "docker-compose.yml")
 Copy-Item "$RepoRoot\deploy\install-offline.ps1" $OutputDir
 Copy-Item "$RepoRoot\deploy\Modelfile"           $OutputDir
+Copy-Item "$RepoRoot\.env.example"               (Join-Path $OutputDir ".env.example")
 
 Write-Host ""
 Write-Host "Bundle ready: $OutputDir" -ForegroundColor Green

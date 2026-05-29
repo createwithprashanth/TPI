@@ -180,6 +180,8 @@ export default function PdfPage({ pageNumber, onPointerMove }: PdfPageProps) {
     if (selectedTool === "highlight") return "crosshair";
     if (selectedTool === "shape-rect" || selectedTool === "shape-circle") return "crosshair";
     if (selectedTool === "arrow") return "crosshair";
+    if (selectedTool === "measure") return "crosshair";
+    if (selectedTool === "stamp" || selectedTool.startsWith("form-")) return "copy";
     if (selectedTool === "textbox") return "text";
     if (selectedTool === "pan") return "grab";
     if (selectedTool === "select") return "text";
@@ -192,6 +194,12 @@ export default function PdfPage({ pageNumber, onPointerMove }: PdfPageProps) {
                           selectedTool === "shape-rect" || 
                           selectedTool === "shape-circle" || 
                           selectedTool === "arrow" || 
+                          selectedTool === "measure" ||
+                          selectedTool === "stamp" ||
+                          selectedTool === "form-text" ||
+                          selectedTool === "form-checkbox" ||
+                          selectedTool === "form-date" ||
+                          selectedTool === "form-signature" ||
                           selectedTool === "textbox";
 
   // Center the page on wide screens when the rendered width is less than

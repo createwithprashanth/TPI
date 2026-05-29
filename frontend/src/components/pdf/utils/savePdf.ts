@@ -31,7 +31,13 @@ export async function saveAnnotatedPdf(
     // Embed standard font once for text rendering
     let helveticaFont: any = null;
     const needsFont = Object.values(annotations).some(pageAnns =>
-      pageAnns?.some(ann => ann.type === "textbox" || (ann.type === "pid-symbol" && ann.meta?.label))
+      pageAnns?.some(ann =>
+        ann.type === "textbox" ||
+        ann.type === "stamp" ||
+        ann.type === "measure" ||
+        ann.type.startsWith("form-") ||
+        (ann.type === "pid-symbol" && ann.meta?.label)
+      )
     );
     
     if (needsFont) {
@@ -182,6 +188,158 @@ export async function saveAnnotatedPdf(
             });
           } catch (textError) {
             console.warn('Failed to draw textbox:', textError);
+          }
+          break;
+        }
+
+        case "stamp": {
+          const color = hexToRgb(ann.meta?.color || "#d16969");
+          const text = String(ann.meta?.text || "APPROVED").toUpperCase();
+          page.drawRectangle({
+            x,
+            y,
+            width: w,
+            height: h,
+            borderWidth: ann.meta?.strokeWidth ?? 2,
+            borderColor: rgb(color.r, color.g, color.b),
+            opacity: ann.meta?.opacity ?? 0.92,
+          });
+          if (helveticaFont) {
+            const fontSize = Math.max(8, Math.min(18, h * 0.42));
+            page.drawText(text, {
+              x: x + 8,
+              y: y + h / 2 - fontSize / 2,
+              size: fontSize,
+              color: rgb(color.r, color.g, color.b),
+              font: helveticaFont,
+            });
+          }
+          break;
+        }
+
+        case "measure": {
+          const color = hexToRgb(ann.meta?.color || "#4ec9b0");
+          const startX = ann.rect.x * width;
+          const startY = height - ann.rect.y * height;
+          const endX = (ann.rect.x + ann.rect.width) * width;
+          const endY = height - (ann.rect.y + ann.rect.height) * height;
+          const thickness = ann.meta?.strokeWidth ?? 2;
+
+          page.drawLine({
+            start: { x: startX, y: startY },
+            end: { x: endX, y: endY },
+            thickness,
+            color: rgb(color.r, color.g, color.b),
+          });
+
+          page.drawLine({
+            start: { x: startX, y: startY - 5 },
+            end: { x: startX, y: startY + 5 },
+            thickness,
+            color: rgb(color.r, color.g, color.b),
+          });
+          page.drawLine({
+            start: { x: endX, y: endY - 5 },
+            end: { x: endX, y: endY + 5 },
+            thickness,
+            color: rgb(color.r, color.g, color.b),
+          });
+
+          if (helveticaFont) {
+            const label = ann.meta?.label || `${Number(ann.meta?.value ?? 0).toFixed(2)} ${ann.meta?.unit || "m"}`;
+            page.drawText(label, {
+              x: (startX + endX) / 2 - label.length * 2.5,
+              y: (startY + endY) / 2 + 8,
+              size: 9,
+              color: rgb(color.r, color.g, color.b),
+              font: helveticaFont,
+            });
+          }
+          break;
+        }
+
+        case "form-text":
+        case "form-date": {
+          const borderColor = hexToRgb(ann.meta?.borderColor || "#3794ff");
+          const textColor = hexToRgb(ann.meta?.color || "#111827");
+          const value = String(ann.meta?.value || "");
+          const fontSize = ann.meta?.fontSize || 12;
+
+          page.drawRectangle({
+            x,
+            y,
+            width: w,
+            height: h,
+            borderWidth: 1,
+            borderColor: rgb(borderColor.r, borderColor.g, borderColor.b),
+          });
+
+          if (value && helveticaFont) {
+            page.drawText(value, {
+              x: x + 4,
+              y: y + h / 2 - fontSize / 2 + 2,
+              size: fontSize,
+              color: rgb(textColor.r, textColor.g, textColor.b),
+              font: helveticaFont,
+            });
+          }
+          break;
+        }
+
+        case "form-checkbox": {
+          const borderColor = hexToRgb(ann.meta?.borderColor || "#3794ff");
+          const size = Math.min(w, h);
+          page.drawRectangle({
+            x,
+            y,
+            width: size,
+            height: size,
+            borderWidth: 1.5,
+            borderColor: rgb(borderColor.r, borderColor.g, borderColor.b),
+          });
+
+          if (ann.meta?.checked) {
+            page.drawLine({
+              start: { x: x + size * 0.22, y: y + size * 0.52 },
+              end: { x: x + size * 0.42, y: y + size * 0.28 },
+              thickness: 2,
+              color: rgb(borderColor.r, borderColor.g, borderColor.b),
+            });
+            page.drawLine({
+              start: { x: x + size * 0.42, y: y + size * 0.28 },
+              end: { x: x + size * 0.8, y: y + size * 0.78 },
+              thickness: 2,
+              color: rgb(borderColor.r, borderColor.g, borderColor.b),
+            });
+          }
+          break;
+        }
+
+        case "form-signature": {
+          const borderColor = hexToRgb(ann.meta?.borderColor || "#c586c0");
+          const value = String(ann.meta?.value || ann.meta?.label || "Signature");
+          page.drawRectangle({
+            x,
+            y,
+            width: w,
+            height: h,
+            borderWidth: 1,
+            borderColor: rgb(borderColor.r, borderColor.g, borderColor.b),
+          });
+          page.drawLine({
+            start: { x: x + 8, y: y + 12 },
+            end: { x: x + w - 8, y: y + 12 },
+            thickness: 1,
+            color: rgb(borderColor.r, borderColor.g, borderColor.b),
+          });
+          if (helveticaFont) {
+            page.drawText(value, {
+              x: x + 10,
+              y: y + 16,
+              size: ann.meta?.fontSize || 10,
+              color: rgb(borderColor.r, borderColor.g, borderColor.b),
+              font: helveticaFont,
+            });
           }
           break;
         }

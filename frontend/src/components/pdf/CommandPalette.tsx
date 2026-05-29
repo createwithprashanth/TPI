@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, FileUp, FolderOpen, Maximize2, PanelLeft, PanelRight, Save, Search, Workflow } from "lucide-react";
+import { CalendarDays, CheckSquare, Download, FileUp, FolderOpen, Maximize2, PanelLeft, PanelRight, PenLine, Ruler, Save, Search, Stamp, Type, Workflow } from "lucide-react";
 import { usePdfContext } from "./context/PdfContext";
 
 type CommandPaletteProps = {
@@ -25,13 +25,16 @@ export default function CommandPalette({
 
   const exportReviewSummary = () => {
     const rows = [
-      ["Page", "Type", "Status", "Title", "Comment", "Assignee", "Due Date", "X", "Y", "Width", "Height"],
+      ["Page", "Type", "Status", "Title", "Field Name", "Value", "Required", "Comment", "Assignee", "Due Date", "X", "Y", "Width", "Height"],
       ...Object.entries(annotations).flatMap(([page, list]) =>
         list.map((annotation) => [
           page,
           annotation.type,
           annotation.meta?.reviewStatus ?? "open",
           annotation.meta?.label ?? annotation.meta?.text ?? annotation.type,
+          annotation.meta?.fieldName ?? "",
+          annotation.type === "form-checkbox" ? (annotation.meta?.checked ? "Yes" : "") : annotation.meta?.value ?? "",
+          annotation.meta?.required ? "Yes" : "",
           annotation.meta?.reviewComment ?? "",
           annotation.meta?.assignee ?? "",
           annotation.meta?.dueDate ?? "",
@@ -119,6 +122,54 @@ export default function CommandPalette({
         dispatch({ type: "SET_SHOW_PID_PANEL", payload: opening });
         dispatch({ type: "SET_SELECTED_TOOL", payload: opening ? "pid-symbol" : "select" });
       },
+    },
+    {
+      id: "stamp",
+      label: "Stamp Tool",
+      hint: "Place review stamp",
+      icon: Stamp,
+      enabled: hasDocument,
+      run: () => dispatch({ type: "SET_SELECTED_TOOL", payload: "stamp" }),
+    },
+    {
+      id: "measure",
+      label: "Measure Tool",
+      hint: "Draw calibrated measure",
+      icon: Ruler,
+      enabled: hasDocument,
+      run: () => dispatch({ type: "SET_SELECTED_TOOL", payload: "measure" }),
+    },
+    {
+      id: "form-text",
+      label: "Form Text Field",
+      hint: "Place fillable text",
+      icon: Type,
+      enabled: hasDocument,
+      run: () => dispatch({ type: "SET_SELECTED_TOOL", payload: "form-text" }),
+    },
+    {
+      id: "form-checkbox",
+      label: "Form Checkbox",
+      hint: "Place checkbox",
+      icon: CheckSquare,
+      enabled: hasDocument,
+      run: () => dispatch({ type: "SET_SELECTED_TOOL", payload: "form-checkbox" }),
+    },
+    {
+      id: "form-date",
+      label: "Form Date Field",
+      hint: "Place date input",
+      icon: CalendarDays,
+      enabled: hasDocument,
+      run: () => dispatch({ type: "SET_SELECTED_TOOL", payload: "form-date" }),
+    },
+    {
+      id: "form-signature",
+      label: "Form Signature Field",
+      hint: "Place signature box",
+      icon: PenLine,
+      enabled: hasDocument,
+      run: () => dispatch({ type: "SET_SELECTED_TOOL", payload: "form-signature" }),
     },
     {
       id: "export-review",

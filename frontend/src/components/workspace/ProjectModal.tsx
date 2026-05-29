@@ -91,6 +91,18 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, onClose }) => {
                   />
                 </div>
               ))}
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-[0.1em] mb-1.5">
+                  Project tag legend
+                </label>
+                <textarea
+                  value={project.project_legend_notes}
+                  onChange={e => setProject({ ...project, project_legend_notes: e.target.value })}
+                  placeholder="e.g. ZIH = Position Indicator High; XMCP = F&G motor control panel indication"
+                  rows={4}
+                  className="w-full resize-none bg-white/[0.04] border border-white/[0.07] rounded-lg px-3 py-2 text-[13px] text-white placeholder:text-gray-700 outline-none focus:border-white/[0.2] focus:bg-white/[0.06] transition-all"
+                />
+              </div>
             </div>
 
             {/* Footer */}

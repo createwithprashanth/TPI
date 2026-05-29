@@ -7,6 +7,7 @@ Produces four separate workbooks:
   IO List.xlsx           — hardwired AI/AO/DI/DO points for DCS/PLC design
   Verification Log.xlsx  — raw OCR extraction with review flags
   Line List.xlsx         — pipe line numbers extracted from P&ID
+  Equipment List.xlsx    — equipment tags extracted from P&ID text
 """
 import io
 import logging
@@ -42,18 +43,64 @@ def _ev(enrichment: Dict, tag: str, field: str) -> str:
     return str(enrichment.get(str(tag), {}).get(field, ""))
 
 
+def _service_value(enrichment: Dict, tag: str, row) -> str:
+    """Instrument service may come from enrichment or deterministic row data."""
+    return _ev(enrichment, tag, "service_description") or str(row.get("Instrument_Service", "") or "")
+
+
+def _service_confidence(enrichment: Dict, tag: str, row) -> str:
+    return _ev(enrichment, tag, "service_confidence") or str(row.get("Service_Confidence", "") or "")
+
+
+def _service_basis(enrichment: Dict, tag: str, row) -> str:
+    return _ev(enrichment, tag, "service_basis") or str(row.get("Service_Basis", "") or "")
+
+
 def _loop_no(row) -> str:
     """Build loop number: first letter of type + area (if any) + loop + numeric suffix."""
     import re as _re
-    t = str(row.get("Type", "") or "")
-    a = str(row.get("Area", "") or "")
-    l = str(row.get("Loop", "") or "")
-    s = str(row.get("Suffix", "") or "")
+    def _v(val) -> str:
+        s = str(val or "").strip()
+        return "" if s.lower() == "nan" else s
+    t = _v(row.get("Type", ""))
+    a = _v(row.get("Area", ""))
+    l = _v(row.get("Loop", ""))
+    s = _v(row.get("Suffix", ""))
+    if not l:
+        return ""
     first = t[0] if t else ""
     num_suffix_m = _re.match(r'^(\d+)', s)
     num_suffix = num_suffix_m.group(1) if num_suffix_m else ""
     parts = [p for p in [first, a, l, num_suffix] if p]
     return "-".join(parts)
+
+
+def _is_type_only_detection(row) -> bool:
+    """
+    Return True for legend-like/type-only detections such as FE, PIT, TW, XA.
+
+    These are useful in the Verification Log and QA Checks, but they should not
+    pollute client-facing deliverables unless a real loop/tag number was found.
+    """
+    import re as _re
+
+    tag = str(row.get("Tag_Number", "") or "").strip()
+    if not tag:
+        return True
+
+    if _loop_no(row):
+        return False
+
+    # Real instrument tags in this project family carry a numbered body, e.g.
+    # FIT-1762P-12. Type-only snippets and legend labels do not.
+    return _re.search(r"-\d", tag) is None
+
+
+def _deliverable_df(master_df: pd.DataFrame) -> pd.DataFrame:
+    """Rows suitable for client-facing Instrument Index / IO List workbooks."""
+    if master_df.empty:
+        return master_df.copy()
+    return master_df[~master_df.apply(_is_type_only_detection, axis=1)].copy()
 
 
 def _write_cover_sheet(wb, project_info: dict, document_title: str) -> None:
@@ -102,7 +149,12 @@ def _write_cover_sheet(wb, project_info: dict, document_title: str) -> None:
     # Row 2: spacer
     ws.set_row(2, 14)
 
-    # Rows 3-8: project info table
+    def _join_values(values) -> str:
+        if isinstance(values, (list, tuple, set)):
+            return ", ".join(str(v) for v in values if str(v or "").strip())
+        return str(values or "")
+
+    # Rows 3-14: project/document context table
     location = " ".join(filter(None, [project_info.get("location", ""), project_info.get("country", "")])).strip()
     fields = [
         ("Project Name",       project_info.get("project_name", "")),
@@ -110,6 +162,12 @@ def _write_cover_sheet(wb, project_info: dict, document_title: str) -> None:
         ("Client / Owner",     project_info.get("client_name", "") or ""),
         ("Contractor / EPC",   project_info.get("contractor_name", "") or ""),
         ("Location",           location),
+        ("Facility / Unit",     " / ".join(filter(None, [project_info.get("facility", ""), project_info.get("unit_area", "")]))),
+        ("Document Title",      project_info.get("document_title", "")),
+        ("Document No. / Rev.", " / ".join(filter(None, [project_info.get("document_no", ""), project_info.get("revision", "")]))),
+        ("Document Type",       project_info.get("document_type", "")),
+        ("Discipline / Phase",  " / ".join(filter(None, [project_info.get("discipline", ""), project_info.get("engineering_phase", "")]))),
+        ("Standards",           _join_values(project_info.get("standards", []))),
         ("Date Generated",     date.today().strftime("%d %B %Y")),
     ]
     for i, (label, value) in enumerate(fields):
@@ -118,24 +176,45 @@ def _write_cover_sheet(wb, project_info: dict, document_title: str) -> None:
         ws.write(row, 0, label, label_fmt)
         ws.merge_range(row, 1, row, 6, value, value_fmt)
 
-    # Row 9: spacer before logos
-    ws.set_row(9, 14)
+    scope = str(project_info.get("scope", "") or "").strip()
+    source_files = _join_values(project_info.get("source_files", []))
+    context_confidence = str(project_info.get("confidence", "") or "").strip()
 
-    # Rows 10-14: logo section (only rendered when at least one logo is present)
+    scope_row = len(fields) + 4
+    if scope:
+        ws.set_row(scope_row, 42)
+        ws.write(scope_row, 0, "Scope", label_fmt)
+        ws.merge_range(scope_row, 1, scope_row, 6, scope, value_fmt)
+        scope_row += 1
+
+    if source_files or context_confidence:
+        ws.set_row(scope_row, 24)
+        ws.write(scope_row, 0, "Context Source", label_fmt)
+        source_text = source_files
+        if context_confidence:
+            source_text = f"{source_text} | Confidence: {context_confidence}" if source_text else f"Confidence: {context_confidence}"
+        ws.merge_range(scope_row, 1, scope_row, 6, source_text, value_fmt)
+        scope_row += 1
+
+    # Spacer before logos
+    logo_start = scope_row + 1
+    ws.set_row(logo_start - 1, 14)
+
+    # Logo section (only rendered when at least one logo is present)
     client_bytes = project_info.get("client_logo_bytes")
     contractor_bytes = project_info.get("contractor_logo_bytes")
 
     if client_bytes or contractor_bytes:
-        ws.set_row(10, 14)
+        ws.set_row(logo_start, 14)
         if client_bytes:
-            ws.merge_range(10, 0, 10, 2, "CLIENT", logo_label_fmt)
+            ws.merge_range(logo_start, 0, logo_start, 2, "CLIENT", logo_label_fmt)
         if contractor_bytes:
-            ws.merge_range(10, 4, 10, 6, "CONTRACTOR / EPC", logo_label_fmt)
+            ws.merge_range(logo_start, 4, logo_start, 6, "CONTRACTOR / EPC", logo_label_fmt)
 
-        ws.set_row(11, 90)
+        ws.set_row(logo_start + 1, 90)
         if client_bytes:
             ext = project_info.get("client_logo_ext", ".png")
-            ws.insert_image(11, 0, f"client_logo{ext}", {
+            ws.insert_image(logo_start + 1, 0, f"client_logo{ext}", {
                 "image_data": io.BytesIO(client_bytes),
                 "x_scale": 0.45, "y_scale": 0.45,
                 "x_offset": 8, "y_offset": 8,
@@ -143,7 +222,7 @@ def _write_cover_sheet(wb, project_info: dict, document_title: str) -> None:
             })
         if contractor_bytes:
             ext = project_info.get("contractor_logo_ext", ".png")
-            ws.insert_image(11, 4, f"contractor_logo{ext}", {
+            ws.insert_image(logo_start + 1, 4, f"contractor_logo{ext}", {
                 "image_data": io.BytesIO(contractor_bytes),
                 "x_scale": 0.45, "y_scale": 0.45,
                 "x_offset": 8, "y_offset": 8,
@@ -151,7 +230,7 @@ def _write_cover_sheet(wb, project_info: dict, document_title: str) -> None:
             })
 
     # Footer
-    footer_row = 16
+    footer_row = logo_start + 6
     ws.set_row(footer_row, 14)
     ws.merge_range(
         footer_row, 0, footer_row, 6,
@@ -187,13 +266,14 @@ def _make_formats(wb):
 def _write_instrument_index(output_dir: str, index_df: pd.DataFrame, project_info: Optional[dict] = None) -> str:
     path = os.path.join(output_dir, "Instrument Index.xlsx")
     _IDX_WIDTHS = {
-        "Tag No.": 18,                  "Instrument Description": 32,
+        "Tag No.": 18,                  "Loop No.": 12,
+        "Instrument Description": 32,
         "Instrument Service": 36,       "Area / Unit": 12,
         "P&ID No.": 22,
         "Service": 18,                  "Process Fluid": 18,
         "Line / Equip. Tag": 20,        "Oper. Pressure (bar g)": 20,
         "Oper. Temp. (°C)": 18,         "Instrument Type": 14,
-        "Loop No.": 12,                 "Suffix": 8,
+        "Suffix": 8,
         "Control System": 14,           "IO Type": 10,
         "Signal Type": 22,              "Power Supply": 18,
         "Mounting": 12,                 "Location": 12,
@@ -247,8 +327,10 @@ def _write_instrument_index(output_dir: str, index_df: pd.DataFrame, project_inf
 def _write_io_list(output_dir: str, io_df: pd.DataFrame, project_info: Optional[dict] = None) -> str:
     path = os.path.join(output_dir, "IO List.xlsx")
     _IO_WIDTHS = {
-        "Tag No.": 18,           "Description": 30,
-        "Instrument Service": 36, "IO Type": 10,
+        "Tag No.": 18,           "Loop No.": 12,
+        "Instrument Description": 30,
+        "Instrument Service": 36, "Line / Equip. Tag": 20,
+        "Control System": 14,    "IO Type": 10,
         "Signal Type": 22,
         "Eng. Range Low": 15,    "Eng. Range High": 15,
         "Eng. Range Units": 15,  "Alarm LL": 10,
@@ -329,6 +411,16 @@ def _write_qa_checks(
                 "Detail":     "OCR confidence is low — verify this tag against the original P&ID",
                 "P&ID File":  row.get("P&ID_Filename", ""),
             })
+
+    # ── 1b. Type-only detections suppressed from client deliverables ──────────
+    for _, row in master_df[master_df.apply(_is_type_only_detection, axis=1)].iterrows():
+        issues.append({
+            "Tag Number": row.get("Tag_Number", ""),
+            "Severity":   "Info",
+            "Check":      "Suppressed from Deliverable",
+            "Detail":     "Type-only/no-loop detection kept in Verification Log but excluded from Instrument Index and IO List",
+            "P&ID File":  row.get("P&ID_Filename", ""),
+        })
 
     # ── 2. Tag format mismatches (populated by tag_validator) ─────────────────
     if "Tag_Format_Note" in master_df.columns:
@@ -461,6 +553,64 @@ def _write_qa_checks(
                 "P&ID File":  " / ".join(str(f) for f in files[:3]),
             })
 
+    # ── 6. Service confidence and basis checks ───────────────────────────────
+    if "Service_Confidence" in master_df.columns:
+        service_conf = master_df["Service_Confidence"].fillna("").astype(str).str.strip()
+        for _, row in master_df[service_conf.eq("Review")].iterrows():
+            issues.append({
+                "Tag Number": row.get("Tag_Number", ""),
+                "Severity":   "Warning",
+                "Check":      "Service Requires Review",
+                "Detail":     f"Instrument service is '{row.get('Instrument_Service', '')}' — verify extracted tag/service",
+                "P&ID File":  row.get("P&ID_Filename", ""),
+            })
+
+        for _, row in master_df[service_conf.eq("Low")].iterrows():
+            issues.append({
+                "Tag Number": row.get("Tag_Number", ""),
+                "Severity":   "Info",
+                "Check":      "Service Confidence Low",
+                "Detail":     f"Service basis: {row.get('Service_Basis', 'tag type only')}",
+                "P&ID File":  row.get("P&ID_Filename", ""),
+            })
+
+    # ── 7. Missing context for service-critical instruments ──────────────────
+    if {"Type", "Service_Confidence", "Service_Basis"}.issubset(master_df.columns):
+        key_types = {
+            "PIT", "PT", "PDT", "PDIT", "TIT", "TT", "LIT", "LT", "FIT", "FT",
+            "PSH", "PSAH", "TSH", "LSH", "FSH",
+        }
+        svc_mask = (
+            master_df["Type"].fillna("").astype(str).str.upper().isin(key_types)
+            & master_df["Service_Confidence"].fillna("").astype(str).isin(["Low", "Medium"])
+            & ~master_df["Service_Basis"].fillna("").astype(str).str.contains(
+                "equipment|valve|upstream|downstream", case=False, regex=True
+            )
+        )
+        for _, row in master_df[svc_mask].iterrows():
+            issues.append({
+                "Tag Number": row.get("Tag_Number", ""),
+                "Severity":   "Info",
+                "Check":      "Missing Equipment Context",
+                "Detail":     "Service is based on tag/line only — equipment or valve context was not found",
+                "P&ID File":  row.get("P&ID_Filename", ""),
+            })
+
+    # ── 8. F&G line conflict guard ───────────────────────────────────────────
+    if {"System", "Connected_Line"}.issubset(master_df.columns):
+        fgs_line_mask = (
+            master_df["System"].fillna("").astype(str).eq("F&GS")
+            & master_df["Connected_Line"].fillna("").astype(str).str.strip().ne("")
+        )
+        for _, row in master_df[fgs_line_mask].iterrows():
+            issues.append({
+                "Tag Number": row.get("Tag_Number", ""),
+                "Severity":   "Warning",
+                "Check":      "F&G Line Conflict",
+                "Detail":     f"F&G instrument should not have process line {row.get('Connected_Line', '')}",
+                "P&ID File":  row.get("P&ID_Filename", ""),
+            })
+
     if not issues:
         issues.append({
             "Tag Number": "—",
@@ -530,12 +680,43 @@ def _write_line_list(output_dir: str, line_list_df: pd.DataFrame, project_info: 
     return path
 
 
+def _write_equipment_list(output_dir: str, equipment_df: pd.DataFrame, project_info: Optional[dict] = None) -> str:
+    path = os.path.join(output_dir, "Equipment List.xlsx")
+    _EQUIP_WIDTHS = {
+        "Equipment_Tag": 20,
+        "Equipment_Type": 20,
+        "Equipment_Code": 16,
+        "Equipment_Number": 18,
+        "P&ID_Filename": 28,
+        "P&ID_Page": 10,
+        "Coordinates": 16,
+    }
+    with pd.ExcelWriter(path, engine="xlsxwriter") as writer:
+        wb = writer.book
+        fmt = _make_formats(wb)
+        if project_info:
+            _write_cover_sheet(wb, project_info, "EQUIPMENT LIST")
+        equipment_df.to_excel(writer, sheet_name="Equipment List", index=False)
+        ws = writer.sheets["Equipment List"]
+        ws.set_row(0, 28)
+
+        for col_num, col_name in enumerate(equipment_df.columns):
+            ws.write(0, col_num, col_name, fmt["hdr_lines"])
+            ws.set_column(col_num, col_num, _EQUIP_WIDTHS.get(col_name, 18))
+
+        ws.autofilter(0, 0, len(equipment_df), len(equipment_df.columns) - 1)
+        ws.freeze_panes(1, 0)
+
+    return path
+
+
 def write_engineering_excel(
     output_dir: str,
     master_df: pd.DataFrame,
     full_df: pd.DataFrame,
     enrichment: Dict,
     lines_df: pd.DataFrame = None,
+    equipment_df: pd.DataFrame = None,
     project_info: Optional[Dict] = None,
 ) -> List[str]:
     """
@@ -547,42 +728,43 @@ def write_engineering_excel(
         full_df     : Raw extraction DataFrame (all pages, all occurrences).
         enrichment  : Per-tag LLM enrichment dict keyed by Tag_Number.
         lines_df    : Line numbers DataFrame (optional).
+        equipment_df: Equipment tags DataFrame (optional).
 
     Returns:
         List of absolute paths to the files written.
     """
-    # Sort master_df by Loop No. then Tag_Number
+    # Sort master_df: P&ID No. → Loop No. → Tag_Number
     master_df = master_df.copy()
     master_df["_loop_no"] = master_df.apply(_loop_no, axis=1)
-    master_df.sort_values(by=["_loop_no", "Tag_Number"], inplace=True)
-    master_df.drop(columns=["_loop_no"], inplace=True)
+    pid_col = "P&ID_Filename"
+    master_df["_pid_no"] = (master_df[pid_col].fillna("").astype(str)
+                            if pid_col in master_df.columns else "")
+    master_df.sort_values(by=["_pid_no", "_loop_no", "Tag_Number"], inplace=True)
+    master_df.drop(columns=["_loop_no", "_pid_no"], inplace=True)
+    deliverable_df = _deliverable_df(master_df)
 
     # ── Build Instrument Index DataFrame ──────────────────────────────────────
     _IDX_COLS = [
-        "Tag No.", "Instrument Description", "Instrument Service", "Area / Unit", "P&ID No.", "Service",
-        "Process Fluid", "Line / Equip. Tag", "Oper. Pressure (bar g)", "Oper. Temp. (°C)",
-        "Instrument Type", "Loop No.", "Suffix", "Control System", "IO Type",
-        "Signal Type", "Power Supply", "Mounting", "Location", "Hazardous Area Class",
-        "Enclosure / IP Rating", "Calibration Range", "Accuracy", "Process Connection",
-        "Fail State", "SIL Level", "Criticality", "Status", "DCS / PLC Tag",
-        "Suggested Manufacturer", "Suggested Model", "Notes",
+        "Tag No.", "Loop No.", "Instrument Description", "Instrument Service",
+        "Service Confidence", "Service Basis", "Instrument Type", "Suffix",
+        "P&ID No.", "Line / Equip. Tag", "Control System", "IO Type",
+        "Signal Type", "Power Supply", "Mounting", "Location",
+        "Enclosure / IP Rating", "Fail State", "SIL Level", "Criticality",
+        "Review Required",
     ]
     idx_rows = []
-    for _, row in master_df.iterrows():
+    for _, row in deliverable_df.iterrows():
         tag = str(row.get("Tag_Number", ""))
         idx_rows.append({
             "Tag No.":                tag,
-            "Instrument Description": row.get("Instrument_Description", ""),
-            "Instrument Service":     _ev(enrichment, tag, "service_description"),
-            "Area / Unit":            row.get("Area", ""),
-            "P&ID No.":               row.get("P&ID_Filename", ""),
-            "Service":                row.get("Service", ""),
-            "Process Fluid":          _ev(enrichment, tag, "process_fluid"),
-            "Line / Equip. Tag":      row.get("Connected_Line", ""),
-            "Oper. Pressure (bar g)": _ev(enrichment, tag, "oper_pressure"),
-            "Oper. Temp. (°C)":       _ev(enrichment, tag, "oper_temp"),
-            "Instrument Type":        row.get("Type", ""),
             "Loop No.":               _loop_no(row),
+            "Instrument Description": row.get("Instrument_Description", ""),
+            "Instrument Service":     _service_value(enrichment, tag, row),
+            "Service Confidence":     _service_confidence(enrichment, tag, row),
+            "Service Basis":          _service_basis(enrichment, tag, row),
+            "P&ID No.":               row.get("P&ID_Filename", ""),
+            "Line / Equip. Tag":      row.get("Connected_Line", ""),
+            "Instrument Type":        row.get("Type", ""),
             "Suffix":                 row.get("Suffix", ""),
             "Control System":         row.get("System", ""),
             "IO Type":                row.get("IO_Type", ""),
@@ -590,65 +772,47 @@ def write_engineering_excel(
             "Power Supply":           row.get("Power_Supply", ""),
             "Mounting":               row.get("Mounting", ""),
             "Location":               row.get("Location_Drawing", ""),
-            "Hazardous Area Class":   _ev(enrichment, tag, "hazardous_area_class"),
             "Enclosure / IP Rating":  row.get("Enclosure", ""),
-            "Calibration Range":      _ev(enrichment, tag, "calibration_range"),
-            "Accuracy":               _ev(enrichment, tag, "accuracy"),
-            "Process Connection":     _ev(enrichment, tag, "process_connection"),
             "Fail State":             row.get("Fail_State", ""),
             "SIL Level":              row.get("SIL_Level", ""),
             "Criticality":            row.get("Criticality", "") or "Normal",
-            "Status":                 "New",
-            "DCS / PLC Tag":          "",
-            "Suggested Manufacturer": _ev(enrichment, tag, "suggested_manufacturer"),
-            "Suggested Model":        _ev(enrichment, tag, "suggested_model"),
-            "Notes":                  _ev(enrichment, tag, "notes"),
+            "Review Required":        "Yes" if bool(row.get("Review_Required", False)) else "",
         })
-    index_df = pd.DataFrame(idx_rows) if idx_rows else pd.DataFrame(columns=_IDX_COLS)
+    index_df = pd.DataFrame(idx_rows, columns=_IDX_COLS) if idx_rows else pd.DataFrame(columns=_IDX_COLS)
 
     # ── Build IO List DataFrame ───────────────────────────────────────────────
     _HARDWIRED_IO = {"AI", "AO", "DI", "DO", "PI"}
     _IO_COLS = [
-        "Tag No.", "Description", "Instrument Service", "IO Type", "Signal Type",
-        "Eng. Range Low", "Eng. Range High", "Eng. Range Units",
-        "Alarm LL", "Alarm L", "Alarm H", "Alarm HH",
-        "Trip L", "Trip H", "Fail State", "DCS / PLC Tag",
-        "Cabinet / Panel", "Slot / Channel", "Terminal",
-        "Cable Ref.", "Junction Box", "Remarks",
+        "Tag No.", "Loop No.", "Instrument Description", "Instrument Service",
+        "Service Confidence", "Service Basis", "Line / Equip. Tag",
+        "Control System", "IO Type", "Signal Type", "Power Supply",
+        "Fail State", "SIL Level",
     ]
     io_mask = (
-        master_df["IO_Type"].isin(_HARDWIRED_IO)
-        if "IO_Type" in master_df.columns
-        else pd.Series(False, index=master_df.index)
+        deliverable_df["IO_Type"].isin(_HARDWIRED_IO)
+        & (deliverable_df.get("Review_Required", pd.Series(False, index=deliverable_df.index)) != True)
+        if "IO_Type" in deliverable_df.columns
+        else pd.Series(False, index=deliverable_df.index)
     )
     io_rows = []
-    for _, row in master_df[io_mask].iterrows():
+    for _, row in deliverable_df[io_mask].iterrows():
         tag = str(row.get("Tag_Number", ""))
         io_rows.append({
             "Tag No.":          tag,
-            "Description":      row.get("Instrument_Description", ""),
-            "Instrument Service": _ev(enrichment, tag, "service_description"),
+            "Loop No.":         _loop_no(row),
+            "Instrument Description": row.get("Instrument_Description", ""),
+            "Instrument Service": _service_value(enrichment, tag, row),
+            "Service Confidence": _service_confidence(enrichment, tag, row),
+            "Service Basis":    _service_basis(enrichment, tag, row),
+            "Line / Equip. Tag": row.get("Connected_Line", ""),
+            "Control System":   row.get("System", ""),
             "IO Type":          row.get("IO_Type", ""),
             "Signal Type":      row.get("Signal_Type", ""),
-            "Eng. Range Low":   "",
-            "Eng. Range High":  "",
-            "Eng. Range Units": "",
-            "Alarm LL":         "",
-            "Alarm L":          "",
-            "Alarm H":          "",
-            "Alarm HH":         "",
-            "Trip L":           "",
-            "Trip H":           "",
+            "Power Supply":     row.get("Power_Supply", ""),
             "Fail State":       row.get("Fail_State", ""),
-            "DCS / PLC Tag":    "",
-            "Cabinet / Panel":  "",
-            "Slot / Channel":   "",
-            "Terminal":         "",
-            "Cable Ref.":       "",
-            "Junction Box":     "",
-            "Remarks":          "",
+            "SIL Level":        row.get("SIL_Level", ""),
         })
-    io_df = pd.DataFrame(io_rows) if io_rows else pd.DataFrame(columns=_IO_COLS)
+    io_df = pd.DataFrame(io_rows, columns=_IO_COLS) if io_rows else pd.DataFrame(columns=_IO_COLS)
 
     # ── Build Verification Log DataFrame ──────────────────────────────────────
     _lead = ["Ref_ID", "Tag_Number", "Verification_Source", "P&ID_Filename"]
@@ -666,12 +830,23 @@ def write_engineering_excel(
     else:
         line_list_df = pd.DataFrame(columns=_LINE_COLS)
 
-    # ── Write the five files ──────────────────────────────────────────────────
+    # ── Build Equipment List DataFrame ───────────────────────────────────────
+    _EQUIP_COLS = [
+        "Equipment_Tag", "Equipment_Type", "Equipment_Code", "Equipment_Number",
+        "P&ID_Filename", "P&ID_Page", "Coordinates",
+    ]
+    if equipment_df is not None and not equipment_df.empty:
+        equipment_list_df = equipment_df[[c for c in _EQUIP_COLS if c in equipment_df.columns]].copy()
+    else:
+        equipment_list_df = pd.DataFrame(columns=_EQUIP_COLS)
+
+    # ── Write the six files ───────────────────────────────────────────────────
     written = []
     written.append(_write_instrument_index(output_dir, index_df, project_info=project_info))
     written.append(_write_io_list(output_dir, io_df, project_info=project_info))
     written.append(_write_verification_log(output_dir, verify_df, project_info=project_info))
     written.append(_write_line_list(output_dir, line_list_df, project_info=project_info))
+    written.append(_write_equipment_list(output_dir, equipment_list_df, project_info=project_info))
     written.append(_write_qa_checks(output_dir, master_df, full_df, project_info=project_info))
 
     logger.info(f"Engineering Excel files written to: {output_dir}")

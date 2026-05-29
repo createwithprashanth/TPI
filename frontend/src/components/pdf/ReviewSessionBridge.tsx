@@ -17,6 +17,9 @@ type ReviewSessionState = Partial<
     | "pidSelectedSymbolId"
     | "pidColor"
     | "showPidPanel"
+    | "stampText"
+    | "measureUnit"
+    | "measureScale"
   >
 >;
 
@@ -102,6 +105,9 @@ export default function ReviewSessionBridge({ documentName }: { documentName?: s
     pidSelectedSymbolId,
     pidColor,
     showPidPanel,
+    stampText,
+    measureUnit,
+    measureScale,
     numPages,
     pdfDoc,
     dispatch,
@@ -136,6 +142,9 @@ export default function ReviewSessionBridge({ documentName }: { documentName?: s
         pidSelectedSymbolId,
         pidColor,
         showPidPanel,
+        stampText,
+        measureUnit,
+        measureScale,
       },
     };
 

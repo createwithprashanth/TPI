@@ -36,18 +36,12 @@ Write-Host "      All images loaded." -ForegroundColor Green
 
 # ── 3. Restore Ollama model blobs ─────────────────────────────────────────────
 Write-Host "[3/5] Restoring Ollama model files..." -ForegroundColor Yellow
-$modelBundle = "$BundleDir\ollama-models.tar.gz"
-if (Test-Path $modelBundle) {
-    # Create named volume and extract model blobs into it
-    docker volume create ollama_models | Out-Null
-    docker run --rm `
-        -v ollama_models:/root/.ollama `
-        -v "${BundleDir}:/bundle" `
-        alpine `
-        tar xzf /bundle/ollama-models.tar.gz -C /root/.ollama
-    Write-Host "      Model restored." -ForegroundColor Green
+$modelDir = "$BundleDir\models"
+if (Test-Path $modelDir) {
+    Write-Host "      Model files found at: $modelDir" -ForegroundColor Green
 } else {
-    Write-Host "      WARNING: ollama-models.tar.gz not found — model will be unavailable." -ForegroundColor Yellow
+    New-Item -ItemType Directory -Force -Path $modelDir | Out-Null
+    Write-Host "      WARNING: models folder not found — Ollama model will be unavailable until copied here." -ForegroundColor Yellow
 }
 
 # ── 4. Check credentials ──────────────────────────────────────────────────────
@@ -57,6 +51,20 @@ if (-not (Test-Path $credFile)) {
     Write-Host "      Place google_credentials.json in this folder, then re-run." -ForegroundColor Yellow
 } else {
     Write-Host "      Credentials found." -ForegroundColor Green
+}
+
+$envFile = "$BundleDir\.env"
+if (-not (Test-Path $envFile)) {
+    if (Test-Path "$BundleDir\.env.example") {
+        Copy-Item "$BundleDir\.env.example" $envFile
+    } else {
+        @"
+REDIS_URL=redis://redis:6379
+CORS_ORIGINS=http://localhost,http://127.0.0.1
+GOOGLE_APPLICATION_CREDENTIALS=/app/google_credentials.json
+"@ | Set-Content -Path $envFile -Encoding UTF8
+    }
+    Write-Host "      Created .env from defaults. Edit CORS_ORIGINS if users access by server name/IP." -ForegroundColor Yellow
 }
 
 # ── 5. Start services ─────────────────────────────────────────────────────────

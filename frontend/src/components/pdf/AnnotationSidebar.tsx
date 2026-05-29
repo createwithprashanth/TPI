@@ -65,12 +65,15 @@ export default function AnnotationSidebar({ onClose }: { onClose?: () => void })
 
   const exportCsv = () => {
     const rows = [
-      ["Page", "Type", "Status", "Title", "Comment", "Assignee", "Due Date", "X", "Y", "Width", "Height"],
+      ["Page", "Type", "Status", "Title", "Field Name", "Value", "Required", "Comment", "Assignee", "Due Date", "X", "Y", "Width", "Height"],
       ...all.map(({ page, annotation }) => [
         page,
         annotation.type,
         annotation.meta?.reviewStatus ?? "open",
         getAnnotationTitle(annotation),
+        annotation.meta?.fieldName ?? "",
+        annotation.type === "form-checkbox" ? (annotation.meta?.checked ? "Yes" : "") : annotation.meta?.value ?? "",
+        annotation.meta?.required ? "Yes" : "",
         annotation.meta?.reviewComment ?? "",
         annotation.meta?.assignee ?? "",
         annotation.meta?.dueDate ?? "",
@@ -183,10 +186,114 @@ export default function AnnotationSidebar({ onClose }: { onClose?: () => void })
                 Label
                 <input
                   value={selectedMeta.label ?? selectedMeta.text ?? ""}
-                  onChange={(event) => updateSelected({}, selected.annotation.type === "textbox" ? { text: event.target.value } : { label: event.target.value })}
+                  onChange={(event) => updateSelected(
+                    {},
+                    selected.annotation.type === "textbox" || selected.annotation.type === "stamp"
+                      ? { text: event.target.value }
+                      : { label: event.target.value },
+                  )}
                   className={inputClass}
                 />
               </label>
+              {selected.annotation.type === "measure" ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-[11px] text-[#858585]">
+                    Value
+                    <input
+                      type="number"
+                      step={0.01}
+                      value={Number(selectedMeta.value ?? 0).toFixed(2)}
+                      onChange={(event) => {
+                        const value = Number(event.target.value) || 0;
+                        updateSelected({}, {
+                          value,
+                          label: `${value.toFixed(2)} ${selectedMeta.unit ?? "m"}`,
+                        });
+                      }}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label className="block text-[11px] text-[#858585]">
+                    Unit
+                    <input
+                      value={selectedMeta.unit ?? "m"}
+                      onChange={(event) => updateSelected({}, {
+                        unit: event.target.value,
+                        label: `${Number(selectedMeta.value ?? 0).toFixed(2)} ${event.target.value}`,
+                      })}
+                      className={inputClass}
+                    />
+                  </label>
+                </div>
+              ) : null}
+              {selected.annotation.type.startsWith("form-") ? (
+                <div className="space-y-2 border border-[#2b2b2b] bg-[#1e1e1e] p-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[#858585]">Form Field</div>
+                  <label className="block text-[11px] text-[#858585]">
+                    Field Name
+                    <input
+                      value={selectedMeta.fieldName ?? ""}
+                      onChange={(event) => updateSelected({}, { fieldName: event.target.value })}
+                      className={inputClass}
+                    />
+                  </label>
+                  {selected.annotation.type === "form-checkbox" ? (
+                    <label className="flex items-center gap-2 text-[11px] text-[#858585]">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selectedMeta.checked)}
+                        onChange={(event) => updateSelected({}, {
+                          checked: event.target.checked,
+                          value: event.target.checked ? "Yes" : "",
+                        })}
+                        className="accent-[#3794ff]"
+                      />
+                      Checked
+                    </label>
+                  ) : (
+                    <label className="block text-[11px] text-[#858585]">
+                      Value
+                      <input
+                        type={selected.annotation.type === "form-date" ? "date" : "text"}
+                        value={selectedMeta.value ?? ""}
+                        onChange={(event) => updateSelected({}, { value: event.target.value })}
+                        className={inputClass}
+                      />
+                    </label>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block text-[11px] text-[#858585]">
+                      Font
+                      <input
+                        type="number"
+                        min={8}
+                        max={32}
+                        value={selectedMeta.fontSize ?? 12}
+                        onChange={(event) => updateSelected({}, { fontSize: Number(event.target.value) })}
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="block text-[11px] text-[#858585]">
+                      Border
+                      <input
+                        type="color"
+                        value={selectedMeta.borderColor ?? selectedMeta.color ?? "#3794ff"}
+                        onChange={(event) => updateSelected({}, { borderColor: event.target.value })}
+                        className="h-7 w-full rounded-[3px] border border-[#3c3c3c] bg-[#1e1e1e]"
+                      />
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-2 text-[11px] text-[#858585]">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedMeta.required)}
+                      onChange={(event) => updateSelected({}, { required: event.target.checked })}
+                      className="accent-[#3794ff]"
+                    />
+                    Required
+                  </label>
+                </div>
+              ) : null}
               <div className="grid grid-cols-2 gap-2">
                 <label className="block text-[11px] text-[#858585]">
                   Color

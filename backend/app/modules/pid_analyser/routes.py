@@ -32,6 +32,7 @@ async def process_async(
     client_name: Optional[str] = Form(None),
     contractor_name: Optional[str] = Form(None),
     location: Optional[str] = Form(None),
+    project_legend_notes: Optional[str] = Form(None),
     # legacy fields — kept for frontend compat
     project_id: Optional[str] = Form(None),
     legend_job_id: Optional[str] = Form(None),
@@ -50,6 +51,7 @@ async def process_async(
         client_name=client_name,
         contractor_name=contractor_name,
         location=location,
+        project_legend_notes=project_legend_notes,
     )
 
 

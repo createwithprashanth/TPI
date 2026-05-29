@@ -402,14 +402,31 @@ Soft Link = DCS internal — no physical I/O  (indicators, alarms, controllers, 
 SECTION 10 — NON-INSTRUMENT DETECTION (return confidence: 0.0)
 ══════════════════════════════════════════════════════════════════
 These are NOT instruments — they are drawing annotations, OCR noise, or symbols:
-- Single letters alone:  I, S, R, T, P, A, X
+
+- Single letters alone:       A, I, M, S, R, T, P, X  (single character = OCR fragment)
+- Double-letter fragments:    NN, Bb, CC (bare, no number)  (likely OCR or symbol noise)
 - Flip-flop / logic symbols:  S-R, R-S, J-K
-- Note references:  NOTE-1, NOTE-5R, NOTE-A, NOTES
-- Pure numbers:  01, 101, 3082 alone (without letter prefix)
-- Equipment tags:  P-101 (pump), C-201 (compressor), E-301 (exchanger), V-401 (vessel)
-  Note: Equipment tags use a single letter prefix + number. Instrument tags have multi-letter type codes.
-- Revision marks:  REV, REV-A, R1
-- Drawing borders / title block fragments
+- Short page/ref fragments:   P1, P2, R1  (no multi-letter type code)
+- Note references:            NOTE-1, NOTE-5R, NOTE-A, NOTES
+- Pure numbers:               01, 101, 3082 (without letter prefix)
+- Revision/hold marks:        REV, REV-A, HOLD, HOLD-1  (drawing control codes)
+- Drawing references:         DRG, DWG, DWGNO  (not instruments)
+- Document references:        MTO  (Material Takeoff — a document type, not instrument)
+
+EQUIPMENT TAGS — single letter prefix + hyphen + number:
+  P-101, P-573P-01 (pump)    V-201 (vessel)    D-101 (drum/separator)
+  C-201 (compressor)         E-301 (exchanger)  T-401 (tank)
+  These use ONE letter before the hyphen. Instrument tags always have 2+ letters (PIT, FCV, TIC…).
+
+ELECTRICAL / AUTOMATION EQUIPMENT — not ISA-5.1 instrument tags:
+  VFD  (Variable Frequency Drive)    PLC  (Programmable Logic Controller)
+  MCC  (Motor Control Centre)        UPS  (Uninterruptible Power Supply)
+  PM-xxx  (pump motor equipment tag variant)
+  All of these are electrical equipment or control systems — NOT field instruments.
+
+KEY RULE: If the type code is a common English word/abbreviation that is NOT in the ISA-5.1
+first-letter table (A=Analysis, F=Flow, L=Level, P=Pressure, T=Temperature, etc.)
+AND it is not a known instrument code from this knowledge base → confidence: 0.0
 
 When the tag matches any non-instrument pattern → return:
   {"description": "", "io_type": "", "system": "", "confidence": 0.0}
@@ -516,8 +533,49 @@ XMCA-806    → F&G Motor Control Annunciator             Soft Link  F&GS
 XI-807      → Miscellaneous Indicator                   Soft Link  DCS
 XA-808      → Miscellaneous Alarm                       Soft Link  DCS
 NOTE-5R     → (annotation — not an instrument)          confidence: 0.0
+NOTE-1      → (annotation — not an instrument)          confidence: 0.0
 I           → (single letter — OCR noise)               confidence: 0.0
+A           → (single letter — OCR noise)               confidence: 0.0
+M           → (single letter — OCR noise)               confidence: 0.0
 S-R         → (flip-flop symbol — not an instrument)    confidence: 0.0
+NN          → (double-letter fragment — OCR noise)      confidence: 0.0
+Bb          → (mixed-case fragment — OCR noise)         confidence: 0.0
+P1          → (short page/ref fragment — not a tag)     confidence: 0.0
+CC          → (bare code, no number — noise/fragment)   confidence: 0.0
+REV         → (revision mark — drawing control)         confidence: 0.0
+HOLD        → (drawing hold mark — not instrument)      confidence: 0.0
+DRG         → (drawing reference — not instrument)      confidence: 0.0
+MTO         → (Material Takeoff reference — doc only)   confidence: 0.0
+P-101       → (pump equipment tag — single letter+num)  confidence: 0.0
+P-573P-01   → (pump equipment tag)                      confidence: 0.0
+V-201       → (vessel equipment tag — "V" ≠ instrument) confidence: 0.0
+D-101       → (drum/separator tag — "D" ≠ instrument)   confidence: 0.0
+PM-573P-01  → (pump motor equipment tag)                confidence: 0.0
+Bb-573P     → (OCR noise fragment)                      confidence: 0.0
+VFD-573P-01 → (Variable Frequency Drive — electrical, not ISA instrument) confidence: 0.0
+PLC-573P-01 → (Programmable Logic Controller — not ISA instrument)        confidence: 0.0
+
+CRITICAL RULE — Equipment tag vs Instrument tag:
+  Equipment tags: SINGLE uppercase letter + hyphen + number  →  P-101, V-201, D-101, E-301
+  These are NEVER instruments. Do NOT interpret P as Pressure, V as Vibration, D as Density.
+  The single letter before the hyphen is a VESSEL/EQUIPMENT CLASS CODE, NOT an ISA variable letter.
+  V-201 is a VESSEL (equipment) — it is NOT a "Vibration Indicator".
+  D-101 is a DRUM (equipment)  — it is NOT a "Density" anything.
+  P-101 is a PUMP (equipment)  — it is NOT a "Pressure" anything.
+
+CRITICAL RULE — Bare single/double letters are ALWAYS noise (conf 0.0):
+  If the ENTIRE tag is just one or two characters with no number → it is OCR noise.
+  A  alone  → NOT "Analysis" — it is a fragment, confidence: 0.0
+  I  alone  → NOT "Indicator" — it is a fragment, confidence: 0.0
+  M  alone  → NOT "Motor" — it is a fragment, confidence: 0.0
+  CC alone  → NOT "Conductivity Controller" — it is a fragment, confidence: 0.0
+  The ISA first-letter decode ONLY applies when the tag has a number suffix (e.g., AT-101, FIC-202).
+  A bare letter without a loop number is ALWAYS noise.
+
+CRITICAL RULE — Electrical equipment (not ISA-5.1 instruments):
+  VFD (Variable Frequency Drive), PLC (Programmable Logic Controller),
+  MCC (Motor Control Centre), UPS, DCS (when used as a tag, not a system label)
+  → These are electrical/automation equipment. confidence: 0.0
 
 ══════════════════════════════════════════════════════════════════
 SECTION 12 — RESPONSE FORMAT
@@ -612,6 +670,57 @@ MESSAGE user Classify P&ID tag S-R (type S). Return ONLY JSON.
 MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
 
 MESSAGE user Classify P&ID tag I (type I). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag A (type A). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag M (type M). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag NN (type NN). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag P1 (type P). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag NOTE-1 (type NOTE). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag REV (type REV). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag HOLD (type HOLD). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag DRG (type DRG). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag MTO (type MTO). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag P-573P-01 (type P). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag V-201 (type V). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag D-101 (type D). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag PM-573P-01 (type PM). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag Bb-573P (type Bb). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag CC (type CC). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag VFD-573P-01 (type VFD). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag PLC-573P-01 (type PLC). Return ONLY JSON.
 MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
 
 MESSAGE user Classify P&ID tag PPHS-101A (type PPHS). Return ONLY JSON.

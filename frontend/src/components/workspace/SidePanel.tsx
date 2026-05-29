@@ -61,6 +61,18 @@ const SidePanel: React.FC<SidePanelProps> = ({ open, onClose }) => {
                 />
               </div>
             ))}
+            <div>
+              <label className="block text-[10px] font-semibold text-gray-600 uppercase tracking-[0.12em] mb-1.5">
+                Tag legend
+              </label>
+              <textarea
+                value={project.project_legend_notes}
+                onChange={e => setProject({ ...project, project_legend_notes: e.target.value })}
+                placeholder="ZIH = Position Indicator High"
+                rows={4}
+                className="w-full resize-none bg-white/[0.03] border border-white/[0.07] rounded-lg px-2.5 py-1.5 text-[12px] text-white placeholder:text-gray-700 outline-none focus:border-white/[0.18] focus:bg-white/[0.05] transition-all"
+              />
+            </div>
 
             {project.project_name && (
               <p className="text-[10px] text-gray-700 pt-0.5">Printed on all deliverables</p>

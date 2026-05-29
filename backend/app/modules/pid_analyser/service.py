@@ -70,6 +70,7 @@ async def enqueue_process(
     client_name: str | None,
     contractor_name: str | None,
     location: str | None,
+    project_legend_notes: str | None,
 ) -> ProcessResponse:
     if not is_redis_available():
         raise HTTPException(status_code=503, detail="Background processing unavailable.")
@@ -95,6 +96,7 @@ async def enqueue_process(
                 "client_name": client_name,
                 "contractor_name": contractor_name,
                 "location": location,
+                "project_legend_notes": project_legend_notes,
             },
             job_timeout=3600,
             job_id=job_id,

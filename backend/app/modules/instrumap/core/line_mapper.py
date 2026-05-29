@@ -87,12 +87,12 @@ _FALLBACK_MAX_DIST_PX = 1500.0
 # excludes panel instruments at the top of a drawing whose labels are far off.
 _FALLBACK_AXIS_BAND_PX = 350.0
 
-# Loop propagation distance gate — an instrument inherits its loop-mate's line
-# only if it is within this many pixels of the line-number label.
-# 2000 px ≈ 6.7 in @ 300 DPI covers legitimate same-area propagation (TW/TE/TIT
-# on the same stub) while excluding panel instruments (y≈1834) from inheriting
-# lines whose labels sit 2 000–5 000 px away on process runs.
-_PROPAGATION_MAX_DIST_PX = 2000.0
+# Loop propagation: no distance gate — the loop instance key ("573P-04A") is
+# specific enough to prevent cross-loop contamination.  _is_soft_tag already
+# filters panel instruments.  Drawings vary: PSAH/PSAL switches can appear in
+# the interlock overview at the top (y≈500) while their PIT lives at the
+# process-pipe level at the bottom (y≈4400) — a gap well above any fixed px limit.
+_PROPAGATION_MAX_DIST_PX = float("inf")
 
 
 # ── Coordinate helpers ────────────────────────────────────────────────────────
@@ -143,10 +143,20 @@ def _extract_segments(page) -> List[Tuple[float, float, float, float]]:
             if kind == "m":
                 current = (item[1].x, item[1].y)
                 subpath_start = current
-            elif kind == "l" and current is not None:
-                end = (item[1].x, item[1].y)
-                if _dist(current, end) > 1.0:
-                    segments.append((current[0], current[1], end[0], end[1]))
+            elif kind == "l":
+                # PyMuPDF get_drawings() emits l items as ('l', start_pt, end_pt)
+                # when the path has no preceding 'm' (common in CAD-exported PDFs).
+                # Fall back to the traditional current+endpoint form when m was seen.
+                if len(item) >= 3:
+                    start = (item[1].x, item[1].y)
+                    end   = (item[2].x, item[2].y)
+                elif current is not None:
+                    start = current
+                    end   = (item[1].x, item[1].y)
+                else:
+                    continue
+                if _dist(start, end) > 1.0:
+                    segments.append((start[0], start[1], end[0], end[1]))
                 current = end
             elif kind == "h" and current is not None and subpath_start is not None:
                 # Closepath: draws an implicit line from current back to subpath start.
@@ -387,15 +397,20 @@ def _is_soft_tag(row: pd.Series, transmitter_set: set) -> bool:
         return False
 
     io_type = str(row.get("IO_Type", "")).strip()
-    if io_type in _SOFT_IO_TYPES:
-        return True
-
     loop = str(row.get("Loop", "")).strip()
 
+    # Indicators and recorders: soft only when a transmitter of the same variable
+    # exists in the same loop (DCS faceplate mirror).  A lone PI/TI with no
+    # corresponding transmitter is a physical field gauge — do not skip it.
     if instr_type.endswith("I") or instr_type.endswith("R"):
         transmitter_type = instr_type[:-1] + "T"
         if (transmitter_type, loop) in transmitter_set:
             return True
+        return False  # no transmitter → physical gauge, never soft
+
+    # For all other types, use IO_Type
+    if io_type in _SOFT_IO_TYPES:
+        return True
 
     return False
 
@@ -472,8 +487,25 @@ def map_instruments_to_lines(
             f"{len(page_instruments)} instruments, {len(page_lines)} line labels"
         )
 
-        # Safety cap — extremely dense drawings; cap to avoid stall
-        MAX_SEGMENTS = 15_000
+        # Filter out micro-strokes (≤ 5 pt) — these are instrument symbol noise
+        # (hatching, tick marks, chord fragments). Real pipe stubs are ≥ 8 pt.
+        # Applied before adjacency build to avoid O(n²) stall on dense CAD PDFs
+        # that export every stroke as individual l-items (47k+ segments common).
+        _MIN_SEGMENT_PT = 5.0
+        if len(segments) > 5_000:
+            n_before = len(segments)
+            segments = [
+                s for s in segments
+                if _dist((s[0], s[1]), (s[2], s[3])) >= _MIN_SEGMENT_PT
+            ]
+            if len(segments) < n_before:
+                logger.debug(
+                    "LineMapper: page %d filtered %d micro-segments (<%gpt) → %d kept",
+                    page_number, n_before - len(segments), _MIN_SEGMENT_PT, len(segments),
+                )
+
+        # Hard safety cap — should rarely trigger after micro-segment filtering
+        MAX_SEGMENTS = 25_000
         if len(segments) > MAX_SEGMENTS:
             logger.warning(
                 f"LineMapper: page {page_number} has {len(segments)} segments — "

@@ -136,6 +136,9 @@ export function pdfReducer(state: PdfState, action: PdfAction): PdfState {
         pidSelectedSymbolId: action.payload.pidSelectedSymbolId ?? state.pidSelectedSymbolId,
         pidColor: action.payload.pidColor ?? state.pidColor,
         showPidPanel: action.payload.showPidPanel ?? state.showPidPanel,
+        stampText: action.payload.stampText ?? state.stampText,
+        measureUnit: action.payload.measureUnit ?? state.measureUnit,
+        measureScale: action.payload.measureScale ?? state.measureScale,
         selectedAnnotationId: null,
         undoStack: [],
         redoStack: [],
@@ -199,6 +202,16 @@ export function pdfReducer(state: PdfState, action: PdfAction): PdfState {
       };
       return newState;
     }
+
+    case "SET_STAMP_TEXT":
+      return { ...state, stampText: action.payload };
+
+    case "SET_MEASURE_SETTINGS":
+      return {
+        ...state,
+        measureUnit: action.payload.unit ?? state.measureUnit,
+        measureScale: action.payload.scale ?? state.measureScale,
+      };
 
     case "REMOVE_ANNOTATION": {
       const { page, id } = action.payload;

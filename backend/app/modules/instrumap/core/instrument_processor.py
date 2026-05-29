@@ -184,7 +184,10 @@ class InstrumentProcessor:
             if not page_instr:
                 continue
 
-            draw = ImageDraw.Draw(pil_image)
+            # Draw semi-transparent yellow circles via RGBA overlay so the
+            # underlying P&ID text and lines remain visible through the fill.
+            overlay = Image.new('RGBA', pil_image.size, (0, 0, 0, 0))
+            overlay_draw = ImageDraw.Draw(overlay)
             for row in page_instr:
                 try:
                     coords = str(row.get("Coordinates", "")).split(",")
@@ -193,15 +196,33 @@ class InstrumentProcessor:
                     r = max(10, int(float(row.get("Radius", 20)) * scale))
                 except Exception:
                     continue
-                draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(255, 0, 0), width=3)
+                overlay_draw.ellipse(
+                    (cx - r, cy - r, cx + r, cy + r),
+                    fill=(255, 215, 0, 55),      # semi-transparent yellow fill
+                    outline=(255, 215, 0, 255),  # fully opaque yellow outline
+                    width=3,
+                )
+
+            composited = Image.alpha_composite(pil_image.convert('RGBA'), overlay).convert('RGB')
+
+            # Draw tag labels on top of the composited image
+            draw = ImageDraw.Draw(composited)
+            for row in page_instr:
+                try:
+                    coords = str(row.get("Coordinates", "")).split(",")
+                    cx = int(float(coords[0]) * scale)
+                    cy = int(float(coords[1]) * scale)
+                    r = max(10, int(float(row.get("Radius", 20)) * scale))
+                except Exception:
+                    continue
                 label = str(row.get("Tag_Number", ""))
-                draw.text((cx + r + 2, cy - 10), label, fill=(255, 0, 0), font=font)
+                draw.text((cx + r + 2, cy - 10), label, fill=(50, 205, 50), font=font)
 
             save_path = os.path.join(
                 output_folder, f"{filename_base}_p{page_number}_highlighted.jpg"
             )
             try:
-                pil_image.save(save_path, "JPEG", quality=85)
+                composited.save(save_path, "JPEG", quality=85)
             except Exception as exc:
                 logger.warning(f"PyMuPDF highlight save failed for page {page_number}: {exc}")
 
@@ -293,6 +314,7 @@ class InstrumentProcessor:
         
         all_instruments_data = []
         all_lines_data = []
+        all_equipment_data = []
         debug_output_images = []
         _rl = _RunLogger(filename_base) if _RunLogger else None
 
@@ -302,7 +324,7 @@ class InstrumentProcessor:
                 status_update_fn("ERROR: Calibration radius is missing.")
                 if _rl:
                     _rl.flush()
-                return pd.DataFrame(), pd.DataFrame(), []
+                return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
             
             dynamic_min_radius, dynamic_max_radius = _calculate_dynamic_radius(
                 calibration_radius, config_params
@@ -317,6 +339,7 @@ class InstrumentProcessor:
             # OCR pipeline (no image conversion, no Vision API calls).
             pymupdf_instruments_df = pd.DataFrame()
             pymupdf_lines_df = pd.DataFrame()
+            pymupdf_equipment_df = pd.DataFrame()
             ocr_needed = True
 
             if USE_PYMUPDF:
@@ -396,7 +419,7 @@ class InstrumentProcessor:
                     status_update_fn("ERROR: No images converted from PDF.")
                     if _rl:
                         _rl.flush()
-                    return pd.DataFrame(), pd.DataFrame(), []
+                    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
 
                 status_update_fn(f"PDF converted to {len(images)} page(s).")
 
@@ -414,7 +437,7 @@ class InstrumentProcessor:
                     gray_image = cv2.cvtColor(cv_image_rgb, cv2.COLOR_BGR2GRAY)
                     blurred_image_page = cv2.medianBlur(gray_image, 5)
 
-                    final_instruments_df_page, page_lines_df = extract_instruments(
+                    extraction_result = extract_instruments(
                         pil_image=pil_image,
                         blurred_image=blurred_image_page,
                         vision_client=self._get_vision_client(),
@@ -430,6 +453,11 @@ class InstrumentProcessor:
                         output_folder=output_folder,
                         default_area_code=default_area_code,
                     )
+                    if len(extraction_result) == 3:
+                        final_instruments_df_page, page_lines_df, page_equipment_df = extraction_result
+                    else:
+                        final_instruments_df_page, page_lines_df = extraction_result
+                        page_equipment_df = pd.DataFrame()
 
                     if _rl:
                         _rl.log_lines(page_number, list(page_lines_df["Line_Number"].astype(str)) if not page_lines_df.empty else [])
@@ -456,6 +484,8 @@ class InstrumentProcessor:
 
                     if not page_lines_df.empty:
                         all_lines_data.append(page_lines_df)
+                    if not page_equipment_df.empty:
+                        all_equipment_data.append(page_equipment_df)
 
                     if self.debug_mode:
                         debug_img_path = os.path.join(
@@ -474,6 +504,11 @@ class InstrumentProcessor:
                 pd.concat(all_lines_data, ignore_index=True)
                 .drop_duplicates(subset=['Line_Number'])
                 if all_lines_data else pd.DataFrame()
+            )
+            final_equipment_df = (
+                pd.concat(all_equipment_data, ignore_index=True)
+                .drop_duplicates(subset=['Equipment_Tag', 'P&ID_Page'])
+                if all_equipment_data else pd.DataFrame()
             )
 
             if all_instruments_data:
@@ -508,12 +543,12 @@ class InstrumentProcessor:
                 )
                 if _rl:
                     _rl.flush()
-                return final_instruments_df, final_lines_df, debug_output_images
+                return final_instruments_df, final_lines_df, final_equipment_df, debug_output_images
             else:
                 status_update_fn("Finished processing. No instruments found.")
                 if _rl:
                     _rl.flush()
-                return pd.DataFrame(), final_lines_df, debug_output_images
+                return pd.DataFrame(), final_lines_df, final_equipment_df, debug_output_images
 
         except Exception as e:
             status_update_fn(f"CRITICAL ERROR: {e.__class__.__name__}. See console for details.")

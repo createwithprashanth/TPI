@@ -92,6 +92,13 @@ const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                     className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1.5 text-xs text-white placeholder:text-gray-600 outline-none focus:border-white/[0.18] transition-colors"
                   />
                 ))}
+                <textarea
+                  value={project.project_legend_notes}
+                  onChange={e => setProject({ ...project, project_legend_notes: e.target.value })}
+                  placeholder="Project tag legend / notes"
+                  rows={3}
+                  className="w-full resize-none rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1.5 text-xs text-white placeholder:text-gray-600 outline-none focus:border-white/[0.18] transition-colors"
+                />
                 {project.project_name && (
                   <p className="text-[10px] text-gray-600 pt-0.5">Printed on deliverables</p>
                 )}

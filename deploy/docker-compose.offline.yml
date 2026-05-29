@@ -1,19 +1,13 @@
 version: "3.9"
 
-# Two isolated networks:
-#   internal — backend, worker, redis, ollama (never reachable from host)
-#   frontend  — frontend + backend (nginx proxies to backend over this net)
-# Nothing on the internal network is reachable from the host or the internet.
-
 networks:
   internal:
     driver: bridge
-    internal: true          # no outbound internet from this network
+    internal: true
   frontend:
     driver: bridge
 
 services:
-
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -52,7 +46,6 @@ services:
 
   backend:
     image: xyra-studio-backend
-    build: ./backend
     restart: unless-stopped
     networks:
       - internal
@@ -75,7 +68,7 @@ services:
         condition: service_healthy
 
   worker:
-    build: ./backend
+    image: xyra-studio-backend
     restart: unless-stopped
     command: python worker.py
     networks:
@@ -97,12 +90,11 @@ services:
 
   frontend:
     image: xyra-studio-frontend
-    build: ./frontend
     restart: unless-stopped
     networks:
       - frontend
     ports:
-      - "80:80"             # only public port in the entire stack
+      - "80:80"
     depends_on:
       - backend
 

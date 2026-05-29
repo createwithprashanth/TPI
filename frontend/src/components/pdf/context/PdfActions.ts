@@ -81,6 +81,11 @@ export type PdfAction =
                 | "pidSelectedSymbolId"
                 | "pidColor"
                 | "showPidPanel"
+                | "stampText"
+                | "measureUnit"
+                | "measureScale"
             >
         >;
-    };
+    }
+    | { type: "SET_STAMP_TEXT"; payload: string }
+    | { type: "SET_MEASURE_SETTINGS"; payload: { unit?: string; scale?: number } };

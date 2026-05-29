@@ -198,7 +198,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
           user_selected_radius: batchRadius,
           area_code: areaCode,
           batch_id: currentBatchId,
-          project: project.project_name ? project : undefined,
+          project: Object.values(project).some(Boolean) ? project : undefined,
         });
         const result = await pollJobStatus(resp.job_id);
         if (result.status === 'finished' && result.result) {
@@ -228,9 +228,12 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
     processingStartRef.current = null;
     if (elapsedTimerRef.current) { clearInterval(elapsedTimerRef.current); elapsedTimerRef.current = null; }
 
-    if (currentBatchId) {
+    const anySucceeded = newResults.some(r => r.results.length > 0);
+    if (currentBatchId && anySucceeded) {
       try { await downloadBatchResults(currentBatchId); }
-      catch { setError('Processing complete but download failed. Refresh and try again.'); }
+      catch { setError('Results ready but ZIP download failed. Use the download button to retry.'); }
+    } else if (currentBatchId && !anySucceeded && newResults.every(r => !!r.error)) {
+      setError('Processing failed — check that the worker is running and try again.');
     }
   };
 

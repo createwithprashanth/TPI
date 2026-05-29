@@ -6,6 +6,7 @@ import WorkspaceBar from '../components/workspace/WorkspaceBar';
 import ActivityBar from '../components/workspace/ActivityBar';
 import FileTabs from '../components/workspace/FileTabs';
 import Breadcrumb from '../components/workspace/Breadcrumb';
+import SystemHealthDashboard from '../components/workspace/SystemHealthDashboard';
 import type { WorkspaceView } from '../components/workspace/WorkspaceSidebar';
 import PIDAnalyserPage from './pid/PIDAnalyserPage';
 import PipingMTOPage from './mto/PipingMTOPage';
@@ -132,6 +133,9 @@ const WorkspaceShell: React.FC = () => {
         onChange={handleFileChange}
         className="hidden"
       />
+
+      {/* System health — fixed overlay, independent of layout */}
+      <SystemHealthDashboard />
     </div>
   );
 };

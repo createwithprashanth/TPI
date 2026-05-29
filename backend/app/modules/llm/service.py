@@ -17,7 +17,16 @@ logger = logging.getLogger(__name__)
 # In Docker, set OLLAMA_HOST=http://ollama:11434 so the backend can reach the
 # Ollama container by its service name. Falls back to localhost for local dev.
 OLLAMA_BASE_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-DEFAULT_MODEL = "qwen2.5:7b"
+
+# Model names — configurable via .env so no code change is needed per deployment.
+INSTRUMENT_MODEL          = os.getenv("XYRA_INSTRUMENT_MODEL",          "xyra-pid-engineer")
+INSTRUMENT_MODEL_FALLBACK = os.getenv("XYRA_INSTRUMENT_MODEL_FALLBACK", "qwen2.5:7b")
+LINE_MAPPER_MODEL         = os.getenv("XYRA_LINE_MAPPER_MODEL",         "xyra-line-mapper")
+LINE_MAPPER_MODEL_FALLBACK= os.getenv("XYRA_LINE_MAPPER_MODEL_FALLBACK","qwen2.5:7b")
+
+# Keep DEFAULT_MODEL as an alias so existing callers don't break.
+DEFAULT_MODEL = INSTRUMENT_MODEL
+
 DEFAULT_TIMEOUT = 60  # seconds per LLM call
 
 
