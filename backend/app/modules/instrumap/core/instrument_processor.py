@@ -154,8 +154,9 @@ class InstrumentProcessor:
         output_folder: str,
         filename_base: str,
         full_dpi: int,
+        lines_df=None,
     ) -> None:
-        """Render PDF pages at reduced DPI, draw detected instrument circles, save highlighted JPEGs."""
+        """Render PDF pages at reduced DPI, draw detected instrument circles, save checkprint PDF."""
         HIGHLIGHT_DPI = 150  # fast enough for visual checking
         scale = HIGHLIGHT_DPI / full_dpi  # instrument coords are at full_dpi
 
@@ -178,16 +179,25 @@ class InstrumentProcessor:
             pg = int(row.get("P&ID_Page", 1))
             page_groups.setdefault(pg, []).append(row)
 
+        line_groups = {}
+        if lines_df is not None and not lines_df.empty:
+            for _, row in lines_df.iterrows():
+                pg = int(row.get("P&ID_Page", 1))
+                line_groups.setdefault(pg, []).append(row)
+
+        annotated_pages = []
         for page_idx, pil_image in enumerate(pages):
             page_number = page_idx + 1
             page_instr = page_groups.get(page_number, [])
-            if not page_instr:
+            page_lines = line_groups.get(page_number, [])
+            if not page_instr and not page_lines:
+                annotated_pages.append(pil_image.convert('RGB'))
                 continue
 
-            # Draw semi-transparent yellow circles via RGBA overlay so the
-            # underlying P&ID text and lines remain visible through the fill.
             overlay = Image.new('RGBA', pil_image.size, (0, 0, 0, 0))
             overlay_draw = ImageDraw.Draw(overlay)
+
+            # Instruments: semi-transparent yellow circles
             for row in page_instr:
                 try:
                     coords = str(row.get("Coordinates", "")).split(",")
@@ -198,15 +208,39 @@ class InstrumentProcessor:
                     continue
                 overlay_draw.ellipse(
                     (cx - r, cy - r, cx + r, cy + r),
-                    fill=(255, 215, 0, 55),      # semi-transparent yellow fill
-                    outline=(255, 215, 0, 255),  # fully opaque yellow outline
+                    fill=(255, 215, 0, 55),
+                    outline=(255, 215, 0, 255),
                     width=3,
                 )
 
-            composited = Image.alpha_composite(pil_image.convert('RGBA'), overlay).convert('RGB')
+            # Line numbers: semi-transparent cyan bar aligned to text orientation
+            for row in page_lines:
+                try:
+                    coords = str(row.get("Coordinates", "")).split(",")
+                    cx = int(float(coords[0]) * scale)
+                    cy = int(float(coords[1]) * scale)
+                except Exception:
+                    continue
+                vertical = str(row.get("Orientation", "H")) == "V"
+                if vertical:
+                    overlay_draw.rectangle(
+                        (cx - 6, cy - 40, cx + 6, cy + 40),
+                        fill=(0, 200, 255, 60),
+                        outline=(0, 200, 255, 220),
+                        width=2,
+                    )
+                else:
+                    overlay_draw.rectangle(
+                        (cx - 40, cy - 6, cx + 40, cy + 6),
+                        fill=(0, 200, 255, 60),
+                        outline=(0, 200, 255, 220),
+                        width=2,
+                    )
 
-            # Draw tag labels on top of the composited image
+            composited = Image.alpha_composite(pil_image.convert('RGBA'), overlay).convert('RGB')
             draw = ImageDraw.Draw(composited)
+
+            # Instrument tag labels — lime green
             for row in page_instr:
                 try:
                     coords = str(row.get("Coordinates", "")).split(",")
@@ -215,16 +249,28 @@ class InstrumentProcessor:
                     r = max(10, int(float(row.get("Radius", 20)) * scale))
                 except Exception:
                     continue
-                label = str(row.get("Tag_Number", ""))
-                draw.text((cx + r + 2, cy - 10), label, fill=(50, 205, 50), font=font)
+                draw.text((cx + r + 2, cy - 10), str(row.get("Tag_Number", "")), fill=(50, 205, 50), font=font)
 
-            save_path = os.path.join(
-                output_folder, f"{filename_base}_p{page_number}_highlighted.jpg"
-            )
+            # Line number labels — cyan
+            for row in page_lines:
+                try:
+                    coords = str(row.get("Coordinates", "")).split(",")
+                    cx = int(float(coords[0]) * scale)
+                    cy = int(float(coords[1]) * scale)
+                except Exception:
+                    continue
+                draw.text((cx + 42, cy - 8), str(row.get("Line_Number", "")), fill=(0, 200, 255), font=font)
+
+            annotated_pages.append(composited)
+
+        if annotated_pages:
+            save_path = os.path.join(output_folder, f"{filename_base}_checkprint.pdf")
             try:
-                composited.save(save_path, "JPEG", quality=85)
+                annotated_pages[0].save(
+                    save_path, "PDF", save_all=True, append_images=annotated_pages[1:]
+                )
             except Exception as exc:
-                logger.warning(f"PyMuPDF highlight save failed for page {page_number}: {exc}")
+                logger.warning(f"Checkprint PDF save failed: {exc}")
 
     def find_radius_from_point(self, pid_file_path, x_center, y_center, poppler_path):
         """
@@ -399,6 +445,7 @@ class InstrumentProcessor:
                                 pdf_content, pymupdf_instruments_df,
                                 output_folder, filename_base,
                                 config_params['PDF_DPI'],
+                                lines_df=pymupdf_lines_df,
                             )
                     else:
                         status_update_fn("PyMuPDF: scanned PDF detected — running OCR pipeline.")

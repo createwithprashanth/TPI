@@ -254,12 +254,12 @@ def extract_instruments(
 
     # ── Save highlighted image ────────────────────────────────────────────────
     if output_folder and output_image:
-        save_path = os.path.join(output_folder, f"{filename_base}_highlighted.jpg")
+        save_path = os.path.join(output_folder, f"{filename_base}_checkprint.pdf")
         try:
-            output_image.save(save_path, 'JPEG', quality=85)
+            output_image.save(save_path, 'PDF')
             if status_update_fn:
-                status_update_fn(f"Highlighted map saved: {filename_base}_highlighted.jpg")
+                status_update_fn(f"Checkprint saved: {filename_base}_checkprint.pdf")
         except Exception as e:
-            logger.warning(f"Error saving highlighted image: {e}")
+            logger.warning(f"Error saving checkprint PDF: {e}")
 
     return pd.DataFrame(final_instruments_data), lines_df, equipment_df

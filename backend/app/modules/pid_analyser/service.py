@@ -166,9 +166,9 @@ def get_highlighted_path(batch_id: str) -> str:
     batch_dir = os.path.join(BATCH_OUTPUT_BASE, batch_id)
     if not os.path.isdir(batch_dir):
         raise HTTPException(status_code=404, detail="Batch not found.")
-    matches = glob.glob(os.path.join(batch_dir, "*_p1_highlighted.jpg"))
+    matches = glob.glob(os.path.join(batch_dir, "*_checkprint.pdf"))
     if not matches:
-        raise HTTPException(status_code=404, detail="Highlighted image not available.")
+        raise HTTPException(status_code=404, detail="Checkprint PDF not available.")
     return matches[0]
 
 

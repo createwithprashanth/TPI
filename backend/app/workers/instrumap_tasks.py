@@ -229,6 +229,7 @@ def process_pid_task(
                         processor._render_pymupdf_highlights(
                             pdf_content, results_df, batch_dir,
                             pid_filename_base, instrumap_config.PDF_DPI,
+                            lines_df=lines_df,
                         )
                     except Exception as he:
                         logger.warning(f"[Job {job_id}] Highlight generation failed: {he}")

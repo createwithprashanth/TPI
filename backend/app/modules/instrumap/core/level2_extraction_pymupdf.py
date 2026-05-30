@@ -26,7 +26,7 @@ except ImportError:
     logger.warning("PyMuPDF not installed — pymupdf extraction unavailable")
 
 from .standard_library import InstrumentLogicEngine
-from .line_extractor import _try_parse as _try_parse_line
+from .line_extractor import extract_line_numbers as _extract_line_numbers
 
 # Minimum ratio of pages with embedded text to treat PDF as vector
 _VECTOR_TEXT_RATIO = 0.5
@@ -501,22 +501,42 @@ def extract_from_pdf(
                 'P&ID_Page': page_number,
             })
 
-        # ── Line number extraction ────────────────────────────────────────────
-        seen_lines = set()
+        # ── Line number extraction (multi-word grouping) ──────────────────────
+        # Convert PyMuPDF words (PDF points) to the format expected by
+        # extract_line_numbers (pixels at full DPI).
+        scale_px = dpi / 72.0
+        words_for_lines = []
         for w in words:
-            parsed = _try_parse_line(w['text'])
-            if parsed:
-                ln = parsed['Line_Number']
-                if ln not in seen_lines:
-                    seen_lines.add(ln)
-                    cx_px = int(_pt_to_px(w['cx'], dpi))
-                    cy_px = int(_pt_to_px(w['cy'], dpi))
-                    all_lines.append({
-                        **parsed,
-                        'P&ID_Filename': pid_filename,
-                        'P&ID_Page': page_number,
-                        'Coordinates': f"{cx_px},{cy_px}",
-                    })
+            w_px = w['x1'] - w['x0']
+            h_px = w['y1'] - w['y0']
+            words_for_lines.append({
+                'text':     w['text'],
+                'x':        w['x0'] * scale_px,
+                'y':        w['y0'] * scale_px,
+                'w':        w_px * scale_px,
+                'center_x': w['cx'] * scale_px,
+                'center_y': w['cy'] * scale_px,
+                'orientation': 'V' if h_px > w_px * 1.5 else 'H',
+            })
+
+        page_lines_df = _extract_line_numbers(
+            words_for_lines, page_filename_base,
+        )
+
+        if not page_lines_df.empty:
+            # Attach orientation: find nearest original word to each line centre
+            for idx, row in page_lines_df.iterrows():
+                try:
+                    cx, cy = (float(v) for v in str(row['Coordinates']).split(','))
+                    nearest = min(
+                        words_for_lines,
+                        key=lambda w: (w['center_x'] - cx) ** 2 + (w['center_y'] - cy) ** 2
+                    )
+                    page_lines_df.at[idx, 'Orientation'] = nearest['orientation']
+                except Exception:
+                    page_lines_df.at[idx, 'Orientation'] = 'H'
+            all_lines.append(page_lines_df)
+        seen_lines = set(page_lines_df['Line_Number']) if not page_lines_df.empty else set()
 
         logger.info(
             f"PyMuPDF page {page_number}: {len(seen_tags)} circle instruments, "
@@ -526,7 +546,10 @@ def extract_from_pdf(
     doc.close()
 
     instruments_df = pd.DataFrame(all_instruments) if all_instruments else pd.DataFrame()
-    lines_df = pd.DataFrame(all_lines) if all_lines else pd.DataFrame()
+    lines_df = (
+        pd.concat(all_lines, ignore_index=True).drop_duplicates(subset=['Line_Number'])
+        if all_lines else pd.DataFrame()
+    )
     stats = {
         "circles_found":  total_circles_found,
         "tags_extracted": len(instruments_df),

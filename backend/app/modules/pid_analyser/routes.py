@@ -64,7 +64,7 @@ async def job_status(job_id: str) -> JobStatusResponse:
 async def highlighted_image(batch_id: str):
     import os
     path = service.get_highlighted_path(batch_id)
-    return FileResponse(path, media_type="image/jpeg", filename=os.path.basename(path))
+    return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
 
 
 @router.get("/download/{batch_id}", tags=TAGS)
