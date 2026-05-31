@@ -14,6 +14,8 @@ interface WorkspaceContextType {
   closeFile: (index: number) => void;
   // Preview (auto-loads when files or index change)
   hdPreviewBase64: string | null;
+  currentPage: number;
+  setCurrentPage: Dispatch<SetStateAction<number>>;
   pageCount: number;
   isPreviewLoading: boolean;
   // Zoom — preserved when switching between product tabs
@@ -29,6 +31,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [pidFiles, setPidFiles] = useState<File[]>([]);
   const [currentPidIndex, setCurrentPidIndex] = useState(0);
   const [hdPreviewBase64, setHdPreviewBase64] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [zoom, setZoom] = useState(1.0);
@@ -39,6 +42,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     if (!pidFiles.length) {
       setHdPreviewBase64(null);
+      setCurrentPage(1);
       setPageCount(1);
       return;
     }
@@ -48,12 +52,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const load = async () => {
       setIsPreviewLoading(true);
+      setBaseDims(null);
       try {
         const file = pidFiles[Math.min(currentPidIndex, pidFiles.length - 1)];
-        const { image, pageCount: pc } = await generateInstruMapPreview(file);
+        const { image, pageCount: pc } = await generateInstruMapPreview(file, currentPage);
         if (!localCancelled.value) {
           setHdPreviewBase64(image);
           setPageCount(pc);
+          if (currentPage > pc) setCurrentPage(pc || 1);
         }
       } catch {
         if (!localCancelled.value) setHdPreviewBase64(null);
@@ -64,11 +70,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     load();
     return () => { localCancelled.value = true; };
-  }, [pidFiles, currentPidIndex]);
+  }, [pidFiles, currentPidIndex, currentPage]);
 
   const loadFiles = useCallback((files: File[]) => {
     setPidFiles(files);
     setCurrentPidIndex(0);
+    setCurrentPage(1);
     setZoom(1.0);
     setBaseDims(null);
   }, []);
@@ -76,6 +83,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const clearFiles = useCallback(() => {
     setPidFiles([]);
     setCurrentPidIndex(0);
+    setCurrentPage(1);
     setHdPreviewBase64(null);
     setPageCount(1);
     setZoom(1.0);
@@ -87,6 +95,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const next = prev.filter((_, i) => i !== index);
       if (!next.length) {
         setHdPreviewBase64(null);
+        setCurrentPage(1);
         setPageCount(1);
         setZoom(1.0);
         setBaseDims(null);
@@ -98,12 +107,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (index === prev) return Math.max(0, prev - 1);
       return prev;
     });
+    setCurrentPage(1);
   }, []);
 
   return (
     <WorkspaceContext.Provider value={{
       pidFiles, currentPidIndex, setCurrentPidIndex, loadFiles, clearFiles, closeFile,
-      hdPreviewBase64, pageCount, isPreviewLoading,
+      hdPreviewBase64, currentPage, setCurrentPage, pageCount, isPreviewLoading,
       zoom, setZoom, baseDims, setBaseDims,
     }}>
       {children}

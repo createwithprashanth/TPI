@@ -70,7 +70,7 @@ export function useMtoDetection({
           fileResults[fi] = {
             fileName: pidFile.name,
             count: result.total_count,
-            matches: result.pages.flatMap(p => p.matches),
+            matches: result.pages.flatMap(p => p.matches.map(m => ({ ...m, page: p.page }))),
             pageCounts: result.pages.map(p => ({ page: p.page, count: p.count })),
             imageWidth: result.image_width,
             imageHeight: result.image_height,
@@ -86,6 +86,7 @@ export function useMtoDetection({
           templateBox: tmpl.box ?? { x1: 0, y1: 0, x2: 0, y2: 0 },
           templateImage: tmpl.templateImage,
           thumbnail: tmpl.thumbnail,
+          metadata: tmpl.metadata,
           count: totalCount,
           fileResults: fileResults.filter(Boolean) as FileResult[],
         });
@@ -114,7 +115,7 @@ export function useMtoDetection({
         fileResults[fi] = {
           fileName: pidFile.name,
           count: result.total_count,
-          matches: result.pages.flatMap(p => p.matches),
+          matches: result.pages.flatMap(p => p.matches.map(m => ({ ...m, page: p.page }))),
           pageCounts: result.pages.map(p => ({ page: p.page, count: p.count })),
           imageWidth: result.image_width,
           imageHeight: result.image_height,

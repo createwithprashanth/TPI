@@ -8,6 +8,7 @@ import os
 import subprocess
 import threading
 import uuid
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -26,6 +27,15 @@ _library_lock = threading.Lock()
 
 LIBRARY_FILE = Path(__file__).parent.parent.parent.parent / "data" / "symbol_library.json"
 REPO_ROOT = LIBRARY_FILE.parent.parent
+MTO_EXPORT_DIR = LIBRARY_FILE.parent / "mto_exports"
+
+
+def _clean_metadata(value: dict | None) -> dict:
+    from app.modules.piping_mto.schemas import MtoMetadata
+
+    if not value:
+        return MtoMetadata().model_dump()
+    return MtoMetadata(**value).model_dump()
 
 
 # ── Symbol Library ─────────────────────────────────────────────────────────────
@@ -79,6 +89,7 @@ def add_symbol(payload: dict) -> dict:
             "thumbnail": payload.get("thumbnail", ""),
             "templateImage": payload["templateImage"],
             "createdAt": payload.get("createdAt") or "",
+            "metadata": _clean_metadata(payload.get("metadata")),
         }
         entries.append(entry)
         _write(entries)
@@ -91,7 +102,10 @@ def update_symbol(symbol_id: str, payload: dict) -> dict:
         entries = _read()
         for i, e in enumerate(entries):
             if e.get("id") == symbol_id:
-                entries[i] = {**e, **{k: v for k, v in payload.items() if k != "id" and v is not None}}
+                patch = {k: v for k, v in payload.items() if k != "id" and v is not None}
+                if "metadata" in patch:
+                    patch["metadata"] = _clean_metadata(patch["metadata"])
+                entries[i] = {**e, **patch}
                 _write(entries)
                 return entries[i]
     raise HTTPException(status_code=404, detail="Symbol not found.")
@@ -188,3 +202,14 @@ async def detect_from_library(
     except Exception as e:
         logger.error("Library detection failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Client-grade package export ────────────────────────────────────────────────
+
+def build_export_package(payload: dict) -> Path:
+    from app.modules.piping_mto.excel_writer import write_mto_package
+
+    run_id = f"mto_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    output_dir = MTO_EXPORT_DIR / run_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return write_mto_package(output_dir, payload, run_id)

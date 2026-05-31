@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, RotateCcw, ScanLine, Pencil, FileSpreadsheet, FileDown, FileText, Image, Trash2 } from 'lucide-react';
+import { X, RotateCcw, ScanLine, Pencil, FileSpreadsheet, FileDown, FileText, Image, Trash2, PackageCheck } from 'lucide-react';
 import {
+  emptyMtoMetadata,
   fetchLibrary,
+  inferMtoMetadata,
   saveLibrarySymbol,
   updateLibrarySymbol,
   deleteLibrarySymbol,
   type LibrarySymbol,
+  type MtoMetadata,
 } from '../../services/mto';
 import PDFViewer from '../../components/workspace/PDFViewer';
 import StatusBar from '../../components/workspace/StatusBar';
@@ -29,7 +32,7 @@ interface PipingMTOPageProps {
 }
 
 const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles }) => {
-  const { pidFiles, currentPidIndex, pageCount, isPreviewLoading, zoom, setZoom, baseDims } = useWorkspace();
+  const { pidFiles, currentPidIndex, currentPage, pageCount, isPreviewLoading, zoom, setZoom, baseDims } = useWorkspace();
   const { project } = useProject();
 
   // ── Hooks ──────────────────────────────────────────────────────────────────
@@ -65,7 +68,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
 
   const imageRef = useRef<HTMLImageElement>(null);
 
-  const { exportAllMtoCsv, exportMtoExcel, downloadMtoImage, exportMtoPDF, mtoExportingPdf, mtoImageDownloading } = useMtoExports({
+  const { exportAllMtoCsv, exportMtoExcel, exportClientMtoPackage, downloadMtoImage, exportMtoPDF, mtoExportingPdf, mtoExportingPackage, mtoImageDownloading } = useMtoExports({
     mtoSessions,
     pidFiles,
     currentPidIndex,
@@ -80,6 +83,8 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
   const [selectedLibraryIds, setSelectedLibraryIds] = useState<Set<string>>(new Set());
   const [saveToLibrary, setSaveToLibrary] = useState(false);
   const [recaptureTarget, setRecaptureTarget] = useState<LibrarySymbol | null>(null);
+  const [pendingMetadata, setPendingMetadata] = useState<MtoMetadata>(emptyMtoMetadata());
+  const [showMtoDetails, setShowMtoDetails] = useState(false);
 
   const mtoRunningCountRef = useRef(0);
 
@@ -94,6 +99,8 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     setMtoEditMode(false);
     setSelectedLibraryIds(new Set());
     setRecaptureTarget(null);
+    setPendingMetadata(emptyMtoMetadata());
+    setShowMtoDetails(false);
   }, [pidFiles]);
 
   // Escape key
@@ -156,38 +163,38 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
   const addStagedTemplate = () => {
     if (!pendingBox) return;
     const n = stagedTemplates.length + mtoSessions.length + 1;
-    const label = pendingLabel.trim() || `Symbol ${n}`;
+    const label = pendingLabel.trim() || `Component ${n}`;
+    const metadata = inferMtoMetadata(label, pendingMetadata);
+    const templateImage = cropBoxToBase64(pendingBox, { format: 'jpeg', quality: 0.92 });
+    const thumbnail = cropBoxToBase64(pendingBox, { maxDim: 96, format: 'png' });
 
     if (recaptureTarget) {
-      const templateImage = cropBoxToBase64(pendingBox, { format: 'jpeg', quality: 0.92 });
-      const thumbnail     = cropBoxToBase64(pendingBox, { maxDim: 96, format: 'png' });
       if (templateImage) {
-        updateLibrarySymbol(recaptureTarget.id, { name: label, thumbnail, templateImage })
+        updateLibrarySymbol(recaptureTarget.id, { name: label, thumbnail, templateImage, metadata })
           .then(updated => setLibrarySymbols(prev => prev.map(s => s.id === updated.id ? updated : s)))
           .catch(() => setMtoError('Library update failed.'));
       } else {
-        setMtoError('Could not crop symbol image — try drawing the box again.');
+      setMtoError('Could not capture component image — try drawing the box again.');
       }
       setRecaptureTarget(null);
     } else if (saveToLibrary) {
-      const templateImage = cropBoxToBase64(pendingBox, { format: 'jpeg', quality: 0.92 });
-      const thumbnail     = cropBoxToBase64(pendingBox, { maxDim: 96, format: 'png' });
       if (templateImage) {
         const entry: LibrarySymbol = {
           id: Date.now().toString(), name: label, thumbnail,
-          templateImage, createdAt: new Date().toISOString(),
+          templateImage, createdAt: new Date().toISOString(), metadata,
         };
         saveLibrarySymbol(entry)
           .then(saved => setLibrarySymbols(prev => [...prev, saved]))
-          .catch(() => setMtoError('Symbol added to queue but library save failed.'));
+          .catch(() => setMtoError('Component added to MTO but library save failed.'));
       } else {
-        setMtoError('Could not crop symbol image — try drawing the box again.');
+        setMtoError('Could not capture component image — try drawing the box again.');
       }
     }
 
-    const drawnThumbnail = cropBoxToBase64(pendingBox, { maxDim: 96, format: 'png' });
-    setStagedTemplates(prev => [...prev, { id: Date.now().toString(), label, box: pendingBox!, thumbnail: drawnThumbnail || undefined }]);
+    setStagedTemplates(prev => [...prev, { id: Date.now().toString(), label, box: pendingBox!, templateImage: templateImage || undefined, thumbnail: thumbnail || undefined, metadata }]);
     setPendingBox(null); setPendingLabel('');
+    setPendingMetadata(emptyMtoMetadata());
+    setShowMtoDetails(false);
     setSaveToLibrary(false); setMtoStep('pick_template');
   };
 
@@ -227,8 +234,10 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     };
     if (box.x2 - box.x1 < 5 || box.y2 - box.y1 < 5) return;
     const n = stagedTemplates.length + mtoSessions.length + 1;
+    const initialLabel = recaptureTarget ? recaptureTarget.name : `Component ${n}`;
     setPendingBox(box);
-    setPendingLabel(recaptureTarget ? recaptureTarget.name : `Symbol ${n}`);
+    setPendingLabel(initialLabel);
+    setPendingMetadata(inferMtoMetadata(initialLabel, recaptureTarget?.metadata));
     setMtoStep('labeling');
   };
 
@@ -254,7 +263,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     if (!pidFiles.length || mtoLoading) return;
     const toRun = librarySymbols
       .filter(s => selectedLibraryIds.has(s.id))
-      .map(sym => ({ id: sym.id, label: sym.name, templateImage: sym.templateImage, thumbnail: sym.thumbnail }));
+      .map(sym => ({ id: sym.id, label: sym.name, templateImage: sym.templateImage, thumbnail: sym.thumbnail, metadata: inferMtoMetadata(sym.name, sym.metadata) }));
     if (!toRun.length) return;
     setSelectedLibraryIds(new Set());
     setMtoError(null);
@@ -281,6 +290,10 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     deleteLibrarySymbol(id).catch(() => {});
   };
 
+  const updatePendingMetadata = (key: keyof MtoMetadata, value: string) => {
+    setPendingMetadata(prev => ({ ...prev, [key]: value }));
+  };
+
   // ── Status text ─────────────────────────────────────────────────────────────
 
   const statusText = (() => {
@@ -288,14 +301,14 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     if (isPreviewLoading) return { label: 'Loading…' };
     if (mtoLoading) {
       const filePart = pidFiles.length > 1 ? `${mtoProgress} / ${pidFiles.length} drawings` : '';
-      return { label: 'Searching…', dim: filePart || undefined };
+      return { label: 'Preparing MTO…', dim: filePart || undefined };
     }
-    if (mtoStep === 'labeling') return { label: 'Label this symbol', dim: '· Enter a name then click Add' };
+    if (mtoStep === 'labeling') return { label: 'Define component', dim: '· Name the item and add MTO details' };
     if (mtoStep === 'pick_template') {
-      if (recaptureTarget) return { label: `Re-capturing: ${recaptureTarget.name}`, dim: '· Drag a new box — press Esc to cancel' };
-      if (stagedTemplates.length > 0) return { label: `${stagedTemplates.length} symbol${stagedTemplates.length > 1 ? 's' : ''} queued`, dim: '· Draw another, or Search Whole Page' };
-      if (mtoSessions.length > 0) return { label: 'Add another symbol type', dim: '· Drag a box around a new template' };
-      return { label: 'Step 1', dim: '· Drag a box around one symbol to use as template' };
+      if (recaptureTarget) return { label: `Updating component: ${recaptureTarget.name}`, dim: '· Drag a new box — press Esc to cancel' };
+      if (stagedTemplates.length > 0) return { label: `${stagedTemplates.length} component${stagedTemplates.length > 1 ? 's' : ''} ready`, dim: '· Add another, or Prepare MTO' };
+      if (mtoSessions.length > 0) return { label: 'Add another component type', dim: '· Drag a box around a valve, instrument, or fitting' };
+      return { label: 'Step 1', dim: '· Pick one valve, instrument, or fitting from the drawing' };
     }
     return { label: 'Piping MTO' };
   })();
@@ -312,7 +325,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
 
   const mtoOverlays = (
     <>
-      {/* Detected session boxes */}
+      {/* Detected item boxes */}
       {mtoSessions.length > 0 && imageRef.current && (() => {
         const fr0 = mtoSessions.find(s => s.fileResults[currentPidIndex])?.fileResults[currentPidIndex];
         if (!fr0) return null;
@@ -324,16 +337,19 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
           >
             {mtoSessions.flatMap(session => {
               const fr = session.fileResults[currentPidIndex];
-              return (fr?.matches ?? []).map((m, i) => (
+              return (fr?.matches ?? [])
+                .map((m, originalIndex) => ({ m, originalIndex }))
+                .filter(({ m }) => (m.page ?? 1) === currentPage)
+                .map(({ m, originalIndex }, i) => (
                 <rect
                   key={`${session.id}-${i}`}
                   x={m.x1} y={m.y1} width={m.x2 - m.x1} height={m.y2 - m.y1}
                   fill={mtoEditMode ? `${session.color}18` : 'none'}
                   stroke={session.color} strokeWidth={10}
                   strokeOpacity={m.score >= 0.85 ? 1.0 : m.score >= 0.75 ? 0.65 : 0.4}
-                  onClick={mtoEditMode ? (e) => { e.stopPropagation(); removeMatch(session.id, currentPidIndex, i); } : undefined}
+                  onClick={mtoEditMode ? (e) => { e.stopPropagation(); removeMatch(session.id, currentPidIndex, originalIndex); } : undefined}
                 >
-                  <title>{session.label} — score {m.score.toFixed(3)}{mtoEditMode ? ' · click to remove' : ''}</title>
+                  <title>{session.label} — page {m.page ?? 1} — confidence {m.score.toFixed(3)}{mtoEditMode ? ' · click to remove' : ''}</title>
                 </rect>
               ));
             })}
@@ -342,7 +358,9 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
               if (showMatchZone !== session.id) return null;
               const fr = session.fileResults[currentPidIndex];
               if (!fr?.matches.length) return null;
-              const allX = fr.matches.flatMap(m => [m.x1, m.x2]), allY = fr.matches.flatMap(m => [m.y1, m.y2]);
+              const pageMatches = fr.matches.filter(m => (m.page ?? 1) === currentPage);
+              if (!pageMatches.length) return null;
+              const allX = pageMatches.flatMap(m => [m.x1, m.x2]), allY = pageMatches.flatMap(m => [m.y1, m.y2]);
               const pad = 30;
               const zx1 = Math.max(0, Math.min(...allX) - pad), zy1 = Math.max(0, Math.min(...allY) - pad);
               const zx2 = Math.min(fr.imageWidth, Math.max(...allX) + pad), zy2 = Math.min(fr.imageHeight, Math.max(...allY) + pad);
@@ -356,7 +374,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
         );
       })()}
 
-      {/* Staged template boxes */}
+      {/* Prepared component boxes */}
       {stagedTemplates.map(t => {
         if (!t.box) return null;
         const d = toDisplay(t.box); if (!d) return null;
@@ -378,35 +396,83 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
         const bLeft = (pendingBox.x1 / img.naturalWidth) * img.clientWidth;
         const bRight = (pendingBox.x2 / img.naturalWidth) * img.clientWidth;
         const bBottom = (pendingBox.y2 / img.naturalHeight) * img.clientHeight;
-        const popupW = 232;
+        const popupW = showMtoDetails ? 390 : 232;
+        const popupH = showMtoDetails ? 420 : 120;
         const cx = bLeft + (bRight - bLeft) / 2;
         const popupLeft = Math.max(4, Math.min(cx - popupW / 2, img.clientWidth - popupW - 4));
-        const popupTop = Math.min(bBottom + 10, img.clientHeight - 120);
+        const popupTop = Math.min(bBottom + 10, Math.max(4, img.clientHeight - popupH - 4));
         return (
           <div
-            className="absolute z-30 bg-gray-950 border border-white/[0.12] rounded-xl shadow-2xl p-3.5"
-            style={{ left: popupLeft, top: popupTop, width: popupW }}
+            className="absolute z-30 bg-gray-950 border border-white/[0.12] rounded-xl shadow-2xl p-3.5 overflow-auto"
+            style={{ left: popupLeft, top: popupTop, width: popupW, maxHeight: popupH }}
             onMouseDown={e => e.stopPropagation()}
           >
             <p className="text-[11px] text-gray-500 mb-2">
-              {recaptureTarget ? `Re-capturing: ${recaptureTarget.name}` : 'Label this symbol'}
+              {recaptureTarget ? `Updating: ${recaptureTarget.name}` : 'Define component'}
             </p>
             <input
               autoFocus type="text" value={pendingLabel}
-              onChange={e => setPendingLabel(e.target.value)}
+              onChange={e => {
+                setPendingLabel(e.target.value);
+                setPendingMetadata(prev => inferMtoMetadata(e.target.value, prev));
+              }}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addStagedTemplate(); } if (e.key === 'Escape') cancelPending(); }}
               placeholder='e.g. Ball Valve 1"'
               className="w-full rounded-lg border border-white/[0.08] bg-white/[0.05] px-2.5 py-2 text-xs text-white placeholder:text-gray-600 outline-none focus:border-white/[0.22] mb-2.5"
             />
+            <button
+              onClick={() => setShowMtoDetails(v => !v)}
+              className="w-full flex items-center justify-between text-[11px] text-gray-400 hover:text-white border border-white/[0.08] hover:border-white/[0.18] rounded-lg px-2.5 py-1.5 mb-2.5 transition-colors"
+            >
+              <span>MTO deliverable fields</span>
+              <span className="text-gray-600">{showMtoDetails ? 'hide' : 'show'}</span>
+            </button>
+            {showMtoDetails && (
+              <div className="grid grid-cols-2 gap-1.5 mb-2.5">
+                {[
+                  ['categoryCode', 'Cat. Code'],
+                  ['categoryName', 'Category'],
+                  ['itemType', 'Item Type'],
+                  ['pipingClass', 'Piping Class'],
+                  ['sizeInch', 'Size'],
+                  ['rating', 'Rating'],
+                  ['valveBore', 'Bore'],
+                  ['endConnection', 'End Conn.'],
+                  ['dataSheetDocumentNo', 'Data Sheet Doc'],
+                  ['dataSheetReferenceNo', 'Data Sheet Ref'],
+                ].map(([key, label]) => (
+                  <input
+                    key={key}
+                    value={pendingMetadata[key as keyof MtoMetadata] ?? ''}
+                    onChange={e => updatePendingMetadata(key as keyof MtoMetadata, e.target.value)}
+                    placeholder={label}
+                    className="min-w-0 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1.5 text-[11px] text-white placeholder:text-gray-700 outline-none focus:border-white/[0.2]"
+                  />
+                ))}
+                <textarea
+                  value={pendingMetadata.materialDescription}
+                  onChange={e => updatePendingMetadata('materialDescription', e.target.value)}
+                  placeholder="Material Description"
+                  rows={2}
+                  className="col-span-2 min-w-0 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1.5 text-[11px] text-white placeholder:text-gray-700 outline-none focus:border-white/[0.2] resize-none"
+                />
+                <input
+                  value={pendingMetadata.remarks}
+                  onChange={e => updatePendingMetadata('remarks', e.target.value)}
+                  placeholder="Remarks"
+                  className="col-span-2 min-w-0 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1.5 text-[11px] text-white placeholder:text-gray-700 outline-none focus:border-white/[0.2]"
+                />
+              </div>
+            )}
             {!recaptureTarget && (
               <label className="flex items-center gap-2 mb-2.5 cursor-pointer select-none">
                 <input type="checkbox" checked={saveToLibrary} onChange={e => setSaveToLibrary(e.target.checked)} className="w-3 h-3 accent-emerald-400" />
-                <span className="text-[11px] text-gray-400">Save to symbol library</span>
+                <span className="text-[11px] text-gray-400">Save to component library</span>
               </label>
             )}
             <div className="flex gap-1.5">
               <button onClick={addStagedTemplate} className={`flex-1 text-xs font-semibold py-1.5 rounded-lg transition-colors ${recaptureTarget ? 'text-white bg-emerald-600 hover:bg-emerald-500' : 'text-gray-900 bg-white hover:bg-gray-100'}`}>
-                {recaptureTarget ? 'Update Library Symbol' : 'Add Symbol'}
+                {recaptureTarget ? 'Update Component' : 'Add Component'}
               </button>
               <button onClick={cancelPending} className="flex-1 text-xs text-gray-500 hover:text-gray-300 border border-white/[0.08] py-1.5 rounded-lg transition-colors">Cancel</button>
             </div>
@@ -433,12 +499,12 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
           />
           <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
             <div className="bg-gray-950/90 backdrop-blur-sm border border-white/10 rounded-2xl px-6 py-5 text-center min-w-[220px]">
-              <p className="text-white font-semibold text-sm">Searching for symbols…</p>
+              <p className="text-white font-semibold text-sm">Preparing MTO…</p>
               <p className="text-gray-500 text-xs mt-1">
-                {mtoRunningCountRef.current > 0 ? `${mtoRunningCountRef.current} symbol type${mtoRunningCountRef.current > 1 ? 's' : ''}` : ''}
+                {mtoRunningCountRef.current > 0 ? `${mtoRunningCountRef.current} component type${mtoRunningCountRef.current > 1 ? 's' : ''}` : ''}
                 {pidFiles.length > 1 ? ` · ${mtoProgress} / ${pidFiles.length} drawings` : pageCount > 1 ? ` · ${pageCount} pages` : ''}
               </p>
-              <button onClick={cancelDetection} className="mt-4 text-xs font-semibold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/50 px-4 py-1.5 rounded-lg transition-colors">Stop detection</button>
+              <button onClick={cancelDetection} className="mt-4 text-xs font-semibold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/50 px-4 py-1.5 rounded-lg transition-colors">Stop MTO</button>
             </div>
           </div>
         </>
@@ -458,29 +524,32 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
           >
             <div className="bg-gray-950/95 backdrop-blur-sm border border-white/[0.10] rounded-xl overflow-hidden min-w-[230px] max-w-[268px]">
 
-              {/* Library section */}
-              {librarySymbols.length > 0 && (
+              {/* Component setup section */}
+              {librarySymbols.length > 0 && stagedTemplates.length === 0 && mtoSessions.length === 0 && (
                 <>
-                  <div className="px-4 pt-3 pb-2">
-                    <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider mb-2">Symbol Library · {librarySymbols.length}</p>
-                    <div className="space-y-1">
-                      {librarySymbols.map(sym => {
-                        const selected = selectedLibraryIds.has(sym.id);
-                        return (
-                          <div key={sym.id} className={`flex items-center gap-2 rounded-lg px-2 py-1 transition-colors ${selected ? 'bg-emerald-500/15 border border-emerald-500/30' : 'hover:bg-white/[0.04] border border-transparent'}`}>
-                            <button onClick={() => toggleLibrarySelection(sym.id)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-                              {sym.thumbnail && <img src={`data:image/png;base64,${sym.thumbnail}`} alt={sym.name} className="w-8 h-8 object-contain rounded border border-white/[0.08] bg-white/[0.03] shrink-0" />}
-                              <span className={`text-xs flex-1 truncate ${selected ? 'text-emerald-300' : 'text-gray-300'}`}>{sym.name}</span>
-                              {selected && <span className="text-emerald-400 text-[10px] font-bold shrink-0">✓</span>}
-                            </button>
-                            <button onClick={() => deleteFromLibrary(sym.id)} className="text-gray-700 hover:text-red-400 transition-colors shrink-0" title="Remove from library"><X className="w-3 h-3" /></button>
-                          </div>
-                        );
-                      })}
+                  <div className="px-4 pt-3 pb-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider">MTO Setup</p>
+                      <button
+                        onClick={() => setSelectedLibraryIds(prev => prev.size === librarySymbols.length ? new Set() : new Set(librarySymbols.map(s => s.id)))}
+                        className="text-[10px] text-gray-600 hover:text-gray-300 transition-colors"
+                      >
+                        {selectedLibraryIds.size === librarySymbols.length ? 'clear' : 'all'}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 mb-2.5">
+                      <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-2">
+                        <p className="text-[10px] text-gray-600 uppercase">Available</p>
+                        <p className="text-sm text-white font-bold tabular-nums">{librarySymbols.length}</p>
+                      </div>
+                      <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-2">
+                        <p className="text-[10px] text-gray-600 uppercase">Selected</p>
+                        <p className="text-sm text-emerald-300 font-bold tabular-nums">{selectedLibraryIds.size}</p>
+                      </div>
                     </div>
                     {selectedLibraryIds.size > 0 && (
                       <button onClick={searchSelectedLibrarySymbols} className="w-full mt-2 text-xs font-bold text-gray-900 bg-emerald-400 hover:bg-emerald-300 px-3 py-1.5 rounded-lg transition-colors">
-                        Stage {selectedLibraryIds.size} Selected →
+                        Add {selectedLibraryIds.size} to MTO →
                       </button>
                     )}
                   </div>
@@ -492,7 +561,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
               {stagedTemplates.length > 0 && (
                 <>
                   <div className="px-4 pt-3 pb-1">
-                    <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider mb-2">Queued · {stagedTemplates.length}</p>
+                    <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider mb-2">Ready for MTO · {stagedTemplates.length}</p>
                     <div className="space-y-1.5">
                       {stagedTemplates.map(t => (
                         <div key={t.id} className="flex items-center gap-2">
@@ -515,7 +584,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                   </div>
                   <div className="px-4 pt-1 pb-3">
                     <button onClick={handleMtoRunAll} disabled={mtoLoading} className="w-full text-xs font-bold text-gray-900 bg-white hover:bg-gray-100 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors">
-                      {pidFiles.length > 1 ? `Search All ${pidFiles.length} Drawings` : pageCount > 1 ? `Search All ${pageCount} Pages` : 'Search Whole Page'}
+                      {pidFiles.length > 1 ? `Prepare MTO for ${pidFiles.length} Drawings` : pageCount > 1 ? `Prepare MTO for ${pageCount} Pages` : 'Prepare MTO'}
                     </button>
                   </div>
                 </>
@@ -533,8 +602,8 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                           <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: session.color }} />
                           <span className="text-xs text-gray-300 flex-1 truncate">{session.label}</span>
                           <span className={`text-xs font-bold tabular-nums w-6 text-right ${session.count === 0 ? 'text-amber-400' : 'text-white'}`}>{session.count === 0 ? '!' : session.count}</span>
-                          <button onClick={() => setShowMatchZone(v => v === session.id ? null : session.id)} title={showMatchZone === session.id ? 'Hide match zone' : 'Show match zone'} className={`transition-colors ${showMatchZone === session.id ? 'text-yellow-400' : 'text-gray-600 hover:text-yellow-400'}`}><ScanLine className="w-3 h-3" /></button>
-                          <button onClick={() => rerunSession(session)} disabled={mtoLoading} title="Re-run" className="text-gray-600 hover:text-emerald-400 disabled:opacity-30 transition-colors"><RotateCcw className="w-3 h-3" /></button>
+                          <button onClick={() => setShowMatchZone(v => v === session.id ? null : session.id)} title={showMatchZone === session.id ? 'Hide item extent' : 'Show item extent'} className={`transition-colors ${showMatchZone === session.id ? 'text-yellow-400' : 'text-gray-600 hover:text-yellow-400'}`}><ScanLine className="w-3 h-3" /></button>
+                          <button onClick={() => rerunSession(session)} disabled={mtoLoading} title="Re-prepare this item" className="text-gray-600 hover:text-emerald-400 disabled:opacity-30 transition-colors"><RotateCcw className="w-3 h-3" /></button>
                           <button onClick={() => setMtoSessions(prev => prev.filter(s => s.id !== session.id))} title="Remove" className="text-gray-600 hover:text-red-400 transition-colors"><X className="w-3 h-3" /></button>
                         </div>
                         {session.fileResults.length > 1 && (
@@ -558,7 +627,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                   <div className="mx-4 border-t border-white/[0.06] py-2 flex items-center justify-between">
                     <span className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider">Total</span>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => setMtoEditMode(v => !v)} title={mtoEditMode ? 'Exit edit mode' : 'Click detected boxes to remove false positives'}
+                      <button onClick={() => setMtoEditMode(v => !v)} title={mtoEditMode ? 'Exit edit mode' : 'Click detected items to remove false positives'}
                         className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${mtoEditMode ? 'bg-amber-500/20 border-amber-500/50 text-amber-300' : 'border-white/[0.08] text-gray-600 hover:text-gray-400 hover:border-white/20'}`}>
                         {mtoEditMode ? '✓ editing' : 'edit'}
                       </button>
@@ -580,17 +649,18 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                       disabled={mtoLoading}
                       className="w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 disabled:opacity-30 bg-emerald-500/10 hover:bg-emerald-500/15 border border-emerald-500/25 hover:border-emerald-500/40 py-1.5 rounded-lg transition-colors"
                     >
-                      <RotateCcw className="w-3 h-3" /> Re-run All
+                      <RotateCcw className="w-3 h-3" /> Re-prepare All
                     </button>
                   </div>
 
                   <div className="px-4 pb-3 border-t border-white/[0.06] pt-2 space-y-1">
                     <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-wider mb-2">Export</p>
                     {[
+                      { icon: PackageCheck,   label: mtoExportingPackage ? 'Packaging…' : 'EPC Package', sub: 'xlsx + QA', onClick: () => exportClientMtoPackage(mtoThreshold), disabled: mtoExportingPackage },
                       { icon: FileSpreadsheet, label: 'Excel', sub: 'with images', onClick: exportMtoExcel, disabled: false },
                       { icon: FileText,        label: 'CSV',   sub: undefined,       onClick: exportAllMtoCsv,  disabled: false },
                       { icon: FileDown,        label: mtoExportingPdf ? 'Building…' : 'PDF Report', sub: undefined, onClick: exportMtoPDF, disabled: mtoExportingPdf },
-                      { icon: Image,           label: mtoImageDownloading ? 'Preparing…' : pidFiles.length > 1 ? `Images (${pidFiles.length})` : 'Image', sub: 'annotated', onClick: downloadMtoImage, disabled: mtoImageDownloading },
+                      { icon: Image,           label: mtoImageDownloading ? 'Preparing…' : pidFiles.length > 1 ? `Images (${pidFiles.length})` : 'Image', sub: 'marked up', onClick: downloadMtoImage, disabled: mtoImageDownloading },
                     ].map(({ icon: Icon, label, sub, onClick, disabled }) => (
                       <button
                         key={label}
@@ -608,7 +678,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                       className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-left hover:bg-red-500/10 transition-colors group mt-1"
                     >
                       <Trash2 className="w-3.5 h-3.5 text-gray-700 group-hover:text-red-400 shrink-0 transition-colors" />
-                      <span className="text-xs text-gray-600 group-hover:text-red-400 transition-colors">Clear all sessions</span>
+                      <span className="text-xs text-gray-600 group-hover:text-red-400 transition-colors">Clear MTO</span>
                     </button>
                   </div>
                 </>
@@ -636,33 +706,47 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Library button bar */}
+      {/* Component library tray */}
       {librarySymbols.length > 0 && (
-        <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-white/[0.06] bg-gray-950 overflow-x-auto">
-          <span className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider shrink-0">Library</span>
-          {librarySymbols.map(sym => {
-            const selected = selectedLibraryIds.has(sym.id);
-            const isRecapturing = recaptureTarget?.id === sym.id;
-            return (
-              <div key={sym.id} className="flex items-center gap-1 shrink-0">
-                <button
-                  onClick={() => toggleLibrarySelection(sym.id)}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-medium transition-colors ${isRecapturing ? 'bg-amber-500/20 border-amber-500/50 text-amber-300' : selected ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' : 'bg-white/[0.04] border-white/[0.08] text-gray-400 hover:text-white hover:border-white/20'}`}
-                >
-                  {sym.thumbnail && <img src={`data:image/png;base64,${sym.thumbnail}`} alt="" className="w-5 h-5 object-contain rounded shrink-0" />}
-                  {sym.name}
-                  {selected && !isRecapturing && <span className="text-emerald-400 text-[10px]">✓</span>}
-                  {isRecapturing && <span className="text-amber-400 text-[10px]">draw…</span>}
-                </button>
-                <button onClick={() => { setRecaptureTarget(sym); setMtoStep('pick_template'); setMtoError(null); }} title="Re-draw template" className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:text-amber-400 hover:bg-white/[0.05] transition-colors"><Pencil className="w-3 h-3" /></button>
-              </div>
-            );
-          })}
-          {selectedLibraryIds.size > 0 && (
-            <button onClick={searchSelectedLibrarySymbols} className="shrink-0 ml-1 px-3 py-1 rounded-lg text-xs font-bold text-gray-900 bg-emerald-400 hover:bg-emerald-300 transition-colors">
-              Search {selectedLibraryIds.size} →
-            </button>
-          )}
+        <div className="shrink-0 flex items-start gap-2 px-3 py-1.5 border-b border-white/[0.06] bg-gray-950 overflow-hidden">
+          <div className="shrink-0 leading-7">
+            <span className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider">Components</span>
+          </div>
+          <div className="flex-1 min-w-0 flex flex-wrap content-start items-center gap-1.5 max-h-[74px] overflow-y-auto overflow-x-hidden pr-1">
+            {librarySymbols.map(sym => {
+              const selected = selectedLibraryIds.has(sym.id);
+              const isRecapturing = recaptureTarget?.id === sym.id;
+              return (
+                <div key={sym.id} className="flex items-center gap-0.5 min-w-0 max-w-[168px]">
+                  <button
+                    onClick={() => toggleLibrarySelection(sym.id)}
+                    title={sym.name}
+                    className={`min-w-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] font-medium transition-colors ${isRecapturing ? 'bg-amber-500/20 border-amber-500/50 text-amber-300' : selected ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' : 'bg-white/[0.04] border-white/[0.08] text-gray-400 hover:text-white hover:border-white/20'}`}
+                  >
+                    {sym.thumbnail && <img src={`data:image/png;base64,${sym.thumbnail}`} alt="" className="w-5 h-5 object-contain rounded-sm shrink-0" />}
+                    <span className="truncate">{sym.name}</span>
+                    {selected && !isRecapturing && <span className="text-emerald-400 text-[10px] shrink-0">✓</span>}
+                    {isRecapturing && <span className="text-amber-400 text-[10px] shrink-0">draw</span>}
+                  </button>
+                  <button onClick={() => { setRecaptureTarget(sym); setPendingMetadata(inferMtoMetadata(sym.name, sym.metadata)); setShowMtoDetails(true); setMtoStep('pick_template'); setMtoError(null); }} title="Re-capture component / edit MTO fields" className="w-5 h-5 flex items-center justify-center rounded text-gray-600 hover:text-amber-400 hover:bg-white/[0.05] transition-colors shrink-0"><Pencil className="w-3 h-3" /></button>
+                  <button onClick={() => deleteFromLibrary(sym.id)} title="Remove component" className="w-5 h-5 flex items-center justify-center rounded text-gray-700 hover:text-red-400 hover:bg-white/[0.05] transition-colors shrink-0"><X className="w-3 h-3" /></button>
+                </div>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => setSelectedLibraryIds(prev => prev.size === librarySymbols.length ? new Set() : new Set(librarySymbols.map(s => s.id)))}
+            className="shrink-0 px-2 py-1.5 rounded-md text-[11px] font-semibold text-gray-500 hover:text-white hover:bg-white/[0.06] transition-colors"
+          >
+            {selectedLibraryIds.size === librarySymbols.length ? 'Clear' : 'All'}
+          </button>
+          <button
+            onClick={searchSelectedLibrarySymbols}
+            disabled={selectedLibraryIds.size === 0}
+            className="shrink-0 px-3 py-1.5 rounded-md text-xs font-bold text-gray-950 bg-white hover:bg-gray-200 disabled:bg-white/[0.08] disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+          >
+            Prepare MTO {selectedLibraryIds.size || ''}
+          </button>
         </div>
       )}
 

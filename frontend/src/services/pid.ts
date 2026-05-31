@@ -45,9 +45,11 @@ export interface JobStatusResponse {
 
 export const generatePreview = async (
   pidFile: File,
+  page = 1,
 ): Promise<{ image: string; pageCount: number }> => {
   const form = new FormData();
   form.append('pid_file', pidFile);
+  form.append('page', String(page));
   const resp = await api.post('/api/v1/pid/preview', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 60000,

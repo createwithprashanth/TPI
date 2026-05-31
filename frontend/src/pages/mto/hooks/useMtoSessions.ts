@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { MtoMetadata } from '../../../services/mto';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -7,7 +8,7 @@ export interface Box { x1: number; y1: number; x2: number; y2: number; }
 export interface FileResult {
   fileName: string;
   count: number;
-  matches: { x1: number; y1: number; x2: number; y2: number; score: number }[];
+  matches: { page: number; x1: number; y1: number; x2: number; y2: number; score: number }[];
   pageCounts: { page: number; count: number }[];
   imageWidth: number;
   imageHeight: number;
@@ -20,6 +21,7 @@ export interface MtoSession {
   templateBox: Box;
   templateImage?: string;
   thumbnail?: string;
+  metadata?: MtoMetadata;
   count: number;
   fileResults: FileResult[];
 }
@@ -30,6 +32,7 @@ export interface StagedTemplate {
   box?: Box;
   templateImage?: string;
   thumbnail?: string;
+  metadata?: MtoMetadata;
 }
 
 export type MtoStep = 'pick_template' | 'labeling' | 'running';
@@ -71,9 +74,10 @@ export function useMtoSessions(pidFiles: File[]) {
       if (s.id !== sessionId) return s;
       const newFileResults = s.fileResults.map((fr, fi) => {
         if (fi !== fileIndex) return fr;
+        const removed = fr.matches[matchIndex];
         const newMatches = fr.matches.filter((_, mi) => mi !== matchIndex);
         const newPageCounts = fr.pageCounts.map(pc =>
-          pc.page === 1 ? { ...pc, count: Math.max(0, pc.count - 1) } : pc,
+          pc.page === (removed?.page ?? 1) ? { ...pc, count: Math.max(0, pc.count - 1) } : pc,
         );
         return { ...fr, matches: newMatches, count: Math.max(0, fr.count - 1), pageCounts: newPageCounts };
       });

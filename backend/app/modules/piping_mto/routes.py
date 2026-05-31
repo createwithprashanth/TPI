@@ -1,9 +1,10 @@
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, UploadFile
+from fastapi.responses import FileResponse
 
 from app.modules.piping_mto import service
-from app.modules.piping_mto.schemas import CreateSymbolRequest, UpdateSymbolRequest
+from app.modules.piping_mto.schemas import CreateSymbolRequest, ExportPackageRequest, UpdateSymbolRequest
 
 router = APIRouter()
 PREFIX = "/api/v1/mto"
@@ -30,6 +31,16 @@ async def update_library_symbol(symbol_id: str, payload: UpdateSymbolRequest) ->
 @router.delete("/library/{symbol_id}", tags=TAGS)
 async def delete_library_symbol(symbol_id: str) -> dict:
     return service.delete_symbol(symbol_id)
+
+
+@router.post("/export-package", tags=TAGS)
+async def export_package(payload: ExportPackageRequest):
+    path = service.build_export_package(payload.model_dump())
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="application/zip",
+    )
 
 
 # ── Detection ──────────────────────────────────────────────────────────────────

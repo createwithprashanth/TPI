@@ -14,9 +14,9 @@ TAGS = ["P&ID Analyser"]
 
 
 @router.post("/preview", response_model=PreviewResponse, tags=TAGS)
-async def preview(pid_file: UploadFile = File(...)) -> PreviewResponse:
+async def preview(pid_file: UploadFile = File(...), page: int = Form(1)) -> PreviewResponse:
     content = await pid_file.read()
-    return await service.generate_preview(content)
+    return await service.generate_preview(content, page=page)
 
 
 @router.post("/process", response_model=ProcessResponse, tags=TAGS)

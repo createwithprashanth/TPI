@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { generatePreview } from '../../../services/pid';
+import { exportMtoPackage } from '../../../services/mto';
 import type { ProjectInfo } from '../../../services/pid';
 import type { MtoSession } from './useMtoSessions';
 
@@ -21,8 +22,29 @@ export function useMtoExports({
   totalCount,
 }: UseExportsOptions) {
   const [mtoExportingPdf, setMtoExportingPdf] = useState(false);
+  const [mtoExportingPackage, setMtoExportingPackage] = useState(false);
   const [mtoImageDownloading, setMtoImageDownloading] = useState(false);
   const exportingRef = useRef(false);
+
+  const exportClientMtoPackage = async (threshold: number) => {
+    if (!mtoSessions.length || mtoExportingPackage) return;
+    setMtoExportingPackage(true);
+    try {
+      await exportMtoPackage({
+        project,
+        threshold,
+        sessions: mtoSessions.map(s => ({
+          id: s.id,
+          label: s.label,
+          count: s.count,
+          metadata: s.metadata,
+          fileResults: s.fileResults,
+        })),
+      });
+    } finally {
+      setMtoExportingPackage(false);
+    }
+  };
 
   const exportAllMtoCsv = () => {
     if (!mtoSessions.length) return;
@@ -37,13 +59,13 @@ export function useMtoExports({
 
     let headers: (string | number)[], dataRows: (string | number)[][], totalRow: (string | number)[];
     if (multiFile) {
-      headers = ['No.', 'Symbol', 'Drawing', 'Count']; let rowNo = 1;
+      headers = ['No.', 'Component', 'Drawing', 'Count']; let rowNo = 1;
       dataRows = mtoSessions.flatMap(s => s.fileResults.map(fr => [rowNo++, s.label, fr.fileName, fr.count]));
       totalRow = ['', 'TOTAL', '', totalCount];
     } else {
       const allPages = Array.from(new Set(mtoSessions.flatMap(s => (s.fileResults[0]?.pageCounts ?? []).map(pc => pc.page)))).sort((a, b) => a - b);
       const multiPage = allPages.length > 1;
-      headers = multiPage ? ['No.', 'Symbol', ...allPages.map(p => `Page ${p}`), 'Total Count'] : ['No.', 'Symbol', 'Count'];
+      headers = multiPage ? ['No.', 'Component', ...allPages.map(p => `Page ${p}`), 'Total Count'] : ['No.', 'Component', 'Count'];
       dataRows = mtoSessions.map((s, i) => {
         const fr = s.fileResults[0];
         if (multiPage) return [i + 1, s.label, ...allPages.map(p => fr?.pageCounts.find(pc => pc.page === p)?.count ?? 0), s.count];
@@ -72,7 +94,7 @@ export function useMtoExports({
     const imgColIdx = 3;
     const countColLetter = multiFile ? 'E' : 'D';
     const sheet = workbook.addWorksheet('Piping MTO', { pageSetup: { fitToPage: true, fitToWidth: 1 } });
-    sheet.columns = [{ key: 'no', width: 6 }, { key: 'symbol', width: 28 }, { key: 'image', width: 14 }, ...(multiFile ? [{ key: 'drawing', width: 32 }] : []), { key: 'count', width: 8 }];
+    sheet.columns = [{ key: 'no', width: 6 }, { key: 'component', width: 28 }, { key: 'image', width: 14 }, ...(multiFile ? [{ key: 'drawing', width: 32 }] : []), { key: 'count', width: 8 }];
 
     const addMeta = (label: string, value: string) => {
       const r = sheet.addRow([label, value]);
@@ -86,7 +108,7 @@ export function useMtoExports({
     if (project.location)        addMeta('Location',    project.location);
     if (sheet.rowCount > 0) sheet.addRow([]);
 
-    const hdrValues = ['No.', 'Symbol', 'Image', ...(multiFile ? ['Drawing'] : []), 'Count'];
+    const hdrValues = ['No.', 'Component', 'Image', ...(multiFile ? ['Drawing'] : []), 'Count'];
     const hdrRow = sheet.addRow(hdrValues); hdrRow.height = 18;
     hdrRow.eachCell(cell => {
       cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
@@ -163,7 +185,7 @@ export function useMtoExports({
         const scaleY = fr.imageHeight ? canvas.height / fr.imageHeight : 1;
         ctx.strokeStyle = session.color;
         ctx.lineWidth = Math.max(6, Math.round(canvas.width / 600));
-        for (const m of fr.matches) ctx.strokeRect(m.x1 * scaleX, m.y1 * scaleY, (m.x2 - m.x1) * scaleX, (m.y2 - m.y1) * scaleY);
+        for (const m of fr.matches.filter(m => (m.page ?? 1) === 1)) ctx.strokeRect(m.x1 * scaleX, m.y1 * scaleY, (m.x2 - m.x1) * scaleX, (m.y2 - m.y1) * scaleY);
       }
       const pad = 24, swatchW = 40, swatchH = 28, lineH = 44, fontSize = 28;
       ctx.font = `bold ${fontSize}px sans-serif`; let ly = pad;
@@ -204,7 +226,7 @@ export function useMtoExports({
 
       pdf.setFont('helvetica', 'bold'); pdf.setFontSize(14); pdf.setTextColor(255, 255, 255);
       pdf.setFillColor(31, 41, 55); pdf.rect(0, 0, PW, 14, 'F');
-      pdf.text('Piping MTO — Symbol Count Summary', M, 9.5);
+      pdf.text('Piping MTO — Component Count Summary', M, 9.5);
       let y = 22;
 
       const metaPairs: [string, string][] = [];
@@ -227,7 +249,7 @@ export function useMtoExports({
       const COL_NO = M, COL_SYM = M + 12, COL_DRW = M + 90, COL_CNT = PW - M - 16, ROW_H = 6.5;
       pdf.setFillColor(31, 41, 55); pdf.rect(M, y - ROW_H + 1.5, PW - M * 2, ROW_H, 'F');
       pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(255, 255, 255);
-      pdf.text('No.', COL_NO + 1, y); pdf.text('Symbol', COL_SYM, y);
+      pdf.text('No.', COL_NO + 1, y); pdf.text('Component', COL_SYM, y);
       if (multiFile) pdf.text('Drawing', COL_DRW, y);
       pdf.text('Count', COL_CNT, y); y += ROW_H;
 
@@ -273,7 +295,7 @@ export function useMtoExports({
           const sx = fr.imageWidth ? canvas.width / fr.imageWidth : 1;
           const sy = fr.imageHeight ? canvas.height / fr.imageHeight : 1;
           ctx.strokeStyle = session.color; ctx.lineWidth = Math.max(6, Math.round(canvas.width / 600));
-          for (const m of fr.matches) ctx.strokeRect(m.x1 * sx, m.y1 * sy, (m.x2 - m.x1) * sx, (m.y2 - m.y1) * sy);
+          for (const m of fr.matches.filter(m => (m.page ?? 1) === 1)) ctx.strokeRect(m.x1 * sx, m.y1 * sy, (m.x2 - m.x1) * sx, (m.y2 - m.y1) * sy);
         }
         pdf.addPage();
         const TITLE_H = 10;
@@ -310,5 +332,14 @@ export function useMtoExports({
     }
   };
 
-  return { exportAllMtoCsv, exportMtoExcel, downloadMtoImage, exportMtoPDF, mtoExportingPdf, mtoImageDownloading };
+  return {
+    exportAllMtoCsv,
+    exportMtoExcel,
+    exportClientMtoPackage,
+    downloadMtoImage,
+    exportMtoPDF,
+    mtoExportingPdf,
+    mtoExportingPackage,
+    mtoImageDownloading,
+  };
 }

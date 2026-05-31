@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 
 interface PDFViewerProps {
@@ -21,7 +21,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onClick,
   onOpenFiles, onDropFiles,
 }) => {
-  const { hdPreviewBase64, isPreviewLoading, zoom, setZoom, baseDims, setBaseDims } = useWorkspace();
+  const { hdPreviewBase64, isPreviewLoading, zoom, setZoom, baseDims, setBaseDims, currentPage, setCurrentPage, pageCount } = useWorkspace();
   const viewerRef = useRef<HTMLDivElement>(null);
   const [dragOver, setDragOver] = React.useState(false);
 
@@ -160,6 +160,30 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
               className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors text-sm font-bold"
             >+</button>
           </div>
+
+          {pageCount > 1 && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-[#0c0c0e]/90 backdrop-blur-sm border border-white/[0.07] rounded-lg px-1.5 py-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage <= 1 || isPreviewLoading}
+                className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-white hover:bg-white/10 disabled:opacity-25 transition-colors"
+                title="Previous page"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="px-2 h-6 flex items-center text-[11px] text-gray-400 font-mono tabular-nums">
+                {currentPage} / {pageCount}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(pageCount, p + 1))}
+                disabled={currentPage >= pageCount || isPreviewLoading}
+                className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-white hover:bg-white/10 disabled:opacity-25 transition-colors"
+                title="Next page"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           {floats}
         </>

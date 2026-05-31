@@ -3,6 +3,7 @@ import api from './api';
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface MatchBox {
+  page?: number;
   x1: number;
   y1: number;
   x2: number;
@@ -42,6 +43,64 @@ export interface LibrarySymbol {
   thumbnail: string;
   templateImage: string;
   createdAt: string;
+  metadata?: MtoMetadata;
+}
+
+export interface MtoMetadata {
+  categoryCode: string;
+  categoryName: string;
+  unit: string;
+  itemType: string;
+  pipingClass: string;
+  sizeInch: string;
+  rating: string;
+  valveBore: string;
+  endConnection: string;
+  materialDescription: string;
+  dataSheetDocumentNo: string;
+  dataSheetReferenceNo: string;
+  remarks: string;
+}
+
+export const emptyMtoMetadata = (): MtoMetadata => ({
+  categoryCode: '',
+  categoryName: '',
+  unit: '-',
+  itemType: '',
+  pipingClass: '',
+  sizeInch: '',
+  rating: '',
+  valveBore: '',
+  endConnection: '',
+  materialDescription: '',
+  dataSheetDocumentNo: '',
+  dataSheetReferenceNo: '',
+  remarks: '',
+});
+
+export const inferMtoMetadata = (label: string, existing?: Partial<MtoMetadata>): MtoMetadata => {
+  const metadata = { ...emptyMtoMetadata(), ...existing };
+  const upper = label.toUpperCase();
+  const categories: Array<[string, string, string[]]> = [
+    ['H', 'BALL VALVE', ['BALL']],
+    ['I', 'CHECK VALVE', ['CHECK', 'STOP CHECK']],
+    ['J', 'PLUG VALVE', ['PLUG']],
+    ['K', 'NEEDLE VALVE', ['NEEDLE']],
+    ['L', 'BUTTERFLY VALVE', ['BUTTERFLY']],
+    ['M', 'THREE WAY VALVE', ['THREE WAY', '3 WAY']],
+    ['N', 'ANGLE VALVE', ['ANGLE']],
+    ['O', 'DIAPHRAGM VALVE', ['DIAPHRAGM']],
+    ['P', 'CONTROL VALVE', ['CONTROL VALVE']],
+    ['Q', 'STRAINER / FILTER', ['STRAINER', 'FILTER']],
+    ['R', 'SPECIAL PIPING ITEM', ['SPECIAL', 'COUPON', 'NOZZLE', 'TUNDISH']],
+  ];
+  const match = categories.find(([, , hints]) => hints.some(h => upper.includes(h)));
+  if (match) {
+    if (!metadata.categoryCode) metadata.categoryCode = match[0];
+    if (!metadata.categoryName) metadata.categoryName = match[1];
+  }
+  if (!metadata.itemType) metadata.itemType = label;
+  return metadata;
 }
 
 // ── Symbol Library ─────────────────────────────────────────────────────────
@@ -155,4 +214,27 @@ export const detectFromLibrary = async ({
     timeout: 300000,
   });
   return resp.data;
+};
+
+export const exportMtoPackage = async ({
+  project,
+  sessions,
+  threshold,
+}: {
+  project: any;
+  sessions: any[];
+  threshold: number;
+}): Promise<void> => {
+  const resp = await api.post('/api/v1/mto/export-package', { project, sessions, threshold }, {
+    responseType: 'blob',
+    timeout: 300000,
+  });
+  const url = URL.createObjectURL(new Blob([resp.data], { type: 'application/zip' }));
+  const disposition = resp.headers?.['content-disposition'] || '';
+  const match = /filename="?([^"]+)"?/i.exec(disposition);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = match?.[1] || `Piping_MTO_Results_${new Date().toISOString().slice(0, 10)}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
 };

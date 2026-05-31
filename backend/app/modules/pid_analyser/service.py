@@ -27,30 +27,31 @@ logger = logging.getLogger(__name__)
 _preview_executor = ThreadPoolExecutor(max_workers=max(2, (os.cpu_count() or 2) - 1))
 
 
-def _do_preview(content: bytes) -> PreviewResponse:
+def _do_preview(content: bytes, page: int = 1) -> PreviewResponse:
     import fitz
+    doc = fitz.open(stream=content, filetype="pdf")
+    page_count = len(doc)
+    doc.close()
+    preview_page = max(1, min(page, page_count or 1))
     images = convert_from_bytes(
         content,
         dpi=settings.PDF_DPI,
         poppler_path=settings.POPPLER_PATH,
-        first_page=1,
-        last_page=1,
+        first_page=preview_page,
+        last_page=preview_page,
     )
     if not images:
         raise ValueError("PDF conversion failed.")
     buf = io.BytesIO()
     images[0].save(buf, format="JPEG", quality=85)
     b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-    doc = fitz.open(stream=content, filetype="pdf")
-    page_count = len(doc)
-    doc.close()
     return PreviewResponse(status="SUCCESS", base64_image=b64, page_count=page_count)
 
 
-async def generate_preview(content: bytes) -> PreviewResponse:
+async def generate_preview(content: bytes, page: int = 1) -> PreviewResponse:
     try:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(_preview_executor, _do_preview, content)
+        return await loop.run_in_executor(_preview_executor, _do_preview, content, page)
     except HTTPException:
         raise
     except Exception as e:
