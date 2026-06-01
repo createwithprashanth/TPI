@@ -11,6 +11,7 @@ export interface MatchBox {
   score: number;
   sizeInch?: string;
   sizeSource?: string;
+  sizeConfidence?: number;
   aiDecision?: string;
   aiConfidence?: number;
   aiReason?: string;

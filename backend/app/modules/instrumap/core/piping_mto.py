@@ -50,7 +50,7 @@ _KNOWN_INCH_SIZES = {
     "6", "8", "10", "12", "14", "16", "18", "20", "24", "30", "36", "42", "48",
 }
 _SIZE_TOKEN_RE = re.compile(
-    rf"^(?P<size>\d{{1,2}}(?:\.\d{{1,2}})?|\d{{1,2}}\s+\d/[24]|\d/[24])\s*[{re.escape(_INCH_CHARS)}]$"
+    rf"^(?P<size>\d{{1,2}}(?:\.\d{{1,2}})?|\d{{1,2}}[-\s]+\d/[24]|\d/[24])\s*[{re.escape(_INCH_CHARS)}]$"
 )
 _LINE_SIZE_RE = re.compile(
     rf"^(?:DN)?(?P<size>\d{{1,3}}(?:\.\d{{1,2}})?)\s*[{re.escape(_INCH_CHARS)}]?-?[A-Z]{{1,5}}-\d{{3,6}}",
@@ -159,7 +159,7 @@ def _normalize_size_text(text: str) -> str:
 
 def _display_size(size: str) -> str:
     size = _normalize_size_text(size).replace('"', '').strip()
-    size = re.sub(r"\s+", " ", size)
+    size = re.sub(r"[-\s]+", " ", size)
     if size in {"1/2", "2/4"}:
         return "0.5"
     if size == "3/4":
@@ -254,6 +254,7 @@ def _candidate_size_phrases(words: list[dict]) -> list[dict]:
                 phrases.append({
                     "size": size,
                     "source": text,
+                    "sourceType": "line_number" if _LINE_SIZE_RE.match(_normalize_size_text(text).replace(" ", "")) else "standalone",
                     "x0": min(w["x0"] for w in chunk),
                     "y0": min(w["y0"] for w in chunk),
                     "x1": max(w["x1"] for w in chunk),
@@ -264,41 +265,73 @@ def _candidate_size_phrases(words: list[dict]) -> list[dict]:
     return phrases
 
 
-def _nearest_size_for_match(match: list, words: list[dict]) -> tuple[str, str]:
-    """Find the closest pipe-size text beside a detected component."""
-    phrases = _candidate_size_phrases(words)
-    if not phrases:
-        return "", ""
-
+def _size_candidate_score(match: list, phrase: dict) -> float | None:
     x1, y1, x2, y2 = match[:4]
     cx = (x1 + x2) / 2
     cy = (y1 + y2) / 2
-    width = max(1, x2 - x1)
-    height = max(1, y2 - y1)
-    x_pad = max(170, width * 4.0)
-    y_pad = max(55, height * 1.4)
+    width = max(1.0, x2 - x1)
+    height = max(1.0, y2 - y1)
+    is_horizontal = width > height * 1.2
+
+    horizontal_gap = max(0.0, x1 - phrase["x1"], phrase["x0"] - x2)
+    vertical_gap = max(0.0, y1 - phrase["y1"], phrase["y0"] - y2)
+    center_dx = abs(phrase["cx"] - cx)
+    center_dy = abs(phrase["cy"] - cy)
+    x_overlap = max(0.0, min(x2, phrase["x1"]) - max(x1, phrase["x0"]))
+    y_overlap = max(0.0, min(y2, phrase["y1"]) - max(y1, phrase["y0"]))
+    x_overlap_ratio = x_overlap / width
+    y_overlap_ratio = y_overlap / height
+
+    if is_horizontal:
+        # Horizontal valves commonly carry size text just above/below the body
+        # or immediately beside the pipe connection. Keep the search local.
+        if horizontal_gap > max(90.0, width * 1.6):
+            return None
+        if vertical_gap > max(75.0, height * 2.5):
+            return None
+        score = horizontal_gap * 1.2 + vertical_gap * 1.8 + center_dx * 0.18 + center_dy * 0.28
+        if x_overlap_ratio > 0.15:
+            score -= 35
+        if y_overlap_ratio > 0.20:
+            score -= 15
+    else:
+        # Vertical valves usually have the size at left/right of the symbol on
+        # roughly the same elevation. Text far above/below is often another item.
+        if horizontal_gap > max(145.0, width * 4.2):
+            return None
+        if vertical_gap > max(70.0, height * 1.1):
+            return None
+        score = horizontal_gap * 1.0 + center_dy * 2.35 + center_dx * 0.08
+        if y_overlap_ratio > 0.20:
+            score -= 45
+        if phrase["x1"] <= x1 or phrase["x0"] >= x2:
+            score -= 18
+
+    # A direct size label like 2" should win over a line-number prefix if both
+    # are nearby; line-number size is useful fallback evidence, not first choice.
+    if phrase.get("sourceType") == "line_number":
+        score += 70
+    return max(0.0, score)
+
+
+def _nearest_size_for_match(match: list, words: list[dict]) -> tuple[str, str, float]:
+    """Find the closest pipe-size text beside a detected component."""
+    phrases = _candidate_size_phrases(words)
+    if not phrases:
+        return "", "", 0.0
 
     candidates = []
     for phrase in phrases:
-        beside = (
-            phrase["x1"] >= x1 - x_pad
-            and phrase["x0"] <= x2 + x_pad
-            and phrase["y1"] >= y1 - y_pad
-            and phrase["y0"] <= y2 + y_pad
-        )
-        if not beside:
+        score = _size_candidate_score(match, phrase)
+        if score is None:
             continue
-        horizontal_gap = max(0.0, x1 - phrase["x1"], phrase["x0"] - x2)
-        vertical_gap = abs(phrase["cy"] - cy)
-        distance = horizontal_gap + vertical_gap * 1.8
-        if x1 <= phrase["cx"] <= x2:
-            distance += height * 1.5
-        candidates.append((distance, phrase))
+        candidates.append((score, phrase))
 
     if not candidates:
-        return "", ""
+        return "", "", 0.0
     phrase = sorted(candidates, key=lambda item: item[0])[0][1]
-    return phrase["size"], phrase["source"]
+    confidence = max(0.35, min(0.99, 1.0 - sorted(candidates, key=lambda item: item[0])[0][0] / 220.0))
+    return phrase["size"], phrase["source"], round(confidence, 3)
 
 
 def _rotate_fine(img: np.ndarray, angle: float) -> np.ndarray:
@@ -729,10 +762,11 @@ def _enrich_matches_with_sizes(matches: list, doc: "fitz.Document", page_num: in
     result = []
     for match in matches:
         item = {"x1": int(match[0]), "y1": int(match[1]), "x2": int(match[2]), "y2": int(match[3]), "score": round(match[4], 3)}
-        size, source = _nearest_size_for_match(match, words)
+        size, source, confidence = _nearest_size_for_match(match, words)
         if size:
             item["sizeInch"] = size
             item["sizeSource"] = source
+            item["sizeConfidence"] = confidence
         result.append(item)
     return result
 

@@ -87,6 +87,7 @@ def _iter_detection_rows(payload: dict):
                     "Y2": int(match.get("y2") or 0),
                     "Size": _s(match.get("sizeInch")),
                     "Size Source": _s(match.get("sizeSource")),
+                    "Size Confidence": float(match.get("sizeConfidence") or 0),
                     "AI Decision": _s(match.get("aiDecision")),
                     "AI Confidence": float(match.get("aiConfidence") or 0),
                     "AI Flags": ", ".join(_s(v) for v in (match.get("aiFlags") or []) if _s(v)),
@@ -351,23 +352,23 @@ def _write_detection_register(path: Path, payload: dict) -> None:
     fmt = _formats(wb)
     ws = wb.add_worksheet("Detection Register")
     headers = [
-        "No.", "Symbol", "Category", "Drawing", "Page", "Size", "Size Source",
+        "No.", "Symbol", "Category", "Drawing", "Page", "Size", "Size Source", "Size Confidence",
         "Score", "AI Decision", "AI Confidence", "AI Flags", "AI Reason",
         "X1", "Y1", "X2", "Y2",
     ]
-    widths = [7, 24, 28, 42, 8, 8, 16, 10, 14, 12, 32, 70, 10, 10, 10, 10]
+    widths = [7, 24, 28, 42, 8, 8, 18, 14, 10, 14, 12, 32, 70, 10, 10, 10, 10]
     for i, width in enumerate(widths):
         ws.set_column(i, i, width)
         ws.write(0, i, headers[i], fmt["hdr"])
     for idx, row in enumerate(_iter_detection_rows(payload), start=1):
         values = [
             idx, row["Symbol"], row["Category"], row["Drawing"], row["Page"],
-            row["Size"], row["Size Source"], row["Score"], row["AI Decision"],
+            row["Size"], row["Size Source"], row["Size Confidence"] or "", row["Score"], row["AI Decision"],
             row["AI Confidence"] or "", row["AI Flags"], row["AI Reason"],
             row["X1"], row["Y1"], row["X2"], row["Y2"],
         ]
         for col, value in enumerate(values):
-            ws.write(idx, col, value, fmt["left"] if col in (1, 2, 3, 6, 10, 11) else fmt["cell"])
+            ws.write(idx, col, value, fmt["left"] if col in (1, 2, 3, 6, 11, 12) else fmt["cell"])
     ws.freeze_panes(1, 0)
     ws.autofilter(0, 0, max(1, idx if "idx" in locals() else 1), len(headers) - 1)
     wb.close()

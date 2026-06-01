@@ -23,8 +23,10 @@ from app.modules.instrumap.core.piping_mto import (
     detect_symbol,
     detect_all_pages,
     detect_from_template_image_all_pages,
+    _nearest_size_for_match,
     _PAGE_CACHE,
     _fetch_page_gray,
+    _size_from_text,
 )
 
 
@@ -204,6 +206,58 @@ class TestNms:
         boxes = [[0, 0, 10, 10, 0.87654]]
         result = _nms(boxes)
         assert result[0][4] == pytest.approx(0.87654)
+
+
+# ── Pipe size text selection ─────────────────────────────────────────────────
+
+def _word(text: str, x0: float, y0: float, x1: float, y1: float) -> dict:
+    return {
+        "text": text,
+        "x0": x0,
+        "y0": y0,
+        "x1": x1,
+        "y1": y1,
+        "cx": (x0 + x1) / 2,
+        "cy": (y0 + y1) / 2,
+    }
+
+
+class TestPipeSizeSelection:
+    def test_size_parser_accepts_fractional_epc_sizes(self):
+        assert _size_from_text('3/4"') == "0.75"
+        assert _size_from_text('1-1/2"') == "1.5"
+        assert _size_from_text('2"-PG-24466-251482-X-N') == "2"
+
+    def test_vertical_component_prefers_same_elevation_nearest_size(self):
+        match = [100, 100, 140, 180, 0.9]
+        words = [
+            _word('2"', 70, 132, 88, 148),
+            _word('3/4"', 150, 245, 184, 262),
+        ]
+        size, source, confidence = _nearest_size_for_match(match, words)
+        assert size == "2"
+        assert source == '2"'
+        assert confidence > 0.5
+
+    def test_horizontal_component_prefers_centered_local_size(self):
+        match = [100, 100, 170, 137, 0.9]
+        words = [
+            _word('2"', 124, 74, 146, 90),
+            _word('3/4"', 42, 106, 76, 122),
+        ]
+        size, source, _ = _nearest_size_for_match(match, words)
+        assert size == "2"
+        assert source == '2"'
+
+    def test_standalone_size_beats_nearby_line_number_fallback(self):
+        match = [100, 100, 140, 180, 0.9]
+        words = [
+            _word('2"-PG-24466-251482-X-N', 118, 195, 250, 212),
+            _word('3/4"', 145, 124, 180, 140),
+        ]
+        size, source, _ = _nearest_size_for_match(match, words)
+        assert size == "0.75"
+        assert source == '3/4"'
 
 
 # ── _orb_fallback ─────────────────────────────────────────────────────────────

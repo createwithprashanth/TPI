@@ -17,6 +17,7 @@ export interface FileResult {
     score: number;
     sizeInch?: string;
     sizeSource?: string;
+    sizeConfidence?: number;
     aiDecision?: string;
     aiConfidence?: number;
     aiReason?: string;

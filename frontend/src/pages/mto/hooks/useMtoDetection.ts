@@ -91,16 +91,18 @@ export function useMtoDetection({
           fileResults: fileResults.filter(Boolean) as FileResult[],
         });
       }
-      let sessionsToAdd = newSessions;
+      onAddSessions(newSessions);
       if (newSessions.length > 0) {
-        try {
-          const reviewed = await reviewMtoSessions({ sessions: newSessions, threshold: mtoThreshold });
-          sessionsToAdd = (reviewed.sessions ?? newSessions) as MtoSession[];
-        } catch (reviewErr: any) {
-          onError(reviewErr.response?.data?.detail || 'AI review failed; showing deterministic MTO results.');
-        }
+        void reviewMtoSessions({ sessions: newSessions, threshold: mtoThreshold })
+          .then(reviewed => {
+            ((reviewed.sessions ?? []) as MtoSession[]).forEach(session => {
+              if (session?.id) onUpdateSession(session.id, session);
+            });
+          })
+          .catch((reviewErr: any) => {
+            onError(reviewErr.response?.data?.detail || 'AI review failed; deterministic MTO results are shown.');
+          });
       }
-      onAddSessions(sessionsToAdd);
     } catch (err: any) {
       onError(err.response?.data?.detail || err.message || 'Detection failed.');
       throw err;
@@ -137,13 +139,14 @@ export function useMtoDetection({
         count: totalCount,
         fileResults: fileResults.filter(Boolean) as FileResult[],
       };
-      try {
-        const reviewed = await reviewMtoSessions({ sessions: [updatedSession], threshold: mtoThreshold });
-        onUpdateSession(session.id, (reviewed.sessions?.[0] ?? updatedSession) as Partial<MtoSession>);
-      } catch (reviewErr: any) {
-        onError(reviewErr.response?.data?.detail || 'AI review failed; showing deterministic MTO results.');
-        onUpdateSession(session.id, updatedSession);
-      }
+      onUpdateSession(session.id, updatedSession);
+      void reviewMtoSessions({ sessions: [updatedSession], threshold: mtoThreshold })
+        .then(reviewed => {
+          onUpdateSession(session.id, (reviewed.sessions?.[0] ?? updatedSession) as Partial<MtoSession>);
+        })
+        .catch((reviewErr: any) => {
+          onError(reviewErr.response?.data?.detail || 'AI review failed; deterministic MTO results are shown.');
+        });
     } catch (err: any) {
       onError(err.response?.data?.detail || err.message || 'Re-run failed.');
     } finally {

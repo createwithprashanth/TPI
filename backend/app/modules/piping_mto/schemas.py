@@ -26,6 +26,7 @@ class MatchBox(BaseModel):
     score: float
     sizeInch: str = ""
     sizeSource: str = ""
+    sizeConfidence: float = 0
 
 
 class DetectResponse(BaseModel):
@@ -88,6 +89,7 @@ class ExportMatch(BaseModel):
     score: float
     sizeInch: str = ""
     sizeSource: str = ""
+    sizeConfidence: float = 0
     aiDecision: str = ""
     aiConfidence: float = 0
     aiReason: str = ""

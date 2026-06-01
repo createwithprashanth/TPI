@@ -431,7 +431,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                   strokeOpacity={m.score >= 0.85 ? 1.0 : m.score >= 0.75 ? 0.65 : 0.4}
                   onClick={mtoEditMode ? (e) => { e.stopPropagation(); removeMatch(session.id, currentPidIndex, originalIndex); } : undefined}
                 >
-                  <title>{session.label} — page {m.page ?? 1}{m.sizeInch ? ` — size ${m.sizeInch}"` : ' — size not read'} — confidence {m.score.toFixed(3)}{mtoEditMode ? ' · click to remove' : ''}</title>
+                  <title>{session.label} — page {m.page ?? 1}{m.sizeInch ? ` — size ${m.sizeInch}"${m.sizeConfidence ? ` (${Math.round(m.sizeConfidence * 100)}% size confidence)` : ''}` : ' — size not read'} — confidence {m.score.toFixed(3)}{mtoEditMode ? ' · click to remove' : ''}</title>
                 </rect>
               ));
             })}
