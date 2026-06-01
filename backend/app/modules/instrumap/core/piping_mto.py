@@ -5,6 +5,7 @@ No LLM, no OCR — pure template matching on the rendered PDF page.
 import base64
 import hashlib
 import logging
+import re
 import threading
 from collections import OrderedDict
 from typing import Optional
@@ -22,15 +23,39 @@ _SCALES = [0.88, 0.94, 1.00, 1.06, 1.12]
 
 # Fine-angle rotations applied at base scale only (±5°/10°/15° — handles diagonal symbols)
 _FINE_ANGLES = [-15.0, -10.0, -5.0, 5.0, 10.0, 15.0]
+_VALVE_GEOMETRY_LABELS = (
+    "VALVE", "BALL", "CHECK", "BUTTERFLY", "PLUG", "NEEDLE",
+    "ANGLE", "DIAPHRAGM", "SSV", "SSSV", "HOV", "MOV", "SDV", "BDV",
+)
 
 # ── Page cache ────────────────────────────────────────────────────────────────
 # Stores preprocessed grayscale arrays keyed by (pdf_hash, dpi, page_num).
 # Avoids re-rendering the same PDF page for every symbol search in a session.
 _PAGE_CACHE: OrderedDict = OrderedDict()
 _PAGE_CACHE_MAX = 60  # ~60 pages; memory scales with page size
+_PAGE_COMPONENT_CACHE: OrderedDict = OrderedDict()
+_PAGE_COMPONENT_CACHE_MAX = 40
+_PAGE_WORD_CACHE: OrderedDict = OrderedDict()
+_PAGE_WORD_CACHE_MAX = 80
+_PAGE_VALVE_GEOMETRY_CACHE: OrderedDict = OrderedDict()
+_PAGE_VALVE_GEOMETRY_CACHE_MAX = 40
 _PAGE0_RGB: dict = {}  # (pdf_hash, dpi) -> page-0 img_rgb, kept for annotation
 _PAGE0_RGB_MAX = 15
 _cache_lock = threading.Lock()  # guards both cache dicts for thread-pool safety
+_EXACT_MATCH_DPI_MAX = 150
+
+_INCH_CHARS = '"\u201c\u201d\u2019\u2032\u2033\''
+_KNOWN_INCH_SIZES = {
+    "0.5", "0.75", "1", "1.25", "1.5", "2", "2.5", "3", "4",
+    "6", "8", "10", "12", "14", "16", "18", "20", "24", "30", "36", "42", "48",
+}
+_SIZE_TOKEN_RE = re.compile(
+    rf"^(?P<size>\d{{1,2}}(?:\.\d{{1,2}})?|\d{{1,2}}\s+\d/[24]|\d/[24])\s*[{re.escape(_INCH_CHARS)}]$"
+)
+_LINE_SIZE_RE = re.compile(
+    rf"^(?:DN)?(?P<size>\d{{1,3}}(?:\.\d{{1,2}})?)\s*[{re.escape(_INCH_CHARS)}]?-?[A-Z]{{1,5}}-\d{{3,6}}",
+    re.IGNORECASE,
+)
 
 
 def _pdf_hash(pdf_bytes: bytes) -> str:
@@ -107,6 +132,175 @@ def _fetch_page_gray(doc: "fitz.Document", page_num: int, dpi: int, pdf_hash: st
     return gray
 
 
+def _fetch_page_component_binary(doc: "fitz.Document", page_num: int, dpi: int, pdf_hash: str) -> np.ndarray:
+    """Return cached cleaned component ink for exact matching."""
+    key = (pdf_hash, dpi, page_num)
+    with _cache_lock:
+        if key in _PAGE_COMPONENT_CACHE:
+            _PAGE_COMPONENT_CACHE.move_to_end(key)
+            return _PAGE_COMPONENT_CACHE[key]
+
+    gray = _fetch_page_gray(doc, page_num, dpi, pdf_hash)
+    binary = _to_component_binary(gray, remove_speckles=False)
+
+    with _cache_lock:
+        if key not in _PAGE_COMPONENT_CACHE:
+            if len(_PAGE_COMPONENT_CACHE) >= _PAGE_COMPONENT_CACHE_MAX:
+                _PAGE_COMPONENT_CACHE.popitem(last=False)
+            _PAGE_COMPONENT_CACHE[key] = binary
+    return binary
+
+
+def _normalize_size_text(text: str) -> str:
+    text = re.sub(r"[\u201c\u201d\u2019\u2032\u2033']", '"', text or "")
+    text = re.sub(r"\s+", " ", text).strip().upper()
+    return text
+
+
+def _display_size(size: str) -> str:
+    size = _normalize_size_text(size).replace('"', '').strip()
+    size = re.sub(r"\s+", " ", size)
+    if size in {"1/2", "2/4"}:
+        return "0.5"
+    if size == "3/4":
+        return "0.75"
+    mixed = re.match(r"^(\d{1,2})\s+(\d)/([24])$", size)
+    if mixed:
+        whole, num, den = mixed.groups()
+        value = int(whole) + int(num) / int(den)
+        return str(value).rstrip("0").rstrip(".")
+    return size.lstrip("0") or size
+
+
+def _size_from_text(text: str) -> Optional[str]:
+    norm = _normalize_size_text(text)
+    if not norm:
+        return None
+
+    line_match = _LINE_SIZE_RE.match(norm.replace(" ", ""))
+    if line_match:
+        size = _display_size(line_match.group("size"))
+        return size if size in _KNOWN_INCH_SIZES else None
+
+    token_match = _SIZE_TOKEN_RE.match(norm)
+    if token_match:
+        size = _display_size(token_match.group("size"))
+        return size if size in _KNOWN_INCH_SIZES else None
+
+    return None
+
+
+def _fetch_page_words(doc: "fitz.Document", page_num: int, dpi: int, pdf_hash: str) -> list[dict]:
+    """Return PyMuPDF words in detection pixel coordinates."""
+    key = (pdf_hash, dpi, page_num)
+    with _cache_lock:
+        if key in _PAGE_WORD_CACHE:
+            _PAGE_WORD_CACHE.move_to_end(key)
+            return _PAGE_WORD_CACHE[key]
+
+    scale = dpi / 72
+    words = []
+    try:
+        for x0, y0, x1, y1, text, *_ in doc[page_num].get_text("words"):
+            clean = _normalize_size_text(text)
+            if not clean:
+                continue
+            words.append({
+                "x0": float(x0) * scale,
+                "y0": float(y0) * scale,
+                "x1": float(x1) * scale,
+                "y1": float(y1) * scale,
+                "cx": float(x0 + x1) * scale / 2,
+                "cy": float(y0 + y1) * scale / 2,
+                "text": clean,
+            })
+    except Exception as exc:
+        logger.debug("Piping MTO: text word extraction failed on page %d: %s", page_num + 1, exc)
+
+    with _cache_lock:
+        if key not in _PAGE_WORD_CACHE:
+            if len(_PAGE_WORD_CACHE) >= _PAGE_WORD_CACHE_MAX:
+                _PAGE_WORD_CACHE.popitem(last=False)
+            _PAGE_WORD_CACHE[key] = words
+    return words
+
+
+def _candidate_size_phrases(words: list[dict]) -> list[dict]:
+    phrases = []
+    by_line: list[list[dict]] = []
+    for word in sorted(words, key=lambda w: (w["cy"], w["x0"])):
+        for line in by_line:
+            if abs(line[0]["cy"] - word["cy"]) <= 8:
+                line.append(word)
+                break
+        else:
+            by_line.append([word])
+
+    for line in by_line:
+        line.sort(key=lambda w: w["x0"])
+        for i, word in enumerate(line):
+            for length in (1, 2, 3):
+                chunk = line[i:i + length]
+                if len(chunk) != length:
+                    continue
+                if length > 1:
+                    gaps = [chunk[j + 1]["x0"] - chunk[j]["x1"] for j in range(len(chunk) - 1)]
+                    if any(gap > 22 for gap in gaps):
+                        continue
+                text = "".join(w["text"] for w in chunk) if length == 1 else " ".join(w["text"] for w in chunk)
+                size = _size_from_text(text)
+                if not size:
+                    continue
+                phrases.append({
+                    "size": size,
+                    "source": text,
+                    "x0": min(w["x0"] for w in chunk),
+                    "y0": min(w["y0"] for w in chunk),
+                    "x1": max(w["x1"] for w in chunk),
+                    "y1": max(w["y1"] for w in chunk),
+                    "cx": sum(w["cx"] for w in chunk) / len(chunk),
+                    "cy": sum(w["cy"] for w in chunk) / len(chunk),
+                })
+    return phrases
+
+
+def _nearest_size_for_match(match: list, words: list[dict]) -> tuple[str, str]:
+    """Find the closest pipe-size text beside a detected component."""
+    phrases = _candidate_size_phrases(words)
+    if not phrases:
+        return "", ""
+
+    x1, y1, x2, y2 = match[:4]
+    cx = (x1 + x2) / 2
+    cy = (y1 + y2) / 2
+    width = max(1, x2 - x1)
+    height = max(1, y2 - y1)
+    x_pad = max(170, width * 4.0)
+    y_pad = max(55, height * 1.4)
+
+    candidates = []
+    for phrase in phrases:
+        beside = (
+            phrase["x1"] >= x1 - x_pad
+            and phrase["x0"] <= x2 + x_pad
+            and phrase["y1"] >= y1 - y_pad
+            and phrase["y0"] <= y2 + y_pad
+        )
+        if not beside:
+            continue
+        horizontal_gap = max(0.0, x1 - phrase["x1"], phrase["x0"] - x2)
+        vertical_gap = abs(phrase["cy"] - cy)
+        distance = horizontal_gap + vertical_gap * 1.8
+        if x1 <= phrase["cx"] <= x2:
+            distance += height * 1.5
+        candidates.append((distance, phrase))
+
+    if not candidates:
+        return "", ""
+    phrase = sorted(candidates, key=lambda item: item[0])[0][1]
+    return phrase["size"], phrase["source"]
+
+
 def _rotate_fine(img: np.ndarray, angle: float) -> np.ndarray:
     """Rotate a float32 image by `angle` degrees in-place (same dimensions, zero-padded)."""
     h, w = img.shape[:2]
@@ -125,6 +319,188 @@ def _to_edges(gray: np.ndarray) -> np.ndarray:
 def _soften_edges(edges: np.ndarray) -> np.ndarray:
     """Light Gaussian blur on edge map — makes matching more tolerant of line noise in dense areas."""
     return cv2.GaussianBlur(edges.astype(np.float32), (3, 3), 0.8)
+
+
+def _to_ink_binary(gray: np.ndarray) -> np.ndarray:
+    """Return a 0/1 black-ink mask for exact component matching."""
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    _, binary = cv2.threshold(blurred, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    return binary.astype(np.uint8)
+
+
+def _remove_small_ink(binary: np.ndarray, min_area: int = 3) -> np.ndarray:
+    """Remove isolated scan/JPEG speckles from a binary ink mask."""
+    if binary.size == 0:
+        return binary
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    clean = np.zeros_like(binary)
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_AREA] >= min_area:
+            clean[labels == i] = 1
+    return clean
+
+
+def _suppress_straight_pipe_runs(binary: np.ndarray, line_len: Optional[int] = None) -> np.ndarray:
+    """
+    Remove long straight pipe-line strokes from an ink mask.
+
+    Piping components are often captured with small pipe stubs. If those stubs remain,
+    a plain pixel matcher can lock onto repeated pipe runs instead of the valve/body.
+    This keeps the distinctive component geometry while dropping long horizontal and
+    vertical line fragments from both the template and the drawing page.
+    """
+    if binary.size == 0:
+        return binary
+
+    h, w = binary.shape
+    if line_len is None:
+        line_len = max(10, min(26, int(round(min(h, w) * 0.30))))
+
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(3, line_len), 1))
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(3, line_len)))
+    horizontal = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel)
+    vertical = cv2.morphologyEx(binary, cv2.MORPH_OPEN, vertical_kernel)
+    straight_runs = cv2.bitwise_or(horizontal, vertical)
+    if straight_runs.sum() == 0:
+        return binary
+    return cv2.bitwise_and(binary, cv2.bitwise_not(straight_runs))
+
+
+def _to_component_binary(
+    gray: np.ndarray,
+    remove_speckles: bool = True,
+    suppress_pipe_runs: bool = False,
+) -> np.ndarray:
+    """Return a cleaned component-ink mask for exact MTO matching."""
+    binary = _to_ink_binary(gray)
+    if remove_speckles:
+        binary = _remove_small_ink(binary)
+    if suppress_pipe_runs:
+        binary = _suppress_straight_pipe_runs(binary)
+    if remove_speckles:
+        binary = _remove_small_ink(binary)
+    return binary
+
+
+def _trim_to_ink(binary: np.ndarray, pad: int = 2) -> np.ndarray:
+    """Trim blank crop margins so accidental whitespace/pipe tails do not dominate matching."""
+    ys, xs = np.nonzero(binary)
+    if len(xs) == 0 or len(ys) == 0:
+        return binary
+    y1 = max(0, int(ys.min()) - pad)
+    y2 = min(binary.shape[0], int(ys.max()) + pad + 1)
+    x1 = max(0, int(xs.min()) - pad)
+    x2 = min(binary.shape[1], int(xs.max()) + pad + 1)
+    return binary[y1:y2, x1:x2]
+
+
+def _window_sums(region_binary: np.ndarray, th: int, tw: int) -> np.ndarray:
+    integral = cv2.integral(region_binary.astype(np.float32))
+    return (
+        integral[th:, tw:]
+        - integral[:-th, tw:]
+        - integral[th:, :-tw]
+        + integral[:-th, :-tw]
+    )
+
+
+def _pick_template_anchors(tmpl_binary: np.ndarray, anchor_count: int = 24) -> np.ndarray:
+    ys, xs = np.nonzero(tmpl_binary)
+    if len(xs) <= anchor_count:
+        return np.column_stack([ys, xs])
+
+    # Spread anchors across the ink path so straight-line noise cannot dominate.
+    order = np.lexsort((xs, ys))
+    indices = np.linspace(0, len(order) - 1, anchor_count, dtype=np.int32)
+    selected = order[indices]
+    return np.column_stack([ys[selected], xs[selected]])
+
+
+def _match_template_exact(tmpl_binary: np.ndarray, region_binary: np.ndarray, threshold: float, ox: int = 0, oy: int = 0) -> list:
+    """
+    Pixel/ink exact matcher.
+
+    This intentionally does not rotate, blur, ORB-fallback, or broad-scale the template.
+    It scores each candidate by both:
+    - template recall: how much of the captured component ink is present
+    - window precision: how much extra ink exists in the target window
+    The final score is the stricter of those two, so noisy/partial matches are rejected.
+    """
+    tmpl_binary = _trim_to_ink(_remove_small_ink(tmpl_binary))
+    th, tw = tmpl_binary.shape
+    rh, rw = region_binary.shape
+    tmpl_ink = float(tmpl_binary.sum())
+    if th < 4 or tw < 4 or tmpl_ink < 6:
+        raise ValueError("Captured component has too little usable ink. Re-capture tighter around the item.")
+    if th >= rh or tw >= rw:
+        return []
+
+    out_h = rh - th + 1
+    out_w = rw - tw + 1
+    votes = np.zeros((out_h, out_w), dtype=np.uint16)
+    region_ys, region_xs = np.nonzero(region_binary)
+    anchors = _pick_template_anchors(tmpl_binary)
+    for ay, ax in anchors:
+        cand_y = region_ys - int(ay)
+        cand_x = region_xs - int(ax)
+        valid = (cand_y >= 0) & (cand_x >= 0) & (cand_y < out_h) & (cand_x < out_w)
+        np.add.at(votes, (cand_y[valid], cand_x[valid]), 1)
+
+    min_votes = max(3, int(np.ceil(len(anchors) * max(0.35, min(0.75, threshold - 0.15)))))
+    ys, xs = np.nonzero(votes >= min_votes)
+    if len(xs) == 0:
+        return []
+    if len(xs) > 5000:
+        flat = votes[ys, xs]
+        keep = np.argpartition(flat, -5000)[-5000:]
+        ys = ys[keep]
+        xs = xs[keep]
+
+    integral = cv2.integral(region_binary.astype(np.float32))
+    raw = []
+    for y, x in zip(ys, xs):
+        overlap = int((region_binary[y:y + th, x:x + tw] & tmpl_binary).sum())
+        if overlap == 0:
+            continue
+        window_ink = float(
+            integral[y + th, x + tw]
+            - integral[y, x + tw]
+            - integral[y + th, x]
+            + integral[y, x]
+        )
+        recall = overlap / max(tmpl_ink, 1.0)
+        precision = overlap / max(window_ink, 1.0)
+        score = min(recall, precision)
+        if score >= threshold:
+            raw.append([int(x + ox), int(y + oy), int(x + ox + tw), int(y + oy + th), float(score)])
+    if len(raw) > 2000:
+        raw.sort(key=lambda b: b[4], reverse=True)
+        raw = raw[:2000]
+    return raw
+
+
+def _match_template_exact_with_rotations(
+    tmpl_binary: np.ndarray,
+    region_binary: np.ndarray,
+    threshold: float,
+    ox: int = 0,
+    oy: int = 0,
+) -> list:
+    """Exact ink matching with right-angle rotations for horizontal/vertical component reuse."""
+    raw = []
+    seen_shapes = set()
+    for tmpl in (
+        tmpl_binary,
+        cv2.rotate(tmpl_binary, cv2.ROTATE_90_CLOCKWISE),
+        cv2.rotate(tmpl_binary, cv2.ROTATE_90_COUNTERCLOCKWISE),
+        cv2.rotate(tmpl_binary, cv2.ROTATE_180),
+    ):
+        key = (tmpl.shape, int(tmpl.sum()))
+        if key in seen_shapes:
+            continue
+        seen_shapes.add(key)
+        raw.extend(_match_template_exact(tmpl, region_binary, threshold, ox, oy))
+    return raw
 
 
 def _render_page(pdf_bytes: bytes, dpi: int = 300, page_num: int = 0) -> np.ndarray:
@@ -193,6 +569,129 @@ def _match_template_on_region(tmpl_e: np.ndarray, region_e: np.ndarray, threshol
     return raw
 
 
+def _is_valve_like_label(label: str) -> bool:
+    upper = (label or "").upper()
+    return any(token in upper for token in _VALVE_GEOMETRY_LABELS)
+
+
+def _synthetic_valve_templates() -> list[np.ndarray]:
+    """Build simple EPC valve-geometry templates used as a recall booster."""
+    templates = []
+
+    def add_horizontal_bowtie(w: int, h: int) -> None:
+        pad = 10
+        img = np.zeros((h + pad * 2, w + pad * 2), dtype=np.uint8)
+        x0, y0 = pad, pad
+        x1, y1 = pad + w, pad + h
+        cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+        thickness = max(1, round(min(w, h) / 12))
+
+        # Horizontal valve on a pipe run: side bars, opposing triangles, center ball,
+        # and short pipe stubs. Keep this unboxed; boxed X/DBB components are a
+        # different item family and must not inflate ball-valve counts.
+        cv2.line(img, (x0 - pad // 2, cy), (x0, cy), 255, thickness)
+        cv2.line(img, (x1, cy), (x1 + pad // 2, cy), 255, thickness)
+        cv2.line(img, (x0, y0), (x0, y1), 255, thickness)
+        cv2.line(img, (x1, y0), (x1, y1), 255, thickness)
+        cv2.line(img, (x0, y0), (cx, cy), 255, thickness)
+        cv2.line(img, (x0, y1), (cx, cy), 255, thickness)
+        cv2.line(img, (x1, y0), (cx, cy), 255, thickness)
+        cv2.line(img, (x1, y1), (cx, cy), 255, thickness)
+        cv2.circle(img, (cx, cy), max(2, h // 4), 255, thickness)
+        templates.append(img)
+
+    for w, h in ((18, 42), (22, 52), (28, 64), (34, 78)):
+        pad = 8
+        img = np.zeros((h + pad * 2, w + pad * 2), dtype=np.uint8)
+        x0, y0 = pad, pad
+        x1, y1 = pad + w, pad + h
+        cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+        thickness = max(1, round(min(w, h) / 16))
+
+        # Body rectangle and opposing triangles/hourglass.
+        cv2.rectangle(img, (x0, y0), (x1, y1), 255, thickness)
+        cv2.line(img, (x0, y0), (x1, cy), 255, thickness)
+        cv2.line(img, (x1, cy), (x0, y1), 255, thickness)
+        cv2.line(img, (x1, y0), (x0, cy), 255, thickness)
+        cv2.line(img, (x0, cy), (x1, y1), 255, thickness)
+        cv2.line(img, (cx, y0 - pad // 2), (cx, y0), 255, thickness)
+        cv2.line(img, (cx, y1), (cx, y1 + pad // 2), 255, thickness)
+        cv2.circle(img, (cx, cy), max(2, w // 5), 255, thickness)
+        templates.append(img)
+        templates.append(cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE))
+
+        bowtie = np.zeros_like(img)
+        cv2.line(bowtie, (x0, y0), (x1, cy), 255, thickness)
+        cv2.line(bowtie, (x1, cy), (x0, y1), 255, thickness)
+        cv2.line(bowtie, (x1, y0), (x0, cy), 255, thickness)
+        cv2.line(bowtie, (x0, cy), (x1, y1), 255, thickness)
+        cv2.line(bowtie, (cx, y0 - pad // 2), (cx, y0), 255, thickness)
+        cv2.line(bowtie, (cx, y1), (cx, y1 + pad // 2), 255, thickness)
+        templates.append(bowtie)
+        templates.append(cv2.rotate(bowtie, cv2.ROTATE_90_CLOCKWISE))
+
+    return templates
+
+
+_VALVE_TEMPLATES = _synthetic_valve_templates()
+
+
+def _geometry_valve_candidates(gray: np.ndarray, label: str, threshold: float = 0.56) -> list:
+    """
+    Synthetic valve-geometry recall booster.
+
+    It searches for common bow-tie/hourglass valve shapes independent of the
+    user's captured template. Scores are capped below high-confidence template
+    matches so downstream review can treat them as candidates, not proof.
+    """
+    if not _is_valve_like_label(label):
+        return []
+
+    edges = _to_edges(gray)
+    region_soft = _soften_edges(edges)
+    raw = []
+    for tmpl in _VALVE_TEMPLATES:
+        th, tw = tmpl.shape
+        if th >= gray.shape[0] or tw >= gray.shape[1]:
+            continue
+        tmpl_soft = _soften_edges(tmpl)
+        result = cv2.matchTemplate(region_soft, tmpl_soft, cv2.TM_CCOEFF_NORMED)
+        ys, xs = np.nonzero(result >= threshold)
+        for y, x in zip(ys, xs):
+            score = min(0.74, 0.55 + float(result[y, x]) * 0.30)
+            raw.append([int(x), int(y), int(x + tw), int(y + th), score])
+
+    if len(raw) > 1200:
+        raw.sort(key=lambda b: b[4], reverse=True)
+        raw = raw[:1200]
+    return _nms(raw, iou_threshold=0.18)
+
+
+def _fetch_page_valve_geometry(gray: np.ndarray, label: str, pdf_hash: str, dpi: int, page_num: int) -> list:
+    if not _is_valve_like_label(label):
+        return []
+    key = (pdf_hash, dpi, page_num)
+    with _cache_lock:
+        if key in _PAGE_VALVE_GEOMETRY_CACHE:
+            _PAGE_VALVE_GEOMETRY_CACHE.move_to_end(key)
+            return _PAGE_VALVE_GEOMETRY_CACHE[key]
+
+    geometry = _geometry_valve_candidates(gray, label)
+    with _cache_lock:
+        if key not in _PAGE_VALVE_GEOMETRY_CACHE:
+            if len(_PAGE_VALVE_GEOMETRY_CACHE) >= _PAGE_VALVE_GEOMETRY_CACHE_MAX:
+                _PAGE_VALVE_GEOMETRY_CACHE.popitem(last=False)
+            _PAGE_VALVE_GEOMETRY_CACHE[key] = geometry
+    return geometry
+
+
+def _merge_geometry_candidates(matches: list, gray: np.ndarray, label: str, pdf_hash: str, dpi: int, page_num: int) -> list:
+    geometry = _fetch_page_valve_geometry(gray, label, pdf_hash, dpi, page_num)
+    if not geometry:
+        return matches
+    return _nms([*matches, *geometry], iou_threshold=0.2)
+
+
 def _nms(boxes: list, iou_threshold: float = 0.3) -> list:
     if not boxes:
         return []
@@ -223,6 +722,19 @@ def _matches_to_dicts(matches: list) -> list:
         {"x1": int(b[0]), "y1": int(b[1]), "x2": int(b[2]), "y2": int(b[3]), "score": round(b[4], 3)}
         for b in matches
     ]
+
+
+def _enrich_matches_with_sizes(matches: list, doc: "fitz.Document", page_num: int, dpi: int, pdf_hash: str) -> list:
+    words = _fetch_page_words(doc, page_num, dpi, pdf_hash)
+    result = []
+    for match in matches:
+        item = {"x1": int(match[0]), "y1": int(match[1]), "x2": int(match[2]), "y2": int(match[3]), "score": round(match[4], 3)}
+        size, source = _nearest_size_for_match(match, words)
+        if size:
+            item["sizeInch"] = size
+            item["sizeSource"] = source
+        result.append(item)
+    return result
 
 
 def _orb_fallback(tmpl_gray: np.ndarray, page_gray: np.ndarray) -> list:
@@ -278,6 +790,7 @@ def detect_symbol(
     label: str = "Symbol",
     dpi: int = 150,
     coord_dpi: int = 300,
+    match_mode: str = "tolerant",
 ) -> dict:
     """
     Find all instances of a template symbol within a P&ID page.
@@ -285,6 +798,9 @@ def detect_symbol(
     template_box / search_box are in coord_dpi pixel space (preview DPI).
     Detection renders the page at dpi and scales coordinates accordingly.
     """
+    exact_mode = match_mode == "exact"
+    if exact_mode:
+        dpi = min(coord_dpi, _EXACT_MATCH_DPI_MAX)
     img_rgb = _render_page(pdf_bytes, dpi=dpi, page_num=0)
     gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
     gray = _preprocess(gray)
@@ -314,12 +830,22 @@ def detect_symbol(
         ox, oy = 0, 0
         sx1, sy1, sx2, sy2 = 0, 0, w, h
 
-    tmpl_e = _to_edges(tmpl)
-    region_e = _to_edges(region)
+    tmpl_e = _to_component_binary(tmpl) if exact_mode else _to_edges(tmpl)
+    region_e = _to_component_binary(region, remove_speckles=False) if exact_mode else _to_edges(region)
 
-    raw = _match_template_on_region(tmpl_e, region_e, threshold, ox, oy)
+    raw = (
+        _match_template_exact_with_rotations(tmpl_e, region_e, threshold, ox, oy)
+        if exact_mode
+        else _match_template_on_region(tmpl_e, region_e, threshold, ox, oy)
+    )
     matches = _nms(raw, iou_threshold=0.2)
+    pdf_hash = _pdf_hash(pdf_bytes)
+    if search_box is None:
+        matches = _merge_geometry_candidates(matches, gray, label, pdf_hash, dpi, 0)
     logger.info("Piping MTO: %d '%s' matches (threshold=%.2f)", len(matches), label, threshold)
+    text_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    match_dicts = _enrich_matches_with_sizes(matches, text_doc, 0, dpi, pdf_hash)
+    text_doc.close()
 
     annotated = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
     if search_box is not None:
@@ -335,7 +861,7 @@ def detect_symbol(
         "count": len(matches),
         "label": label,
         "threshold": threshold,
-        "matches": _matches_to_dicts(matches),
+        "matches": match_dicts,
         "annotated_image": b64,
         "image_width": w,
         "image_height": h,
@@ -349,6 +875,7 @@ def detect_from_template_image_all_pages(
     label: str = "Symbol",
     dpi: int = 150,
     template_dpi: int = 300,
+    match_mode: str = "tolerant",
 ) -> dict:
     """
     Detect a symbol across every page using a pre-saved template image (PNG/JPEG bytes).
@@ -356,6 +883,9 @@ def detect_from_template_image_all_pages(
     dpi is the rendering DPI for detection — lower = faster.
     Pages are preprocessed (bilateral + CLAHE + deskew) and cached across symbol searches.
     """
+    exact_mode = match_mode == "exact"
+    if exact_mode:
+        dpi = min(template_dpi, _EXACT_MATCH_DPI_MAX)
     arr = np.frombuffer(template_bytes, dtype=np.uint8)
     tmpl = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
     if tmpl is None:
@@ -367,7 +897,7 @@ def detect_from_template_image_all_pages(
         new_w = max(4, int(round(tmpl.shape[1] * scale)))
         tmpl = cv2.resize(tmpl, (new_w, new_h), interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
 
-    tmpl_e = _to_edges(tmpl)
+    tmpl_e = _to_component_binary(tmpl) if exact_mode else _to_edges(tmpl)
 
     pdf_hash = _pdf_hash(pdf_bytes)
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -383,17 +913,26 @@ def detect_from_template_image_all_pages(
         if page_num == 0:
             ph, pw = gray.shape
 
-        region_e = _to_edges(gray)
-        raw = _match_template_on_region(tmpl_e, region_e, threshold)
+        region_e = (
+            _fetch_page_component_binary(doc, page_num, dpi, pdf_hash)
+            if exact_mode
+            else _to_edges(gray)
+        )
+        raw = (
+            _match_template_exact_with_rotations(tmpl_e, region_e, threshold)
+            if exact_mode
+            else _match_template_on_region(tmpl_e, region_e, threshold)
+        )
         matches = _nms(raw, iou_threshold=0.2)
+        matches = _merge_geometry_candidates(matches, gray, label, pdf_hash, dpi, page_num)
 
-        if not matches:
+        if not matches and not exact_mode:
             orb_raw = _orb_fallback(tmpl, gray)
             if orb_raw:
                 matches = _nms(orb_raw, iou_threshold=0.3)
                 logger.info("Page %d: ORB fallback found %d '%s' candidates", page_num + 1, len(matches), label)
 
-        match_dicts = _matches_to_dicts(matches)
+        match_dicts = _enrich_matches_with_sizes(matches, doc, page_num, dpi, pdf_hash)
         if page_num == 0:
             page1_match_dicts = match_dicts
 
@@ -432,12 +971,16 @@ def detect_all_pages(
     label: str = "Symbol",
     dpi: int = 150,
     coord_dpi: int = 300,
+    match_mode: str = "tolerant",
 ) -> dict:
     """
     Detect a symbol across every page of the PDF.
     Template is extracted from page 1. coord_dpi is the preview DPI (always 300).
     Pages are preprocessed (bilateral + CLAHE + deskew) and cached across symbol searches.
     """
+    exact_mode = match_mode == "exact"
+    if exact_mode:
+        dpi = min(coord_dpi, _EXACT_MATCH_DPI_MAX)
     pdf_hash = _pdf_hash(pdf_bytes)
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     n_pages = len(doc)
@@ -455,27 +998,35 @@ def detect_all_pages(
         doc.close()
         raise ValueError("Template box is empty or out of bounds.")
 
-    tmpl_e = _to_edges(page1_gray[ty1:ty2, tx1:tx2])
+    tmpl_gray_for_orb = page1_gray[ty1:ty2, tx1:tx2]
+    tmpl_e = _to_component_binary(tmpl_gray_for_orb) if exact_mode else _to_edges(tmpl_gray_for_orb)
 
     pages_data = []
     page1_match_dicts: list = []
     total_count = 0
 
-    tmpl_gray_for_orb = page1_gray[ty1:ty2, tx1:tx2]
-
     for page_num in range(n_pages):
         gray = _fetch_page_gray(doc, page_num, dpi, pdf_hash)
-        region_e = _to_edges(gray)
-        raw = _match_template_on_region(tmpl_e, region_e, threshold)
+        region_e = (
+            _fetch_page_component_binary(doc, page_num, dpi, pdf_hash)
+            if exact_mode
+            else _to_edges(gray)
+        )
+        raw = (
+            _match_template_exact_with_rotations(tmpl_e, region_e, threshold)
+            if exact_mode
+            else _match_template_on_region(tmpl_e, region_e, threshold)
+        )
         matches = _nms(raw, iou_threshold=0.2)
+        matches = _merge_geometry_candidates(matches, gray, label, pdf_hash, dpi, page_num)
 
-        if not matches:
+        if not matches and not exact_mode:
             orb_raw = _orb_fallback(tmpl_gray_for_orb, gray)
             if orb_raw:
                 matches = _nms(orb_raw, iou_threshold=0.3)
                 logger.info("Page %d: ORB fallback found %d '%s' candidates", page_num + 1, len(matches), label)
 
-        match_dicts = _matches_to_dicts(matches)
+        match_dicts = _enrich_matches_with_sizes(matches, doc, page_num, dpi, pdf_hash)
         if page_num == 0:
             page1_match_dicts = match_dicts
 

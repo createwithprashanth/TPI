@@ -8,7 +8,23 @@ export interface Box { x1: number; y1: number; x2: number; y2: number; }
 export interface FileResult {
   fileName: string;
   count: number;
-  matches: { page: number; x1: number; y1: number; x2: number; y2: number; score: number }[];
+  matches: {
+    page: number;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    score: number;
+    sizeInch?: string;
+    sizeSource?: string;
+    aiDecision?: string;
+    aiConfidence?: number;
+    aiReason?: string;
+    aiFlags?: string[];
+    aiNormalizedSizeInch?: string;
+    aiLineNumber?: string;
+    aiMaterialDescriptionHint?: string;
+  }[];
   pageCounts: { page: number; count: number }[];
   imageWidth: number;
   imageHeight: number;
@@ -36,6 +52,31 @@ export interface StagedTemplate {
 }
 
 export type MtoStep = 'pick_template' | 'labeling' | 'running';
+
+type Match = FileResult['matches'][number];
+
+const boxIou = (a: Match, b: Match) => {
+  const ix1 = Math.max(a.x1, b.x1);
+  const iy1 = Math.max(a.y1, b.y1);
+  const ix2 = Math.min(a.x2, b.x2);
+  const iy2 = Math.min(a.y2, b.y2);
+  const inter = Math.max(0, ix2 - ix1) * Math.max(0, iy2 - iy1);
+  const areaA = Math.max(0, a.x2 - a.x1) * Math.max(0, a.y2 - a.y1);
+  const areaB = Math.max(0, b.x2 - b.x1) * Math.max(0, b.y2 - b.y1);
+  const union = areaA + areaB - inter;
+  return union > 0 ? inter / union : 0;
+};
+
+const recalcFileResult = (fr: FileResult, matches: Match[]): FileResult => {
+  const counts = new Map<number, number>();
+  for (const match of matches) counts.set(match.page ?? 1, (counts.get(match.page ?? 1) ?? 0) + 1);
+  const pageCounts = fr.pageCounts.map(pc => ({ ...pc, count: counts.get(pc.page) ?? 0 }));
+  for (const [page, count] of counts) {
+    if (!pageCounts.some(pc => pc.page === page)) pageCounts.push({ page, count });
+  }
+  pageCounts.sort((a, b) => a.page - b.page);
+  return { ...fr, matches, count: matches.length, pageCounts };
+};
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 
@@ -103,6 +144,46 @@ export function useMtoSessions(pidFiles: File[]) {
     setMtoStep('pick_template');
   };
 
+  const resolveOverlaps = (iouThreshold = 0.45) => {
+    setMtoSessions(prev => {
+      const keptBySession = new Map<string, Map<number, Match[]>>();
+      const candidates = prev.flatMap((session, sessionIndex) =>
+        session.fileResults.flatMap((fr, fileIndex) =>
+          fr.matches.map((match, matchIndex) => ({
+            sessionId: session.id,
+            sessionIndex,
+            fileIndex,
+            matchIndex,
+            match,
+          })),
+        ),
+      ).sort((a, b) => b.match.score - a.match.score);
+
+      const kept: typeof candidates = [];
+      for (const candidate of candidates) {
+        const duplicate = kept.some(existing =>
+          existing.fileIndex === candidate.fileIndex
+          && (existing.match.page ?? 1) === (candidate.match.page ?? 1)
+          && boxIou(existing.match, candidate.match) >= iouThreshold,
+        );
+        if (duplicate) continue;
+        kept.push(candidate);
+        if (!keptBySession.has(candidate.sessionId)) keptBySession.set(candidate.sessionId, new Map());
+        const byFile = keptBySession.get(candidate.sessionId)!;
+        if (!byFile.has(candidate.fileIndex)) byFile.set(candidate.fileIndex, []);
+        byFile.get(candidate.fileIndex)!.push(candidate.match);
+      }
+
+      return prev.map(session => {
+        const byFile = keptBySession.get(session.id) ?? new Map<number, Match[]>();
+        const fileResults = session.fileResults.map((fr, fileIndex) =>
+          recalcFileResult(fr, byFile.get(fileIndex) ?? []),
+        );
+        return { ...session, fileResults, count: fileResults.reduce((sum, fr) => sum + fr.count, 0) };
+      });
+    });
+  };
+
   return {
     mtoStep, setMtoStep,
     mtoSessions, setMtoSessions, addSessions, updateSession,
@@ -114,6 +195,7 @@ export function useMtoSessions(pidFiles: File[]) {
     dragHead, setDragHead,
     dragAnchorRef,
     removeMatch,
+    resolveOverlaps,
     clearAllSessions,
     cancelPending,
     totalCount: mtoSessions.reduce((s, sess) => s + sess.count, 0),

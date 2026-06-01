@@ -1,9 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, FolderOpen } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import ProjectModal from './ProjectModal';
 
-const WorkspaceBar: React.FC = () => {
+interface WorkspaceBarProps {
+  toolLabel?: string;
+  areaCode?: string;
+  onAreaCodeChange?: (value: string) => void;
+  showAreaCode?: boolean;
+  onOpenFiles?: () => void;
+  openFilesDisabled?: boolean;
+}
+
+const WorkspaceBar: React.FC<WorkspaceBarProps> = ({
+  toolLabel,
+  areaCode = '',
+  onAreaCodeChange,
+  showAreaCode = false,
+  onOpenFiles,
+  openFilesDisabled = false,
+}) => {
   const { project } = useProject();
   const [modalOpen, setModalOpen] = useState(false);
   const [llmLive, setLlmLive] = useState<boolean | null>(null);
@@ -31,16 +47,47 @@ const WorkspaceBar: React.FC = () => {
 
   return (
     <>
-      <div className="h-9 shrink-0 flex items-center justify-between bg-[#09090c] border-b border-white/[0.05] select-none px-4">
+      <div className="h-10 shrink-0 flex items-center justify-between bg-[#09090c] border-b border-white/[0.05] select-none px-4">
 
-        {/* Left — brand */}
-        <div className="flex items-center gap-2.5">
-          <img src="/favicon.png" alt="XYRA" className="w-4 h-4 opacity-70" />
-          <span className="text-[12px] font-bold text-gray-300 tracking-tight">XYRA Studio</span>
+        {/* Left — brand + active tool */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <img src="/favicon.png" alt="XYRA" className="w-4 h-4 opacity-70" />
+            <span className="text-[12px] font-bold text-gray-300 tracking-tight">XYRA Studio</span>
+          </div>
+          {toolLabel && (
+            <>
+              <span className="h-4 w-px bg-white/[0.08] shrink-0" />
+              <span className="text-[13px] font-semibold text-white tracking-tight truncate">
+                {toolLabel}
+              </span>
+            </>
+          )}
         </div>
 
-        {/* Right — LLM status + project chip */}
+        {/* Right — tool controls + LLM status + project chip */}
         <div className="flex items-center gap-3">
+
+          {showAreaCode && (
+            <input
+              type="text"
+              value={areaCode}
+              onChange={e => onAreaCodeChange?.(e.target.value)}
+              placeholder="Area code"
+              className="h-7 w-28 rounded-md border border-white/[0.07] bg-white/[0.04] px-2.5 text-xs text-white placeholder:text-gray-600 outline-none focus:border-white/[0.15] transition-colors"
+            />
+          )}
+
+          {onOpenFiles && (
+            <button
+              onClick={onOpenFiles}
+              disabled={openFilesDisabled}
+              className="flex items-center gap-1.5 text-xs font-semibold text-gray-900 bg-white hover:bg-gray-100 disabled:opacity-50 px-3 py-1.5 rounded-md transition-colors"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              Open Files
+            </button>
+          )}
 
           {/* LLM live indicator */}
           {llmLive !== null && (

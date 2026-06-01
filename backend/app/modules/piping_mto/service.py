@@ -128,6 +128,7 @@ async def detect(
     threshold: float,
     label: str,
     coord_dpi: int,
+    match_mode: str = "tolerant",
 ) -> dict:
     import asyncio
     try:
@@ -141,6 +142,7 @@ async def detect(
                 threshold=threshold,
                 label=label,
                 coord_dpi=coord_dpi,
+                match_mode=match_mode,
             ),
         )
     except ValueError as e:
@@ -156,6 +158,7 @@ async def detect_all_pages(
     threshold: float,
     label: str,
     coord_dpi: int,
+    match_mode: str = "tolerant",
 ) -> dict:
     import asyncio
     try:
@@ -168,6 +171,7 @@ async def detect_all_pages(
                 threshold=threshold,
                 label=label,
                 coord_dpi=coord_dpi,
+                match_mode=match_mode,
             ),
         )
     except ValueError as e:
@@ -183,6 +187,7 @@ async def detect_from_library(
     threshold: float,
     label: str,
     template_dpi: int,
+    match_mode: str = "tolerant",
 ) -> dict:
     import asyncio
     try:
@@ -195,6 +200,7 @@ async def detect_from_library(
                 threshold=threshold,
                 label=label,
                 template_dpi=template_dpi,
+                match_mode=match_mode,
             ),
         )
     except ValueError as e:
@@ -208,8 +214,20 @@ async def detect_from_library(
 
 def build_export_package(payload: dict) -> Path:
     from app.modules.piping_mto.excel_writer import write_mto_package
+    from app.modules.piping_mto.reviewer import review_payload
 
     run_id = f"mto_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     output_dir = MTO_EXPORT_DIR / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
-    return write_mto_package(output_dir, payload, run_id)
+    return write_mto_package(output_dir, review_payload(payload), run_id)
+
+
+async def review_sessions(payload: dict) -> dict:
+    import asyncio
+    from app.modules.piping_mto.reviewer import review_payload
+
+    try:
+        return await asyncio.to_thread(review_payload, payload)
+    except Exception as e:
+        logger.error("MTO AI review failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))

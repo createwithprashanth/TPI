@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, RotateCcw, ScanLine, Pencil, FileSpreadsheet, FileDown, FileText, Image, Trash2, PackageCheck } from 'lucide-react';
+import { X, RotateCcw, ScanLine, Pencil, FileSpreadsheet, FileDown, FileText, Image, Trash2, PackageCheck, Filter, Play, Layers, AlertTriangle, ShieldCheck } from 'lucide-react';
 import {
   emptyMtoMetadata,
   fetchLibrary,
@@ -21,9 +21,6 @@ import { useMtoExports } from './hooks/useMtoExports';
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
-const truncate = (name: string, max = 36) =>
-  name.length > max ? `${name.slice(0, max - 1)}…` : name;
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface PipingMTOPageProps {
@@ -32,7 +29,7 @@ interface PipingMTOPageProps {
 }
 
 const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles }) => {
-  const { pidFiles, currentPidIndex, currentPage, pageCount, isPreviewLoading, zoom, setZoom, baseDims } = useWorkspace();
+  const { pidFiles, currentPidIndex, currentPage, pageCount, isPreviewLoading } = useWorkspace();
   const { project } = useProject();
 
   // ── Hooks ──────────────────────────────────────────────────────────────────
@@ -48,12 +45,13 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     dragHead, setDragHead,
     dragAnchorRef,
     removeMatch,
+    resolveOverlaps,
     clearAllSessions,
     cancelPending,
     totalCount: totalMtoCount,
   } = useMtoSessions(pidFiles);
 
-  const [mtoThreshold, setMtoThreshold] = useState(0.70);
+  const [mtoThreshold, setMtoThreshold] = useState(0.80);
   const [mtoError, setMtoError] = useState<string | null>(null);
   const [mtoEditMode, setMtoEditMode] = useState(false);
 
@@ -85,8 +83,91 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
   const [recaptureTarget, setRecaptureTarget] = useState<LibrarySymbol | null>(null);
   const [pendingMetadata, setPendingMetadata] = useState<MtoMetadata>(emptyMtoMetadata());
   const [showMtoDetails, setShowMtoDetails] = useState(false);
+  const [componentFilter, setComponentFilter] = useState('');
 
   const mtoRunningCountRef = useRef(0);
+  const filteredLibrarySymbols = useMemo(() => {
+    const q = componentFilter.trim().toLowerCase();
+    if (!q) return librarySymbols;
+    return librarySymbols.filter(sym => {
+      const meta = sym.metadata;
+      return [
+        sym.name,
+        meta?.itemType,
+        meta?.categoryName,
+        meta?.pipingClass,
+        meta?.sizeInch,
+        meta?.rating,
+      ].some(value => String(value ?? '').toLowerCase().includes(q));
+    });
+  }, [librarySymbols, componentFilter]);
+  const selectedCount = selectedLibraryIds.size;
+  const visibleSelectedCount = filteredLibrarySymbols.filter(sym => selectedLibraryIds.has(sym.id)).length;
+  const readyCount = stagedTemplates.length;
+  const reviewStats = useMemo(() => {
+    const lowConfidence = mtoSessions.reduce(
+      (sum, session) => sum + session.fileResults.reduce(
+        (n, fr) => n + fr.matches.filter(m => m.score < 0.75).length,
+        0,
+      ),
+      0,
+    );
+    const zeroCount = mtoSessions.filter(session => session.count === 0).length;
+    const missingSize = mtoSessions.reduce(
+      (sum, session) => sum + session.fileResults.reduce(
+        (n, fr) => n + fr.matches.filter(m => !m.sizeInch).length,
+        0,
+      ),
+      0,
+    );
+    const aiReview = mtoSessions.reduce(
+      (sum, session) => sum + session.fileResults.reduce(
+        (n, fr) => n + fr.matches.filter(m => m.aiDecision === 'REVIEW').length,
+        0,
+      ),
+      0,
+    );
+    const aiRejected = mtoSessions.reduce(
+      (sum, session) => sum + session.fileResults.reduce(
+        (n, fr) => n + fr.matches.filter(m => m.aiDecision === 'REJECT').length,
+        0,
+      ),
+      0,
+    );
+    const incomplete = mtoSessions.filter(session => {
+      const meta = session.metadata;
+      return !meta?.itemType || !meta?.categoryName;
+    }).length;
+    let overlaps = 0;
+    for (let fileIndex = 0; fileIndex < pidFiles.length; fileIndex += 1) {
+      const matches = mtoSessions.flatMap(session =>
+        (session.fileResults[fileIndex]?.matches ?? []).map(match => ({ sessionId: session.id, match })),
+      );
+      for (let i = 0; i < matches.length; i += 1) {
+        for (let j = i + 1; j < matches.length; j += 1) {
+          if ((matches[i].match.page ?? 1) !== (matches[j].match.page ?? 1)) continue;
+          const a = matches[i].match, b = matches[j].match;
+          const ix1 = Math.max(a.x1, b.x1), iy1 = Math.max(a.y1, b.y1);
+          const ix2 = Math.min(a.x2, b.x2), iy2 = Math.min(a.y2, b.y2);
+          const inter = Math.max(0, ix2 - ix1) * Math.max(0, iy2 - iy1);
+          const areaA = Math.max(0, a.x2 - a.x1) * Math.max(0, a.y2 - a.y1);
+          const areaB = Math.max(0, b.x2 - b.x1) * Math.max(0, b.y2 - b.y1);
+          const union = areaA + areaB - inter;
+          if (union > 0 && inter / union >= 0.45) overlaps += 1;
+        }
+      }
+    }
+    return {
+      lowConfidence,
+      zeroCount,
+      incomplete,
+      overlaps,
+      missingSize,
+      aiReview,
+      aiRejected,
+      issueCount: lowConfidence + zeroCount + incomplete + overlaps + missingSize + aiReview + aiRejected,
+    };
+  }, [mtoSessions, pidFiles.length]);
 
   // Load library on mount
   useEffect(() => {
@@ -101,6 +182,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     setRecaptureTarget(null);
     setPendingMetadata(emptyMtoMetadata());
     setShowMtoDetails(false);
+    setComponentFilter('');
   }, [pidFiles]);
 
   // Escape key
@@ -174,7 +256,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
           .then(updated => setLibrarySymbols(prev => prev.map(s => s.id === updated.id ? updated : s)))
           .catch(() => setMtoError('Library update failed.'));
       } else {
-      setMtoError('Could not capture component image — try drawing the box again.');
+        setMtoError('Could not capture component image — try drawing the box again.');
       }
       setRecaptureTarget(null);
     } else if (saveToLibrary) {
@@ -308,7 +390,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
       if (recaptureTarget) return { label: `Updating component: ${recaptureTarget.name}`, dim: '· Drag a new box — press Esc to cancel' };
       if (stagedTemplates.length > 0) return { label: `${stagedTemplates.length} component${stagedTemplates.length > 1 ? 's' : ''} ready`, dim: '· Add another, or Prepare MTO' };
       if (mtoSessions.length > 0) return { label: 'Add another component type', dim: '· Drag a box around a valve, instrument, or fitting' };
-      return { label: 'Step 1', dim: '· Pick one valve, instrument, or fitting from the drawing' };
+      return { label: 'Step 1', dim: '· Pick one valve, instrument, or fitting tightly from the drawing' };
     }
     return { label: 'Piping MTO' };
   })();
@@ -349,7 +431,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                   strokeOpacity={m.score >= 0.85 ? 1.0 : m.score >= 0.75 ? 0.65 : 0.4}
                   onClick={mtoEditMode ? (e) => { e.stopPropagation(); removeMatch(session.id, currentPidIndex, originalIndex); } : undefined}
                 >
-                  <title>{session.label} — page {m.page ?? 1} — confidence {m.score.toFixed(3)}{mtoEditMode ? ' · click to remove' : ''}</title>
+                  <title>{session.label} — page {m.page ?? 1}{m.sizeInch ? ` — size ${m.sizeInch}"` : ' — size not read'} — confidence {m.score.toFixed(3)}{mtoEditMode ? ' · click to remove' : ''}</title>
                 </rect>
               ));
             })}
@@ -522,19 +604,40 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
             exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.18 }}
             className="absolute top-4 right-4 z-20"
           >
-            <div className="bg-gray-950/95 backdrop-blur-sm border border-white/[0.10] rounded-xl overflow-hidden min-w-[230px] max-w-[268px]">
+            <div className="bg-gray-950/95 backdrop-blur-sm border border-white/[0.10] rounded-xl overflow-hidden min-w-[260px] max-w-[310px] max-h-[calc(100vh-132px)] overflow-y-auto shadow-2xl [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.35)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20">
+              <div className="px-4 py-3 border-b border-white/[0.06]">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider">Piping MTO</p>
+                    <p className="text-xs text-gray-300 truncate">
+                      {mtoSessions.length > 0 ? `${mtoSessions.length} component group${mtoSessions.length > 1 ? 's' : ''}` : readyCount > 0 ? `${readyCount} ready` : `${librarySymbols.length} in library`}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1.5 text-right">
+                    <p className="text-[9px] text-gray-600 uppercase">Total</p>
+                    <p className="text-sm text-white font-bold tabular-nums leading-4">{totalMtoCount}</p>
+                  </div>
+                </div>
+              </div>
 
               {/* Component setup section */}
               {librarySymbols.length > 0 && stagedTemplates.length === 0 && mtoSessions.length === 0 && (
                 <>
                   <div className="px-4 pt-3 pb-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider">MTO Setup</p>
+                    <div className="flex items-center justify-between mb-2.5">
+                      <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider">Component Selection</p>
                       <button
-                        onClick={() => setSelectedLibraryIds(prev => prev.size === librarySymbols.length ? new Set() : new Set(librarySymbols.map(s => s.id)))}
+                        onClick={() => setSelectedLibraryIds(prev => {
+                          if (visibleSelectedCount === filteredLibrarySymbols.length && filteredLibrarySymbols.length > 0) {
+                            const next = new Set(prev);
+                            filteredLibrarySymbols.forEach(s => next.delete(s.id));
+                            return next;
+                          }
+                          return new Set([...Array.from(prev), ...filteredLibrarySymbols.map(s => s.id)]);
+                        })}
                         className="text-[10px] text-gray-600 hover:text-gray-300 transition-colors"
                       >
-                        {selectedLibraryIds.size === librarySymbols.length ? 'clear' : 'all'}
+                        {visibleSelectedCount === filteredLibrarySymbols.length && filteredLibrarySymbols.length > 0 ? 'clear' : 'all visible'}
                       </button>
                     </div>
                     <div className="grid grid-cols-2 gap-1.5 mb-2.5">
@@ -546,6 +649,15 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                         <p className="text-[10px] text-gray-600 uppercase">Selected</p>
                         <p className="text-sm text-emerald-300 font-bold tabular-nums">{selectedLibraryIds.size}</p>
                       </div>
+                    </div>
+                    <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-2 mb-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-gray-600 uppercase">Visible</span>
+                        <span className="text-xs text-gray-300 tabular-nums">{filteredLibrarySymbols.length}</span>
+                      </div>
+                      {componentFilter && (
+                        <button onClick={() => setComponentFilter('')} className="mt-1 text-[10px] text-gray-600 hover:text-gray-300 transition-colors">clear filter</button>
+                      )}
                     </div>
                     {selectedLibraryIds.size > 0 && (
                       <button onClick={searchSelectedLibrarySymbols} className="w-full mt-2 text-xs font-bold text-gray-900 bg-emerald-400 hover:bg-emerald-300 px-3 py-1.5 rounded-lg transition-colors">
@@ -564,8 +676,12 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                     <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider mb-2">Ready for MTO · {stagedTemplates.length}</p>
                     <div className="space-y-1.5">
                       {stagedTemplates.map(t => (
-                        <div key={t.id} className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+                        <div key={t.id} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-1.5">
+                          {t.thumbnail ? (
+                            <img src={`data:image/png;base64,${t.thumbnail}`} alt="" className="w-8 h-8 object-contain rounded bg-white/[0.04] border border-white/[0.06] shrink-0" />
+                          ) : (
+                            <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+                          )}
                           <span className="text-xs text-gray-300 flex-1 truncate">{t.label}</span>
                           <button onClick={() => removeStagedTemplate(t.id)} className="text-gray-600 hover:text-red-400 transition-colors"><X className="w-3 h-3" /></button>
                         </div>
@@ -573,17 +689,24 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                     </div>
                   </div>
                   <div className="px-4 pt-1 pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-gray-600 shrink-0">Threshold</span>
-                      <input type="number" min={0.40} max={0.95} step={0.01} value={mtoThreshold}
-                        onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0.40 && v <= 0.95) setMtoThreshold(+v.toFixed(2)); }}
-                        className="w-20 rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-xs text-white font-mono outline-none focus:border-emerald-500 transition-colors"
+                    <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-2">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] text-gray-600 uppercase">Pixel exactness</span>
+                        <span className="text-xs text-gray-300 font-mono">{mtoThreshold.toFixed(2)}</span>
+                      </div>
+                      <input type="range" min={0.55} max={0.95} step={0.01} value={mtoThreshold}
+                        onChange={e => setMtoThreshold(+parseFloat(e.target.value).toFixed(2))}
+                        className="w-full accent-emerald-400"
                       />
-                      <span className="text-[10px] text-gray-600">(0.40 – 0.95)</span>
+                      <input type="number" min={0.55} max={0.95} step={0.01} value={mtoThreshold}
+                        onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0.55 && v <= 0.95) setMtoThreshold(+v.toFixed(2)); }}
+                        className="mt-1.5 w-full rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-xs text-white font-mono outline-none focus:border-emerald-500 transition-colors"
+                      />
                     </div>
                   </div>
                   <div className="px-4 pt-1 pb-3">
-                    <button onClick={handleMtoRunAll} disabled={mtoLoading} className="w-full text-xs font-bold text-gray-900 bg-white hover:bg-gray-100 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors">
+                    <button onClick={handleMtoRunAll} disabled={mtoLoading} className="w-full flex items-center justify-center gap-1.5 text-xs font-bold text-gray-900 bg-white hover:bg-gray-100 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors">
+                      <Play className="w-3.5 h-3.5" />
                       {pidFiles.length > 1 ? `Prepare MTO for ${pidFiles.length} Drawings` : pageCount > 1 ? `Prepare MTO for ${pageCount} Pages` : 'Prepare MTO'}
                     </button>
                   </div>
@@ -595,12 +718,57 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
               {/* Results section */}
               {mtoSessions.length > 0 && (
                 <>
-                  <div className="px-4 pt-3 pb-2 space-y-2">
+                  <div className="px-4 pt-3 pb-2">
+                    <div className={`rounded-lg border px-2.5 py-2 ${reviewStats.issueCount ? 'border-amber-500/25 bg-amber-500/[0.07]' : 'border-emerald-500/25 bg-emerald-500/[0.06]'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {reviewStats.issueCount ? <AlertTriangle className="w-3.5 h-3.5 text-amber-300 shrink-0" /> : <ShieldCheck className="w-3.5 h-3.5 text-emerald-300 shrink-0" />}
+                          <span className={`text-[11px] font-semibold ${reviewStats.issueCount ? 'text-amber-200' : 'text-emerald-200'}`}>
+                            {reviewStats.issueCount ? 'Review required' : 'Ready to export'}
+                          </span>
+                        </div>
+                        {reviewStats.overlaps > 0 && (
+                          <button
+                            onClick={() => resolveOverlaps()}
+                            className="shrink-0 rounded-md bg-white text-gray-950 hover:bg-gray-200 px-2 py-1 text-[10px] font-bold transition-colors"
+                          >
+                            Resolve overlaps
+                          </button>
+                        )}
+                      </div>
+                      {reviewStats.issueCount > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 text-[10px] text-amber-100/75">
+                          {reviewStats.overlaps > 0 && <span>{reviewStats.overlaps} overlap{reviewStats.overlaps > 1 ? 's' : ''}</span>}
+                          {reviewStats.lowConfidence > 0 && <span>{reviewStats.lowConfidence} low confidence</span>}
+                          {reviewStats.zeroCount > 0 && <span>{reviewStats.zeroCount} zero count</span>}
+                          {reviewStats.incomplete > 0 && <span>{reviewStats.incomplete} incomplete data</span>}
+                          {reviewStats.missingSize > 0 && <span>{reviewStats.missingSize} size not read</span>}
+                          {reviewStats.aiReview > 0 && <span>{reviewStats.aiReview} AI review</span>}
+                          {reviewStats.aiRejected > 0 && <span>{reviewStats.aiRejected} AI rejected</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="px-4 pt-1 pb-2 space-y-2">
                     {mtoSessions.map(session => (
                       <div key={session.id}>
                         <div className="flex items-center gap-2">
                           <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: session.color }} />
                           <span className="text-xs text-gray-300 flex-1 truncate">{session.label}</span>
+                          {(() => {
+                            const sizes = Array.from(new Set(session.fileResults.flatMap(fr => fr.matches.map(m => m.sizeInch).filter(Boolean)))) as string[];
+                            return sizes.length > 0 ? (
+                              <span className="text-[10px] text-gray-500 max-w-[96px] truncate" title={sizes.join(', ')}>{sizes.slice(0, 3).join(', ')}{sizes.length > 3 ? '…' : ''}</span>
+                            ) : null;
+                          })()}
+                          {(() => {
+                            const decisions = session.fileResults.flatMap(fr => fr.matches.map(m => m.aiDecision).filter(Boolean));
+                            if (decisions.includes('REJECT')) return <span className="text-[9px] font-bold text-red-300 border border-red-400/30 rounded px-1">AI reject</span>;
+                            if (decisions.includes('REVIEW')) return <span className="text-[9px] font-bold text-amber-300 border border-amber-400/30 rounded px-1">AI review</span>;
+                            if (decisions.includes('ACCEPT')) return <span className="text-[9px] font-bold text-emerald-300 border border-emerald-400/30 rounded px-1">AI ok</span>;
+                            return null;
+                          })()}
                           <span className={`text-xs font-bold tabular-nums w-6 text-right ${session.count === 0 ? 'text-amber-400' : 'text-white'}`}>{session.count === 0 ? '!' : session.count}</span>
                           <button onClick={() => setShowMatchZone(v => v === session.id ? null : session.id)} title={showMatchZone === session.id ? 'Hide item extent' : 'Show item extent'} className={`transition-colors ${showMatchZone === session.id ? 'text-yellow-400' : 'text-gray-600 hover:text-yellow-400'}`}><ScanLine className="w-3 h-3" /></button>
                           <button onClick={() => rerunSession(session)} disabled={mtoLoading} title="Re-prepare this item" className="text-gray-600 hover:text-emerald-400 disabled:opacity-30 transition-colors"><RotateCcw className="w-3 h-3" /></button>
@@ -637,12 +805,12 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
 
                   <div className="px-4 pb-3 border-t border-white/[0.06] pt-2">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[10px] text-gray-600 shrink-0">Threshold</span>
-                      <input type="number" min={0.40} max={0.95} step={0.01} value={mtoThreshold}
-                        onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0.40 && v <= 0.95) setMtoThreshold(+v.toFixed(2)); }}
+                      <span className="text-[10px] text-gray-600 shrink-0">Pixel exactness</span>
+                      <input type="number" min={0.55} max={0.95} step={0.01} value={mtoThreshold}
+                        onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0.55 && v <= 0.95) setMtoThreshold(+v.toFixed(2)); }}
                         className="w-20 rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-xs text-white font-mono outline-none focus:border-emerald-500 transition-colors"
                       />
-                      <span className="text-[10px] text-gray-600">(0.40–0.95)</span>
+                      <span className="text-[10px] text-gray-600">(0.55-0.95)</span>
                     </div>
                     <button
                       onClick={() => { mtoSessions.forEach(s => rerunSession(s)); }}
@@ -708,16 +876,32 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     <div className="flex-1 flex flex-col min-h-0">
       {/* Component library tray */}
       {librarySymbols.length > 0 && (
-        <div className="shrink-0 flex items-start gap-2 px-3 py-1.5 border-b border-white/[0.06] bg-gray-950 overflow-hidden">
-          <div className="shrink-0 leading-7">
-            <span className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider">Components</span>
+        <div className="shrink-0 flex items-start gap-2 px-3 py-2 border-b border-white/[0.06] bg-gray-950 overflow-hidden">
+          <div className="shrink-0 min-w-[96px]">
+            <div className="flex items-center gap-1.5 h-7">
+              <Layers className="w-3.5 h-3.5 text-gray-600" />
+              <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Components</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-700">
+              <span>{librarySymbols.length} saved</span>
+              {readyCount > 0 && <span>{readyCount} ready</span>}
+            </div>
           </div>
-          <div className="flex-1 min-w-0 flex flex-wrap content-start items-center gap-1.5 max-h-[74px] overflow-y-auto overflow-x-hidden pr-1">
-            {librarySymbols.map(sym => {
+          <div className="shrink-0 relative">
+            <Filter className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-700 pointer-events-none" />
+            <input
+              value={componentFilter}
+              onChange={e => setComponentFilter(e.target.value)}
+              placeholder="Filter"
+              className="h-7 w-28 rounded-md border border-white/[0.08] bg-white/[0.04] pl-7 pr-2 text-[11px] text-gray-300 placeholder:text-gray-700 outline-none focus:border-white/[0.18]"
+            />
+          </div>
+          <div className="flex-1 min-w-0 flex flex-wrap content-start items-center gap-1.5 max-h-[74px] overflow-y-auto overflow-x-hidden pr-2 pb-1 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 hover:[&::-webkit-scrollbar-thumb]:bg-white/35">
+            {filteredLibrarySymbols.map(sym => {
               const selected = selectedLibraryIds.has(sym.id);
               const isRecapturing = recaptureTarget?.id === sym.id;
               return (
-                <div key={sym.id} className="flex items-center gap-0.5 min-w-0 max-w-[168px]">
+                <div key={sym.id} className="flex items-center gap-0.5 min-w-0 max-w-[184px]">
                   <button
                     onClick={() => toggleLibrarySelection(sym.id)}
                     title={sym.name}
@@ -733,18 +917,30 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                 </div>
               );
             })}
+            {filteredLibrarySymbols.length === 0 && (
+              <span className="text-[11px] text-gray-700 h-7 flex items-center">No matching components</span>
+            )}
           </div>
           <button
-            onClick={() => setSelectedLibraryIds(prev => prev.size === librarySymbols.length ? new Set() : new Set(librarySymbols.map(s => s.id)))}
+            onClick={() => setSelectedLibraryIds(prev => {
+              if (visibleSelectedCount === filteredLibrarySymbols.length && filteredLibrarySymbols.length > 0) {
+                const next = new Set(prev);
+                filteredLibrarySymbols.forEach(s => next.delete(s.id));
+                return next;
+              }
+              return new Set([...Array.from(prev), ...filteredLibrarySymbols.map(s => s.id)]);
+            })}
+            disabled={filteredLibrarySymbols.length === 0}
             className="shrink-0 px-2 py-1.5 rounded-md text-[11px] font-semibold text-gray-500 hover:text-white hover:bg-white/[0.06] transition-colors"
           >
-            {selectedLibraryIds.size === librarySymbols.length ? 'Clear' : 'All'}
+            {visibleSelectedCount === filteredLibrarySymbols.length && filteredLibrarySymbols.length > 0 ? 'Clear' : 'All'}
           </button>
           <button
             onClick={searchSelectedLibrarySymbols}
             disabled={selectedLibraryIds.size === 0}
-            className="shrink-0 px-3 py-1.5 rounded-md text-xs font-bold text-gray-950 bg-white hover:bg-gray-200 disabled:bg-white/[0.08] disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold text-gray-950 bg-white hover:bg-gray-200 disabled:bg-white/[0.08] disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
           >
+            <Play className="w-3.5 h-3.5" />
             Prepare MTO {selectedLibraryIds.size || ''}
           </button>
         </div>

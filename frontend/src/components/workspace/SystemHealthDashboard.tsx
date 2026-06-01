@@ -47,7 +47,7 @@ interface HealthData {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const INFRA_KEYS = ['backend', 'redis', 'rq_worker', 'ollama'] as const;
-const MODEL_KEYS = ['pid_model', 'line_model', 'project_context_model'] as const;
+const MODEL_KEYS = ['pid_model', 'line_model', 'project_context_model', 'mto_reviewer_model'] as const;
 const ALL_KEYS = [...INFRA_KEYS, ...MODEL_KEYS] as const;
 const REFRESH_INTERVAL = 15_000;
 
@@ -70,6 +70,10 @@ const MODEL_META: Record<string, { desc: string; accent: string }> = {
   project_context_model: {
     desc: 'Project, scope, title-block, and cover-sheet context',
     accent: 'from-zinc-500 to-zinc-200',
+  },
+  mto_reviewer_model: {
+    desc: 'Piping MTO evidence review and noise rejection',
+    accent: 'from-zinc-300 to-white',
   },
 };
 
@@ -390,7 +394,7 @@ const SystemHealthDashboard: React.FC = () => {
                   <span className="font-mono text-[8px] text-zinc-500">local models</span>
                 </div>
 
-                <div className="grid gap-1.5" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                <div className="grid gap-1.5" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
                   {MODEL_KEYS.map((key, i) => {
                     const svc = data?.services[key];
                     const meta = MODEL_META[key];

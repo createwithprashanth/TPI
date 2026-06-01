@@ -24,6 +24,8 @@ class MatchBox(BaseModel):
     x2: int
     y2: int
     score: float
+    sizeInch: str = ""
+    sizeSource: str = ""
 
 
 class DetectResponse(BaseModel):
@@ -84,6 +86,15 @@ class ExportMatch(BaseModel):
     x2: int
     y2: int
     score: float
+    sizeInch: str = ""
+    sizeSource: str = ""
+    aiDecision: str = ""
+    aiConfidence: float = 0
+    aiReason: str = ""
+    aiFlags: list[str] = Field(default_factory=list)
+    aiNormalizedSizeInch: str = ""
+    aiLineNumber: str = ""
+    aiMaterialDescriptionHint: str = ""
 
 
 class ExportPageCount(BaseModel):

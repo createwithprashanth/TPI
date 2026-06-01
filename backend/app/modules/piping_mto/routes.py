@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Body, File, Form, UploadFile
 from fastapi.responses import FileResponse
 
 from app.modules.piping_mto import service
@@ -43,6 +43,11 @@ async def export_package(payload: ExportPackageRequest):
     )
 
 
+@router.post("/review-sessions", tags=TAGS)
+async def review_sessions(payload: dict = Body(...)) -> dict:
+    return await service.review_sessions(payload)
+
+
 # ── Detection ──────────────────────────────────────────────────────────────────
 
 @router.post("/detect", tags=TAGS)
@@ -59,6 +64,7 @@ async def detect_symbol(
     threshold: float = Form(0.70),
     label: str = Form("Symbol"),
     coord_dpi: int = Form(300),
+    match_mode: str = Form("tolerant"),
 ) -> dict:
     content = await pid_file.read()
     search_box = (
@@ -73,6 +79,7 @@ async def detect_symbol(
         threshold=threshold,
         label=label,
         coord_dpi=coord_dpi,
+        match_mode=match_mode,
     )
     return {"status": "SUCCESS", **result}
 
@@ -87,6 +94,7 @@ async def detect_all_pages(
     threshold: float = Form(0.70),
     label: str = Form("Symbol"),
     coord_dpi: int = Form(300),
+    match_mode: str = Form("tolerant"),
 ) -> dict:
     content = await pid_file.read()
     result = await service.detect_all_pages(
@@ -95,6 +103,7 @@ async def detect_all_pages(
         threshold=threshold,
         label=label,
         coord_dpi=coord_dpi,
+        match_mode=match_mode,
     )
     return {"status": "SUCCESS", **result}
 
@@ -106,6 +115,7 @@ async def detect_from_library(
     threshold: float = Form(0.70),
     label: str = Form("Symbol"),
     template_dpi: int = Form(300),
+    match_mode: str = Form("tolerant"),
 ) -> dict:
     pdf_content = await pid_file.read()
     tmpl_content = await template_image.read()
@@ -115,5 +125,6 @@ async def detect_from_library(
         threshold=threshold,
         label=label,
         template_dpi=template_dpi,
+        match_mode=match_mode,
     )
     return {"status": "SUCCESS", **result}

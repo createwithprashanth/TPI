@@ -7,6 +7,7 @@
         xyra-pid-engineer  — instrument classification / ISA-5.1 enrichment
         xyra-line-mapper   — instrument-to-pipe-line assignment
         xyra-project-context — project/document context normalization
+        xyra-mto-reviewer  — piping MTO evidence review / normalization
 
     Usage:
         .\deploy\setup-model.ps1
@@ -40,8 +41,12 @@ Build-Model -ModelName "xyra-line-mapper" `
 Build-Model -ModelName "xyra-project-context" `
             -ModelfileSrc "$RepoRoot\backend\modelfiles\xyra-project-context.modelfile"
 
+Build-Model -ModelName "xyra-mto-reviewer" `
+            -ModelfileSrc "$RepoRoot\backend\modelfiles\xyra-mto-reviewer.modelfile"
+
 Write-Host ""
 Write-Host "All models ready. Configure names in .env if needed:" -ForegroundColor DarkGray
 Write-Host "  XYRA_INSTRUMENT_MODEL=xyra-pid-engineer" -ForegroundColor DarkGray
 Write-Host "  XYRA_LINE_MAPPER_MODEL=xyra-line-mapper" -ForegroundColor DarkGray
 Write-Host "  XYRA_PROJECT_CONTEXT_MODEL=xyra-project-context" -ForegroundColor DarkGray
+Write-Host "  XYRA_MTO_REVIEWER_MODEL=xyra-mto-reviewer" -ForegroundColor DarkGray

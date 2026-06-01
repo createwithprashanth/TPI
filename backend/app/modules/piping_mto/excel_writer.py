@@ -85,6 +85,12 @@ def _iter_detection_rows(payload: dict):
                     "Y1": int(match.get("y1") or 0),
                     "X2": int(match.get("x2") or 0),
                     "Y2": int(match.get("y2") or 0),
+                    "Size": _s(match.get("sizeInch")),
+                    "Size Source": _s(match.get("sizeSource")),
+                    "AI Decision": _s(match.get("aiDecision")),
+                    "AI Confidence": float(match.get("aiConfidence") or 0),
+                    "AI Flags": ", ".join(_s(v) for v in (match.get("aiFlags") or []) if _s(v)),
+                    "AI Reason": _s(match.get("aiReason")),
                 }
 
 
@@ -92,35 +98,49 @@ def _aggregate_rows(payload: dict) -> list[dict]:
     groups: dict[tuple, dict] = {}
     for session in payload.get("sessions", []):
         metadata = _meta(session)
-        key = (
-            metadata["categoryCode"],
-            metadata["categoryName"],
-            metadata["unit"],
-            metadata["itemType"],
-            metadata["pipingClass"],
-            metadata["sizeInch"],
-            metadata["rating"],
-            metadata["valveBore"],
-            metadata["endConnection"],
-            metadata["materialDescription"],
-            metadata["dataSheetDocumentNo"],
-            metadata["dataSheetReferenceNo"],
-            metadata["remarks"],
-        )
-        if key not in groups:
-            groups[key] = {
-                **metadata,
-                "quantity": 0,
-                "symbols": set(),
-                "drawings": set(),
-                "minScore": 1.0,
-            }
-        row = groups[key]
-        row["symbols"].add(_s(session.get("label")))
-        row["quantity"] += int(session.get("count") or 0)
         for file_result in session.get("fileResults", []):
-            row["drawings"].add(_s(file_result.get("fileName")))
             for match in file_result.get("matches", []):
+                if _s(match.get("aiDecision")).upper() == "REJECT":
+                    continue
+                row_metadata = {
+                    **metadata,
+                    "sizeInch": (
+                        _s(match.get("sizeInch"))
+                        or _s(match.get("aiNormalizedSizeInch"))
+                        or metadata["sizeInch"]
+                    ),
+                    "materialDescription": (
+                        metadata["materialDescription"]
+                        or _s(match.get("aiMaterialDescriptionHint"))
+                    ),
+                }
+                key = (
+                    row_metadata["categoryCode"],
+                    row_metadata["categoryName"],
+                    row_metadata["unit"],
+                    row_metadata["itemType"],
+                    row_metadata["pipingClass"],
+                    row_metadata["sizeInch"],
+                    row_metadata["rating"],
+                    row_metadata["valveBore"],
+                    row_metadata["endConnection"],
+                    row_metadata["materialDescription"],
+                    row_metadata["dataSheetDocumentNo"],
+                    row_metadata["dataSheetReferenceNo"],
+                    row_metadata["remarks"],
+                )
+                if key not in groups:
+                    groups[key] = {
+                        **row_metadata,
+                        "quantity": 0,
+                        "symbols": set(),
+                        "drawings": set(),
+                        "minScore": 1.0,
+                    }
+                row = groups[key]
+                row["symbols"].add(_s(session.get("label")))
+                row["drawings"].add(_s(file_result.get("fileName")))
+                row["quantity"] += 1
                 row["minScore"] = min(row["minScore"], float(match.get("score") or 0))
 
     rows = list(groups.values())
@@ -132,12 +152,17 @@ def _qa_rows(payload: dict, mto_rows: list[dict]) -> list[dict]:
     issues = []
     for session in payload.get("sessions", []):
         metadata = _meta(session)
+        detected_sizes = [
+            _s(match.get("sizeInch"))
+            for file_result in session.get("fileResults", [])
+            for match in file_result.get("matches", [])
+            if _s(match.get("sizeInch"))
+        ]
         missing = [
             label for key, label in [
                 ("categoryName", "Category"),
                 ("itemType", "Item Type"),
                 ("pipingClass", "Piping Class"),
-                ("sizeInch", "Size"),
                 ("rating", "Rating"),
                 ("materialDescription", "Material Description"),
                 ("dataSheetDocumentNo", "Data Sheet Document No."),
@@ -145,6 +170,8 @@ def _qa_rows(payload: dict, mto_rows: list[dict]) -> list[dict]:
             ]
             if not _s(metadata.get(key))
         ]
+        if not metadata["sizeInch"] and not detected_sizes:
+            missing.append("Size")
         if missing:
             issues.append({
                 "Severity": "Info",
@@ -170,6 +197,41 @@ def _qa_rows(payload: dict, mto_rows: list[dict]) -> list[dict]:
                 "Check": "Low Confidence Detections",
                 "Symbol": _s(session.get("label")),
                 "Detail": f"{len(low)} detection(s) below 0.75 confidence. Examples: {', '.join(low[:5])}",
+            })
+        missing_size = []
+        for file_result in session.get("fileResults", []):
+            for match in file_result.get("matches", []):
+                if not _s(match.get("sizeInch")):
+                    missing_size.append(f"{_s(file_result.get('fileName'))} p{int(match.get('page') or 1)}")
+        if missing_size:
+            issues.append({
+                "Severity": "Info",
+                "Check": "Size Not Read",
+                "Symbol": _s(session.get("label")),
+                "Detail": f"{len(missing_size)} detection(s) have no nearby readable pipe size. Examples: {', '.join(missing_size[:5])}",
+            })
+        ai_rejected = []
+        ai_review = []
+        for file_result in session.get("fileResults", []):
+            for match in file_result.get("matches", []):
+                decision = _s(match.get("aiDecision")).upper()
+                if decision == "REJECT":
+                    ai_rejected.append(f"{_s(file_result.get('fileName'))} p{int(match.get('page') or 1)}")
+                elif decision == "REVIEW":
+                    ai_review.append(f"{_s(file_result.get('fileName'))} p{int(match.get('page') or 1)}")
+        if ai_rejected:
+            issues.append({
+                "Severity": "Warning",
+                "Check": "AI Rejected Detections",
+                "Symbol": _s(session.get("label")),
+                "Detail": f"{len(ai_rejected)} detection(s) excluded from MTO rows by AI reviewer. Examples: {', '.join(ai_rejected[:5])}",
+            })
+        if ai_review:
+            issues.append({
+                "Severity": "Info",
+                "Check": "AI Review Required",
+                "Symbol": _s(session.get("label")),
+                "Detail": f"{len(ai_review)} detection(s) need engineering review. Examples: {', '.join(ai_review[:5])}",
             })
 
     by_category = defaultdict(list)
@@ -288,15 +350,24 @@ def _write_detection_register(path: Path, payload: dict) -> None:
     wb = xlsxwriter.Workbook(path)
     fmt = _formats(wb)
     ws = wb.add_worksheet("Detection Register")
-    headers = ["No.", "Symbol", "Category", "Drawing", "Page", "Score", "X1", "Y1", "X2", "Y2"]
-    widths = [7, 24, 28, 42, 8, 10, 10, 10, 10, 10]
+    headers = [
+        "No.", "Symbol", "Category", "Drawing", "Page", "Size", "Size Source",
+        "Score", "AI Decision", "AI Confidence", "AI Flags", "AI Reason",
+        "X1", "Y1", "X2", "Y2",
+    ]
+    widths = [7, 24, 28, 42, 8, 8, 16, 10, 14, 12, 32, 70, 10, 10, 10, 10]
     for i, width in enumerate(widths):
         ws.set_column(i, i, width)
         ws.write(0, i, headers[i], fmt["hdr"])
     for idx, row in enumerate(_iter_detection_rows(payload), start=1):
-        values = [idx, row["Symbol"], row["Category"], row["Drawing"], row["Page"], row["Score"], row["X1"], row["Y1"], row["X2"], row["Y2"]]
+        values = [
+            idx, row["Symbol"], row["Category"], row["Drawing"], row["Page"],
+            row["Size"], row["Size Source"], row["Score"], row["AI Decision"],
+            row["AI Confidence"] or "", row["AI Flags"], row["AI Reason"],
+            row["X1"], row["Y1"], row["X2"], row["Y2"],
+        ]
         for col, value in enumerate(values):
-            ws.write(idx, col, value, fmt["left"] if col in (1, 2, 3) else fmt["cell"])
+            ws.write(idx, col, value, fmt["left"] if col in (1, 2, 3, 6, 10, 11) else fmt["cell"])
     ws.freeze_panes(1, 0)
     ws.autofilter(0, 0, max(1, idx if "idx" in locals() else 1), len(headers) - 1)
     wb.close()
@@ -343,6 +414,7 @@ def write_mto_package(output_dir: Path, payload: dict, run_id: str) -> Path:
         "mto_rows": len(mto_rows),
         "qa_issues": len([r for r in qa if r.get("Severity") != "Pass"]),
         "threshold": payload.get("threshold"),
+        "ai_review": payload.get("aiReview", {}),
     }, indent=2), encoding="utf-8")
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:

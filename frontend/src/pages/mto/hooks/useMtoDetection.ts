@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { detectSymbolAllPages, detectFromLibrary } from '../../../services/mto';
+import { detectSymbolAllPages, detectFromLibrary, reviewMtoSessions } from '../../../services/mto';
 import type { MtoSession, StagedTemplate, FileResult } from './useMtoSessions';
 
 export const SESSION_COLORS = [
@@ -65,8 +65,8 @@ export function useMtoDetection({
 
         await runWithConcurrency(pidFiles, 3, async (pidFile, fi) => {
           const result = tmpl.templateImage
-            ? await detectFromLibrary({ pidFile, templateImageBase64: tmpl.templateImage, threshold: mtoThreshold, label: tmpl.label })
-            : await detectSymbolAllPages({ pidFile, templateBox: tmpl.box!, threshold: mtoThreshold, label: tmpl.label });
+            ? await detectFromLibrary({ pidFile, templateImageBase64: tmpl.templateImage, threshold: mtoThreshold, label: tmpl.label, matchMode: 'exact' })
+            : await detectSymbolAllPages({ pidFile, templateBox: tmpl.box!, threshold: mtoThreshold, label: tmpl.label, matchMode: 'exact' });
           fileResults[fi] = {
             fileName: pidFile.name,
             count: result.total_count,
@@ -91,7 +91,16 @@ export function useMtoDetection({
           fileResults: fileResults.filter(Boolean) as FileResult[],
         });
       }
-      onAddSessions(newSessions);
+      let sessionsToAdd = newSessions;
+      if (newSessions.length > 0) {
+        try {
+          const reviewed = await reviewMtoSessions({ sessions: newSessions, threshold: mtoThreshold });
+          sessionsToAdd = (reviewed.sessions ?? newSessions) as MtoSession[];
+        } catch (reviewErr: any) {
+          onError(reviewErr.response?.data?.detail || 'AI review failed; showing deterministic MTO results.');
+        }
+      }
+      onAddSessions(sessionsToAdd);
     } catch (err: any) {
       onError(err.response?.data?.detail || err.message || 'Detection failed.');
       throw err;
@@ -110,8 +119,8 @@ export function useMtoDetection({
       let totalCount = 0;
       await runWithConcurrency(pidFiles, 3, async (pidFile, fi) => {
         const result = session.templateImage
-          ? await detectFromLibrary({ pidFile, templateImageBase64: session.templateImage, threshold: mtoThreshold, label: session.label })
-          : await detectSymbolAllPages({ pidFile, templateBox: session.templateBox, threshold: mtoThreshold, label: session.label });
+          ? await detectFromLibrary({ pidFile, templateImageBase64: session.templateImage, threshold: mtoThreshold, label: session.label, matchMode: 'exact' })
+          : await detectSymbolAllPages({ pidFile, templateBox: session.templateBox, threshold: mtoThreshold, label: session.label, matchMode: 'exact' });
         fileResults[fi] = {
           fileName: pidFile.name,
           count: result.total_count,
@@ -123,7 +132,18 @@ export function useMtoDetection({
         totalCount += result.total_count;
         setMtoProgress(p => p + 1);
       }, () => false);
-      onUpdateSession(session.id, { count: totalCount, fileResults: fileResults.filter(Boolean) as FileResult[] });
+      const updatedSession = {
+        ...session,
+        count: totalCount,
+        fileResults: fileResults.filter(Boolean) as FileResult[],
+      };
+      try {
+        const reviewed = await reviewMtoSessions({ sessions: [updatedSession], threshold: mtoThreshold });
+        onUpdateSession(session.id, (reviewed.sessions?.[0] ?? updatedSession) as Partial<MtoSession>);
+      } catch (reviewErr: any) {
+        onError(reviewErr.response?.data?.detail || 'AI review failed; showing deterministic MTO results.');
+        onUpdateSession(session.id, updatedSession);
+      }
     } catch (err: any) {
       onError(err.response?.data?.detail || err.message || 'Re-run failed.');
     } finally {

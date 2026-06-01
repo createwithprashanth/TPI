@@ -65,7 +65,7 @@ async def system_health():
     from app.config.redis_client import get_redis_connection, is_redis_available
     from app.modules.llm.service import (
         _is_available, OLLAMA_BASE_URL,
-        INSTRUMENT_MODEL, LINE_MAPPER_MODEL,
+        INSTRUMENT_MODEL, LINE_MAPPER_MODEL, MTO_REVIEWER_MODEL,
     )
     from app.modules.project_context.extractor import PROJECT_CONTEXT_MODEL
 
@@ -190,6 +190,17 @@ async def system_health():
             project_context_ok,
             "project context normalizer",
             "Project context model is loaded." if project_context_ok else f"{PROJECT_CONTEXT_MODEL} is not available in Ollama.",
+            **meta,
+        )
+
+        # 8. Piping MTO reviewer model
+        meta = models_meta.get(MTO_REVIEWER_MODEL, {})
+        mto_reviewer_ok = _is_available(MTO_REVIEWER_MODEL)
+        services["mto_reviewer_model"] = service(
+            MTO_REVIEWER_MODEL,
+            mto_reviewer_ok,
+            "piping MTO reviewer",
+            "Piping MTO reviewer model is loaded." if mto_reviewer_ok else f"{MTO_REVIEWER_MODEL} is not available in Ollama.",
             **meta,
         )
 

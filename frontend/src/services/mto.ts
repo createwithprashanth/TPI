@@ -9,6 +9,15 @@ export interface MatchBox {
   x2: number;
   y2: number;
   score: number;
+  sizeInch?: string;
+  sizeSource?: string;
+  aiDecision?: string;
+  aiConfidence?: number;
+  aiReason?: string;
+  aiFlags?: string[];
+  aiNormalizedSizeInch?: string;
+  aiLineNumber?: string;
+  aiMaterialDescriptionHint?: string;
 }
 
 export interface DetectResponse {
@@ -135,12 +144,14 @@ export const detectSymbol = async ({
   searchBox,
   threshold = 0.70,
   label = 'Symbol',
+  matchMode = 'exact',
 }: {
   pidFile: File;
   templateBox: { x1: number; y1: number; x2: number; y2: number };
   searchBox?: { x1: number; y1: number; x2: number; y2: number };
   threshold?: number;
   label?: string;
+  matchMode?: 'exact' | 'tolerant';
 }): Promise<DetectResponse> => {
   const form = new FormData();
   form.append('pid_file', pidFile);
@@ -157,6 +168,7 @@ export const detectSymbol = async ({
   form.append('threshold', String(threshold));
   form.append('label', label);
   form.append('coord_dpi', '300');
+  form.append('match_mode', matchMode);
   const resp = await api.post('/api/v1/mto/detect', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 60000,
@@ -169,11 +181,13 @@ export const detectSymbolAllPages = async ({
   templateBox,
   threshold = 0.70,
   label = 'Symbol',
+  matchMode = 'exact',
 }: {
   pidFile: File;
   templateBox: { x1: number; y1: number; x2: number; y2: number };
   threshold?: number;
   label?: string;
+  matchMode?: 'exact' | 'tolerant';
 }): Promise<AllPagesDetectResponse> => {
   const form = new FormData();
   form.append('pid_file', pidFile);
@@ -184,6 +198,7 @@ export const detectSymbolAllPages = async ({
   form.append('threshold', String(threshold));
   form.append('label', label);
   form.append('coord_dpi', '300');
+  form.append('match_mode', matchMode);
   const resp = await api.post('/api/v1/mto/detect-all-pages', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 300000,
@@ -196,11 +211,13 @@ export const detectFromLibrary = async ({
   templateImageBase64,
   threshold = 0.70,
   label = 'Symbol',
+  matchMode = 'exact',
 }: {
   pidFile: File;
   templateImageBase64: string;
   threshold?: number;
   label?: string;
+  matchMode?: 'exact' | 'tolerant';
 }): Promise<AllPagesDetectResponse> => {
   const form = new FormData();
   form.append('pid_file', pidFile);
@@ -209,8 +226,26 @@ export const detectFromLibrary = async ({
   form.append('threshold', String(threshold));
   form.append('label', label);
   form.append('template_dpi', '300');
+  form.append('match_mode', matchMode);
   const resp = await api.post('/api/v1/mto/detect-from-library', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000,
+  });
+  return resp.data;
+};
+
+export const reviewMtoSessions = async ({
+  sessions,
+  threshold,
+}: {
+  sessions: any[];
+  threshold: number;
+}): Promise<{ sessions: any[]; aiReview?: any }> => {
+  const resp = await api.post('/api/v1/mto/review-sessions', {
+    project: {},
+    sessions,
+    threshold,
+  }, {
     timeout: 300000,
   });
   return resp.data;

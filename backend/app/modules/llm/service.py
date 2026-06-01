@@ -23,6 +23,8 @@ INSTRUMENT_MODEL          = os.getenv("XYRA_INSTRUMENT_MODEL",          "xyra-pi
 INSTRUMENT_MODEL_FALLBACK = os.getenv("XYRA_INSTRUMENT_MODEL_FALLBACK", "qwen2.5:7b")
 LINE_MAPPER_MODEL         = os.getenv("XYRA_LINE_MAPPER_MODEL",         "xyra-line-mapper")
 LINE_MAPPER_MODEL_FALLBACK= os.getenv("XYRA_LINE_MAPPER_MODEL_FALLBACK","qwen2.5:7b")
+MTO_REVIEWER_MODEL        = os.getenv("XYRA_MTO_REVIEWER_MODEL",        "xyra-mto-reviewer")
+MTO_REVIEWER_MODEL_FALLBACK = os.getenv("XYRA_MTO_REVIEWER_MODEL_FALLBACK", "qwen2.5:7b")
 
 # Keep DEFAULT_MODEL as an alias so existing callers don't break.
 DEFAULT_MODEL = INSTRUMENT_MODEL
