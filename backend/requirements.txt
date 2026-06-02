@@ -14,9 +14,9 @@ pymupdf==1.24.14
 opencv-python==4.12.0.88
 numpy==2.2.6
 
-# Google Vision OCR
-google-cloud-vision==3.11.0
-google-auth==2.41.1
+# Local OCR (replaces Google Vision API)
+paddlepaddle
+paddleocr
 
 # Data & Excel
 pandas==2.3.3

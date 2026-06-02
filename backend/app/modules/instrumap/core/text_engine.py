@@ -1,13 +1,40 @@
 # XYRA-BACKEND/app/modules/instrumap/core/text_engine.py
 
-import io
 import logging
 import math
 import numpy as np
-from google.cloud import vision
+from PIL import Image as _PILImage
 from .standard_library import InstrumentLogicEngine
 
+# Tile size for large-image OCR.  Images wider/taller than this threshold are
+# split into overlapping tiles so PaddleOCR runs at full resolution on each
+# tile (no internal downscaling).  Each tile must be ≤ PaddleOCR's 4000 px cap.
+_OCR_TILE_THRESHOLD = 4000   # trigger tiling above this px
+_OCR_TILE_SIZE      = 3800   # tile dimensions (px) — just under the 4000 cap
+_OCR_TILE_OVERLAP   = 380    # overlap (px) so text at tile edges is captured
+
 logger = logging.getLogger(__name__)
+
+# Lazy-initialised PaddleOCR reader — loaded once per worker process.
+_ocr_reader = None
+
+def _get_reader():
+    global _ocr_reader
+    if _ocr_reader is None:
+        import ssl
+        ssl._create_default_https_context = ssl._create_unverified_context
+        from paddleocr import PaddleOCR
+        logger.info("Initialising PaddleOCR reader (first call)...")
+        _ocr_reader = PaddleOCR(
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            text_detection_model_name='PP-OCRv5_mobile_det',
+            text_recognition_model_name='en_PP-OCRv5_mobile_rec',
+            lang='en',
+        )
+        logger.info("PaddleOCR reader ready.")
+    return _ocr_reader
 
 # --- TUNING CONSTANTS ---
 TEXT_MINING_MAX_X_DIST = 40  # Looser X-tolerance for center-aligned text
@@ -15,48 +42,108 @@ TEXT_MINING_MAX_Y_GAP = 90   # Loose Y-tolerance for gaps
 
 # The "Blacklist"
 STOPWORDS = {
-    "FOR", "AND", "THE", "SEE", "DWG", "REF", "TYP", "MIN", "MAX", 
+    "FOR", "AND", "THE", "SEE", "DWG", "REF", "TYP", "MIN", "MAX",
     "HOT", "COLD", "AIR", "GAS", "OIL", "DRY", "WET", "IN", "OUT",
-    "OFF", "ON", "SET", "TAP", "TOP", "BOT", "REV", "NOT", "YES", "NO",
+    "OFF", "ON", "SET", "TAP", "TOP", "BOT", "REV", "NOT", "YES",
     "ALL", "EQUIPMENT", "INSTRUMENT", "TAG", "NOS", "DRAWING", "SHALL",
     "AREA", "CODE", "PLANT", "SPECIFIED", "OTHER", "WISE", "NOTE", "NOTES",
-    "DETAIL", "SECTION", "GENERAL", "LEGEND", "SYMBOL", "PIPING", 
-    "AS", "AFTER", "BEFORE", "WITH", "WITHOUT", "FROM", "TO",
+    "DETAIL", "SECTION", "GENERAL", "LEGEND", "SYMBOL", "PIPING",
+    "AS", "AFTER", "BEFORE", "WITH", "WITHOUT", "FROM",
     "NC", "NO", "LC", "LO", "FC", "FO", "CS", "SS", "SP", "HL", "LL", "HH",
-    "BY", "OF", "OR", "BE", "IS", "AT", "TO", "UP", "DN"
+    "BY", "OF", "OR", "BE", "IS", "AT", "TO", "UP", "DN",
 }
 
-def detect_text_full_page(pil_image, vision_client):
+def _ocr_tile(reader, tile_img, x_offset, y_offset):
+    """Run PaddleOCR on one tile and return words in page coordinate space."""
+    import warnings
+    img_array = np.array(tile_img.convert('RGB'))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        results = reader.predict(img_array)
+    words = []
+    if not results:
+        return words
+    for page_result in results:
+        texts = page_result.get('rec_texts', [])
+        polys = page_result.get('rec_polys', [])
+        for text, poly in zip(texts, polys):
+            text = str(text).strip()
+            if not text:
+                continue
+            xs = poly[:, 0].astype(float) + x_offset
+            ys = poly[:, 1].astype(float) + y_offset
+            x_min, x_max = xs.min(), xs.max()
+            y_min, y_max = ys.min(), ys.max()
+            words.append({
+                'text': text,
+                'x': x_min, 'y': y_min,
+                'w': x_max - x_min, 'h': y_max - y_min,
+                'center_x': (x_min + x_max) / 2,
+                'center_y': (y_min + y_max) / 2,
+            })
+    return words
+
+
+def _dedup_words(words, proximity=25):
+    """Remove duplicate detections from overlapping tile regions."""
+    unique = []
+    for w in words:
+        cx, cy, t = w['center_x'], w['center_y'], w['text'].lower()
+        if not any(
+            abs(cx - u['center_x']) < proximity
+            and abs(cy - u['center_y']) < proximity
+            and t == u['text'].lower()
+            for u in unique
+        ):
+            unique.append(w)
+    return unique
+
+
+def detect_text_full_page(pil_image, vision_client=None):
+    """Run PaddleOCR on a full page and return word-level bounding boxes.
+
+    Large images (> _OCR_TILE_THRESHOLD px) are split into overlapping tiles
+    so PaddleOCR runs at full resolution on each tile — no internal downscaling,
+    full accuracy on small circle text in high-DPI scanned P&IDs.
+
+    vision_client parameter is kept for call-site compatibility but ignored.
+    """
     try:
-        img_byte_arr = io.BytesIO()
-        pil_image.save(img_byte_arr, format='JPEG')
-        content = img_byte_arr.getvalue()
-        image = vision.Image(content=content)
-        
-        response = vision_client.document_text_detection(image=image)
-        
-        full_text_data = []
-        for page in response.full_text_annotation.pages:
-            for block in page.blocks:
-                for paragraph in block.paragraphs:
-                    for word in paragraph.words:
-                        word_text = "".join([s.text for s in word.symbols])
-                        vertices = word.bounding_box.vertices
-                        if not vertices: continue
-                        
-                        x_min = min(v.x for v in vertices)
-                        y_min = min(v.y for v in vertices)
-                        x_max = max(v.x for v in vertices)
-                        y_max = max(v.y for v in vertices)
-                        
-                        full_text_data.append({
-                            'text': word_text,
-                            'x': x_min, 'y': y_min, 'w': x_max - x_min, 'h': y_max - y_min,
-                            'center_x': (x_min + x_max) / 2, 'center_y': (y_min + y_max) / 2
-                        })
-        return full_text_data
+        reader = _get_reader()
+        orig_w, orig_h = pil_image.size
+
+        if max(orig_w, orig_h) <= _OCR_TILE_THRESHOLD:
+            # Small image — run OCR directly (no tiling needed)
+            return _ocr_tile(reader, pil_image, 0, 0)
+
+        # Large image — tile and merge
+        step = _OCR_TILE_SIZE - _OCR_TILE_OVERLAP
+        all_words = []
+
+        def _tile_starts(total):
+            starts = list(range(0, total, step))
+            # Ensure last tile always reaches the image edge
+            if not starts or starts[-1] + _OCR_TILE_SIZE < total:
+                starts.append(max(0, total - _OCR_TILE_SIZE))
+            return starts
+
+        xs_starts = _tile_starts(orig_w)
+        ys_starts = _tile_starts(orig_h)
+        n_tiles = len(xs_starts) * len(ys_starts)
+        logger.info(f"OCR tiling: {orig_w}×{orig_h}px → {n_tiles} tiles of {_OCR_TILE_SIZE}px")
+
+        for y0 in ys_starts:
+            for x0 in xs_starts:
+                x1 = min(x0 + _OCR_TILE_SIZE, orig_w)
+                y1 = min(y0 + _OCR_TILE_SIZE, orig_h)
+                tile = pil_image.crop((x0, y0, x1, y1))
+                tile_words = _ocr_tile(reader, tile, x0, y0)
+                all_words.extend(tile_words)
+
+        return _dedup_words(all_words)
+
     except Exception as e:
-        logger.warning(f"Error in global text detection: {e}", exc_info=True)
+        logger.warning(f"PaddleOCR text detection failed: {e}", exc_info=True)
         return []
 
 def _cluster_vertically(full_text_data):
@@ -110,9 +197,9 @@ def _is_duplicate_of_shape(cluster_center_x, cluster_center_y, existing_circles_
         if dist < (cr * 1.2): return True
     return False
 
-def find_text_only_instruments(pil_image, vision_client, existing_circles_indices=None, full_text_data=None):
+def find_text_only_instruments(pil_image, vision_client=None, existing_circles_indices=None, full_text_data=None):
     if full_text_data is None:
-        full_text_data = detect_text_full_page(pil_image, vision_client)
+        full_text_data = detect_text_full_page(pil_image)
     clusters = _cluster_vertically(full_text_data)
     
     text_instruments = []

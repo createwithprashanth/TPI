@@ -7,16 +7,14 @@ logger = logging.getLogger(__name__)
 import pandas as pd
 import numpy as np
 from pdf2image import convert_from_bytes
-from .api_client import GoogleVisionClient
 from PIL import Image, ImageDraw, ImageFont
-import io
 import math
 import cv2
 Image.MAX_IMAGE_PIXELS = None
 
 # Import configuration settings
 from .config import (
-    GOOGLE_APPLICATION_CREDENTIALS_PATH, POPPLER_PATH, PDF_DPI,
+    POPPLER_PATH, PDF_DPI,
     HOUGH_DP, HOUGH_MIN_DIST, HOUGH_PARAM1, HOUGH_PARAM1_FAST, HOUGH_PARAM2,
     HOUGH_MIN_RADIUS, HOUGH_MAX_RADIUS,
     OCR_ROI_MARGIN_FACTOR, TEXT_CONCAT_SEPARATOR,
@@ -24,17 +22,9 @@ from .config import (
     ANCHOR_MIN_COUNT, RADIUS_TOLERANCE_PERCENT,
     PID_GRID_ROWS, PID_GRID_COLS, PID_SEARCH_ORDER,
     OCR_MIN_CHARS_PER_ROW, OCR_MAX_CHARS_PER_ROW, OCR_MAX_TAG_ROWS, OCR_Y_TOLERANCE,
-    USE_FAST_OCR, USE_PYMUPDF,
 )
 
-if USE_FAST_OCR:
-    from .level2_extraction_fast import extract_instruments
-else:
-    from .level2_extraction import extract_instruments
-
-if USE_PYMUPDF:
-    from .level2_extraction_pymupdf import extract_from_pdf as pymupdf_extract
-    from .line_mapper import map_instruments_to_lines
+from .level2_extraction_fast import extract_instruments
 
 try:
     from ...llm.line_mapper import map_instruments_to_lines_llm as _llm_map
@@ -62,11 +52,6 @@ def _calculate_dynamic_radius(calibration_radius, config_params):
 
 class InstrumentProcessor:
     def __init__(self):
-        # Vision client is intentionally NOT initialised here.
-        # GoogleVisionClient() starts gRPC threads which crash macOS fork()
-        # inside the RQ worker.  Initialised lazily in _get_vision_client(),
-        # called only when the OCR path is actually needed.
-        self._vision_client = None
         self.poppler_path = POPPLER_PATH
         self.debug_mode = DEBUG_MODE
         self.debug_output_folder = DEBUG_OUTPUT_FOLDER
@@ -101,12 +86,6 @@ class InstrumentProcessor:
             'DEBUG_MODE': DEBUG_MODE,
             'DEBUG_OUTPUT_FOLDER': DEBUG_OUTPUT_FOLDER
         }
-
-    def _get_vision_client(self):
-        if self._vision_client is None:
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_APPLICATION_CREDENTIALS_PATH
-            self._vision_client = GoogleVisionClient().client
-        return self._vision_client
 
     @staticmethod
     def _parse_legend(legend_df: pd.DataFrame):
@@ -380,170 +359,97 @@ class InstrumentProcessor:
             with open(pid_file_path, 'rb') as f:
                 pdf_content = f.read()
 
-            # --- PyMuPDF direct extraction (vector PDFs only, zero API calls) ---
-            # Runs BEFORE image conversion — if it succeeds, we skip the entire
-            # OCR pipeline (no image conversion, no Vision API calls).
-            pymupdf_instruments_df = pd.DataFrame()
-            pymupdf_lines_df = pd.DataFrame()
-            pymupdf_equipment_df = pd.DataFrame()
-            ocr_needed = True
+            # --- OCR Pipeline (Vision API) ---
+            # process_pid_file is only called by the task when PyMuPDF already
+            # failed or found nothing — so we go straight to OCR here.
+            if _rl:
+                _rl.log_path("ocr")
+            status_update_fn("Starting PDF conversion (DPI 300)...")
+            if self.poppler_path:
+                images = convert_from_bytes(pdf_content, dpi=config_params['PDF_DPI'], poppler_path=self.poppler_path)
+            else:
+                images = convert_from_bytes(pdf_content, dpi=config_params['PDF_DPI'])
 
-            if USE_PYMUPDF:
-                status_update_fn("Trying PyMuPDF direct extraction (vector PDF)...")
-                try:
-                    pymupdf_instruments_df, pymupdf_lines_df, _ = pymupdf_extract(
-                        pdf_path=pid_file_path,
-                        filename_base=filename_base,
-                        calibration_radius_px=calibration_radius,
-                        default_area_code=default_area_code,
-                        dpi=config_params['PDF_DPI'],
-                        radius_tolerance=config_params['RADIUS_TOLERANCE_PERCENT'],
-                    )
-                    if not pymupdf_instruments_df.empty:
-                        ocr_needed = False
-                        if _rl:
-                            _rl.log_path("pymupdf")
-                        status_update_fn(
-                            f"PyMuPDF: extracted {len(pymupdf_instruments_df)} instruments "
-                            f"and {len(pymupdf_lines_df)} line numbers directly — skipping OCR."
-                        )
-                        # Topology-based line mapping — instrument by instrument
-                        try:
-                            pymupdf_instruments_df = map_instruments_to_lines(
-                                pymupdf_instruments_df,
-                                pymupdf_lines_df,
-                                pid_file_path,
-                                config_params['PDF_DPI'],
-                            )
-                            mapped = (pymupdf_instruments_df["Connected_Line"] != "").sum()
-                            status_update_fn(f"Line mapper: {mapped} instruments matched to pipe lines.")
-                        except Exception as _lm_exc:
-                            status_update_fn(f"Line mapping failed (non-fatal): {_lm_exc}")
-
-                        # Save debug snapshot for line mapper development
-                        if self.debug_mode:
-                            self._save_debug_snapshot(
-                                pid_file_path,
-                                pymupdf_instruments_df,
-                                pymupdf_lines_df,
-                            )
-
-                        all_instruments_data.append(pymupdf_instruments_df)
-                        if not pymupdf_lines_df.empty:
-                            all_lines_data.append(pymupdf_lines_df)
-                        if _rl:
-                            _tag_col = "Tag_Number" if "Tag_Number" in pymupdf_instruments_df.columns else "Instrument_Tag"
-                            for _pg in sorted(pymupdf_instruments_df.get("P&ID_Page", pd.Series([1])).unique()):
-                                _pg = int(_pg)
-                                _i_mask = pymupdf_instruments_df.get("P&ID_Page", pd.Series([_pg] * len(pymupdf_instruments_df))) == _pg
-                                _l_mask = pymupdf_lines_df.get("P&ID_Page", pd.Series([_pg] * len(pymupdf_lines_df))) == _pg if not pymupdf_lines_df.empty else pd.Series([], dtype=bool)
-                                _rl.log_lines(_pg, list(pymupdf_lines_df.loc[_l_mask, "Line_Number"].astype(str)) if not pymupdf_lines_df.empty else [])
-                                _rl.log_instruments(_pg, list(pymupdf_instruments_df.loc[_i_mask, _tag_col].astype(str)))
-                        # Generate highlighted images for visual cross-checking
-                        if output_folder:
-                            self._render_pymupdf_highlights(
-                                pdf_content, pymupdf_instruments_df,
-                                output_folder, filename_base,
-                                config_params['PDF_DPI'],
-                                lines_df=pymupdf_lines_df,
-                            )
-                    else:
-                        status_update_fn("PyMuPDF: scanned PDF detected — running OCR pipeline.")
-                except Exception as _pmu_exc:
-                    status_update_fn(f"PyMuPDF failed (non-fatal): {_pmu_exc} — running OCR pipeline.")
-
-            # --- OCR Pipeline (only runs if PyMuPDF found nothing) ---
-            if ocr_needed:
+            if not images:
+                status_update_fn("ERROR: No images converted from PDF.")
                 if _rl:
-                    _rl.log_path("ocr")
-                status_update_fn("Starting PDF conversion (DPI 300)...")
-                if self.poppler_path:
-                    images = convert_from_bytes(pdf_content, dpi=config_params['PDF_DPI'], poppler_path=self.poppler_path)
+                    _rl.flush()
+                return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
+
+            status_update_fn(f"PDF converted to {len(images)} page(s).")
+
+            try:
+                font = ImageFont.truetype("arial.ttf", 30 if self.debug_mode else 24)
+            except Exception:
+                font = ImageFont.load_default()
+
+            for page_idx, pil_image in enumerate(images):
+                page_number = page_idx + 1
+                page_filename_base = f"{filename_base}_p{page_number}"
+
+                cv_image = np.array(pil_image)
+                cv_image_rgb = cv_image[:, :, ::-1].copy()
+                gray_image = cv2.cvtColor(cv_image_rgb, cv2.COLOR_BGR2GRAY)
+                blurred_image_page = cv2.medianBlur(gray_image, 5)
+
+                extraction_result = extract_instruments(
+                    pil_image=pil_image,
+                    blurred_image=blurred_image_page,
+                    dynamic_min_radius=dynamic_min_radius,
+                    dynamic_max_radius=dynamic_max_radius,
+                    legend_df=_legend_df,
+                    legend_types=_legend_types,
+                    filename_base=page_filename_base,
+                    config_params=config_params,
+                    debug_params=self.debug_params,
+                    font=font,
+                    status_update_fn=lambda msg: status_update_fn(f"L2 P{page_number}: {msg}"),
+                    output_folder=output_folder,
+                    default_area_code=default_area_code,
+                )
+                if len(extraction_result) == 3:
+                    final_instruments_df_page, page_lines_df, page_equipment_df = extraction_result
                 else:
-                    images = convert_from_bytes(pdf_content, dpi=config_params['PDF_DPI'])
+                    final_instruments_df_page, page_lines_df = extraction_result
+                    page_equipment_df = pd.DataFrame()
 
-                if not images:
-                    status_update_fn("ERROR: No images converted from PDF.")
-                    if _rl:
-                        _rl.flush()
-                    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
+                if _rl:
+                    _rl.log_lines(page_number, list(page_lines_df["Line_Number"].astype(str)) if not page_lines_df.empty else [])
+                    _tag_col_ocr = "Tag_Number" if "Tag_Number" in final_instruments_df_page.columns else "Instrument_Tag"
+                    _rl.log_instruments(page_number, list(final_instruments_df_page[_tag_col_ocr].astype(str)) if not final_instruments_df_page.empty else [])
 
-                status_update_fn(f"PDF converted to {len(images)} page(s).")
+                if not final_instruments_df_page.empty:
+                    final_instruments_df_page['P&ID_Page'] = page_number
 
-                try:
-                    font = ImageFont.truetype("arial.ttf", 30 if self.debug_mode else 24)
-                except Exception:
-                    font = ImageFont.load_default()
+                    if _LLM_AVAILABLE and not page_lines_df.empty:
+                        try:
+                            final_instruments_df_page = _llm_map(
+                                final_instruments_df_page,
+                                page_lines_df,
+                                status_fn=lambda msg: status_update_fn(f"LLM P{page_number}: {msg}"),
+                                run_logger=_rl,
+                                page=page_number,
+                            )
+                        except Exception as _llm_exc:
+                            status_update_fn(f"LLM mapping skipped (non-fatal): {_llm_exc}")
 
-                for page_idx, pil_image in enumerate(images):
-                    page_number = page_idx + 1
-                    page_filename_base = f"{filename_base}_p{page_number}"
+                    all_instruments_data.append(final_instruments_df_page)
 
-                    cv_image = np.array(pil_image)
-                    cv_image_rgb = cv_image[:, :, ::-1].copy()
-                    gray_image = cv2.cvtColor(cv_image_rgb, cv2.COLOR_BGR2GRAY)
-                    blurred_image_page = cv2.medianBlur(gray_image, 5)
+                if not page_lines_df.empty:
+                    all_lines_data.append(page_lines_df)
+                if not page_equipment_df.empty:
+                    all_equipment_data.append(page_equipment_df)
 
-                    extraction_result = extract_instruments(
-                        pil_image=pil_image,
-                        blurred_image=blurred_image_page,
-                        vision_client=self._get_vision_client(),
-                        dynamic_min_radius=dynamic_min_radius,
-                        dynamic_max_radius=dynamic_max_radius,
-                        legend_df=_legend_df,
-                        legend_types=_legend_types,
-                        filename_base=page_filename_base,
-                        config_params=config_params,
-                        debug_params=self.debug_params,
-                        font=font,
-                        status_update_fn=lambda msg: status_update_fn(f"L2 P{page_number}: {msg}"),
-                        output_folder=output_folder,
-                        default_area_code=default_area_code,
+                if self.debug_mode:
+                    debug_img_path = os.path.join(
+                        self.debug_output_folder,
+                        f"{page_filename_base}_circles_detected.jpg"
                     )
-                    if len(extraction_result) == 3:
-                        final_instruments_df_page, page_lines_df, page_equipment_df = extraction_result
-                    else:
-                        final_instruments_df_page, page_lines_df = extraction_result
-                        page_equipment_df = pd.DataFrame()
+                    pil_image.save(debug_img_path, "JPEG")
+                    debug_output_images.append(f"{page_filename_base}_circles_detected.jpg")
 
-                    if _rl:
-                        _rl.log_lines(page_number, list(page_lines_df["Line_Number"].astype(str)) if not page_lines_df.empty else [])
-                        _tag_col_ocr = "Tag_Number" if "Tag_Number" in final_instruments_df_page.columns else "Instrument_Tag"
-                        _rl.log_instruments(page_number, list(final_instruments_df_page[_tag_col_ocr].astype(str)) if not final_instruments_df_page.empty else [])
-
-                    if not final_instruments_df_page.empty:
-                        final_instruments_df_page['P&ID_Page'] = page_number
-
-                        # LLM line mapping — runs after OCR; no-op if Ollama is down
-                        if _LLM_AVAILABLE and not page_lines_df.empty:
-                            try:
-                                final_instruments_df_page = _llm_map(
-                                    final_instruments_df_page,
-                                    page_lines_df,
-                                    status_fn=lambda msg: status_update_fn(f"LLM P{page_number}: {msg}"),
-                                    run_logger=_rl,
-                                    page=page_number,
-                                )
-                            except Exception as _llm_exc:
-                                status_update_fn(f"LLM mapping skipped (non-fatal): {_llm_exc}")
-
-                        all_instruments_data.append(final_instruments_df_page)
-
-                    if not page_lines_df.empty:
-                        all_lines_data.append(page_lines_df)
-                    if not page_equipment_df.empty:
-                        all_equipment_data.append(page_equipment_df)
-
-                    if self.debug_mode:
-                        debug_img_path = os.path.join(
-                            self.debug_output_folder,
-                            f"{page_filename_base}_circles_detected.jpg"
-                        )
-                        pil_image.save(debug_img_path, "JPEG")
-                        debug_output_images.append(f"{page_filename_base}_circles_detected.jpg")
-
-                    count = len(final_instruments_df_page) if not final_instruments_df_page.empty else 0
-                    status_update_fn(f"Page {page_number}: {count} instruments extracted.")
+                count = len(final_instruments_df_page) if not final_instruments_df_page.empty else 0
+                status_update_fn(f"Page {page_number}: {count} instruments extracted.")
 
             # --- Final Combination and Deduplication ---
 

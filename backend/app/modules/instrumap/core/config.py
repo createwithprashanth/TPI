@@ -6,12 +6,9 @@ POPPLER_PATH = settings.POPPLER_PATH
 PDF_DPI = settings.PDF_DPI
 
 # --- EXTRACTION MODE ---
-# USE_PYMUPDF  : try direct PDF extraction first (vector PDFs only, zero API calls)
-#                falls back silently to OCR if PDF is scanned / has no embedded text
-# USE_FAST_OCR : True  → single full-page OCR (level2_extraction_fast.py)
-#                False → original per-circle OCR (level2_extraction.py) — safe fallback
+# Extraction order: PyMuPDF (vector PDFs, zero API calls) → OCR fallback (scanned PDFs).
+# PyMuPDF is handled in instrumap_tasks.py; OCR fallback uses level2_extraction_fast.py.
 USE_PYMUPDF  = True
-USE_FAST_OCR = True
 
 # --- HOUGH CIRCLE DETECTION PARAMETERS (DEFAULT) ---
 # Used if interactive calibration fails or is skipped
@@ -20,6 +17,7 @@ HOUGH_MIN_DIST = 30 # Minimum distance between the centers of the detected circl
 HOUGH_PARAM1 = 100 # Canny edge detection high threshold (original mode)
 HOUGH_PARAM1_FAST = 60 # Lower threshold for fast mode — more sensitive for thin-line vector PDFs
 HOUGH_PARAM2 = 30 # Accumulator threshold for the Canny detector
+HOUGH_PARAM2_SENSITIVE = 18 # Second-pass threshold — catches circles with dividing lines (broken arc)
 HOUGH_MIN_RADIUS = 10 # Minimum circle radius
 HOUGH_MAX_RADIUS = 100 # Maximum circle radius
 

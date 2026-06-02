@@ -1,0 +1,15 @@
+{
+  "run_id": "mto_20260601_165003_650c6fe0",
+  "symbol_count": 1,
+  "total_quantity": 21,
+  "mto_rows": 5,
+  "qa_issues": 5,
+  "threshold": 0.8,
+  "ai_review": {
+    "enabled": true,
+    "model": "xyra-mto-reviewer",
+    "status": "complete",
+    "reviewed_matches": 21,
+    "errors": 0
+  }
+}
