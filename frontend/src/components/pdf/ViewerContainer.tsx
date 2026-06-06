@@ -426,7 +426,7 @@ function ViewInner({ onOpenFile, documentName }: ViewerContainerProps) {
         ) : null}
         <div
           ref={scrollViewportRef}
-          className={`flex-1 overflow-auto bg-[#1e1e1e] p-2 md:p-3 ${selectedTool === "pan" ? (isPanning ? "cursor-grabbing" : "cursor-grab") : ""}`}
+          className={`xyra-scroll-contained flex-1 overflow-auto bg-[#1e1e1e] p-2 md:p-3 ${selectedTool === "pan" ? (isPanning ? "cursor-grabbing" : "cursor-grab") : ""}`}
           onPointerDown={handleViewportPointerDown}
           onPointerMove={handleViewportPointerMove}
           onPointerUp={endViewportPan}

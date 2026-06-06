@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Layers, BookOpen } from 'lucide-react';
+import { Activity, Layers, BookOpen, TableProperties, Gauge } from 'lucide-react';
 import type { WorkspaceView } from './WorkspaceSidebar';
 
 interface ActivityBarProps {
@@ -11,6 +11,8 @@ const TOOLS: { view: WorkspaceView; icon: React.ElementType; label: string }[] =
   { view: 'pid',          icon: Activity, label: 'Instrumentation' },
   { view: 'piping',       icon: Layers,   label: 'Piping MTO' },
   { view: 'precisionpdf', icon: BookOpen, label: 'PrecisionPDF' },
+  { view: 'aigrid',       icon: TableProperties, label: 'AI Grid' },
+  { view: 'flowsizing',   icon: Gauge, label: 'FlowSizing' },
 ];
 
 const ActivityBar: React.FC<ActivityBarProps> = ({ view, onViewChange }) => (

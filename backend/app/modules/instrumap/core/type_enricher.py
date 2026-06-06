@@ -33,8 +33,9 @@ _NOISE_RE = re.compile(
     r"|[A-Za-z]{1,5}$"                              # A, I, CC, PIT, FIT, TIT (bare 1-5 letters — legend entries)
     r"|[A-Z]-[A-Za-z]$"                             # S-R, R-S (flip-flop symbols)
     r"|[A-Z]-\d"                                    # V-201, P-101 (single-letter equip tag)
+    r"|Bb-\w+"                                      # Bb-1762 style well/battery labels
     r"|[A-Za-z]\d+$"                                # P1, R1 (letter + digits only)
-    r"|(?:REV|HOLD|DRG|MTO|VFD|PLC|MCC)(?:-|$)"   # known non-instruments
+    r"|(?:REV|HOLD|DRG|MTO|VFD|PLC|MCC|PM)(?:-|$)"   # known non-instruments
     r")",
     re.IGNORECASE,
 )
@@ -69,6 +70,13 @@ _ISA_LAST = {
     "Z": "Driver/Actuator",
     "G": "Gauge/Sight Glass (mechanical, no electrical output)",
     "O": "Orifice/Restriction",
+}
+
+_SPECIAL_TYPE_HINTS = {
+    "SSOV": "SSOV = Safety Shutdown On-Off Valve. Treat as discrete final element: io_type=DO, system=SIS/ESD.",
+    "SSSV": "SSSV = Subsurface Safety Valve. Treat as safety final element: io_type=DO, system=SIS/ESD.",
+    "SSV": "SSV = Surface Safety Valve. Treat as safety final element: io_type=DO, system=SIS/ESD.",
+    "BTT": "BTT = Burner/Bearing Temperature Transmitter. Treat as physical transmitter: io_type=AI, system=DCS.",
 }
 
 # IO_Type values that need enrichment
@@ -156,10 +164,15 @@ def _build_prompt(tag: str, instr_type: str, loop: str, project_legend_notes: st
         qualifier = "  Suffix L = Low (first-level alarm or trip)\n"
 
     ctx = f"  Loop/system: {loop}\n" if loop and loop not in ("nan", "") else ""
+    special_hint = (
+        f"  Project/EPC type hint: {_SPECIAL_TYPE_HINTS[code]}\n"
+        if code in _SPECIAL_TYPE_HINTS else ""
+    )
 
     return (
         f"{legend_block}"
         f"Classify P&ID tag {tag} (type code: {code}).\n"
+        f"{special_hint}"
         f"{first_line}"
         f"{last_line}"
         f"{qualifier}"

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileUp, BoxSelect, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileUp, BoxSelect, FileText, ChevronDown, ChevronUp, TableProperties, Gauge } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import type { ProjectInfo } from '../../services/pid';
 
-export type WorkspaceView = 'pid' | 'piping' | 'precisionpdf';
+export type WorkspaceView = 'pid' | 'piping' | 'precisionpdf' | 'aigrid' | 'flowsizing';
 
 interface NavItemProps {
   icon: React.ElementType;
@@ -32,6 +32,8 @@ const NAV_ITEMS: { view: WorkspaceView; icon: React.ElementType; label: string }
   { view: 'pid',          icon: FileUp,      label: 'Instrumentation' },
   { view: 'piping',       icon: BoxSelect,   label: 'Piping MTO' },
   { view: 'precisionpdf', icon: FileText,    label: 'PrecisionPDF' },
+  { view: 'aigrid',       icon: TableProperties, label: 'AI Grid' },
+  { view: 'flowsizing',   icon: Gauge, label: 'FlowSizing' },
 ];
 
 interface WorkspaceSidebarProps {

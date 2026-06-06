@@ -25,6 +25,9 @@ LINE_MAPPER_MODEL         = os.getenv("XYRA_LINE_MAPPER_MODEL",         "xyra-li
 LINE_MAPPER_MODEL_FALLBACK= os.getenv("XYRA_LINE_MAPPER_MODEL_FALLBACK","qwen2.5:7b")
 MTO_REVIEWER_MODEL        = os.getenv("XYRA_MTO_REVIEWER_MODEL",        "xyra-mto-reviewer")
 MTO_REVIEWER_MODEL_FALLBACK = os.getenv("XYRA_MTO_REVIEWER_MODEL_FALLBACK", "qwen2.5:7b")
+INSTRUMENTATION_ENGINEER_MODEL = os.getenv("XYRA_INSTRUMENTATION_ENGINEER_MODEL", "xyra-instrumentation-engineer")
+PROCESS_ENGINEER_MODEL = os.getenv("XYRA_PROCESS_ENGINEER_MODEL", "xyra-process-engineer")
+PIPING_ENGINEER_MODEL = os.getenv("XYRA_PIPING_ENGINEER_MODEL", "xyra-piping-engineer")
 
 # Keep DEFAULT_MODEL as an alias so existing callers don't break.
 DEFAULT_MODEL = INSTRUMENT_MODEL
@@ -48,6 +51,7 @@ def generate(
     model: str = DEFAULT_MODEL,
     system: Optional[str] = None,
     timeout: int = DEFAULT_TIMEOUT,
+    num_predict: int = 256,
 ) -> Optional[dict]:
     """
     Send a single prompt to Ollama and return the parsed JSON response.
@@ -62,7 +66,7 @@ def generate(
         "stream": False,
         "options": {
             "temperature": 0.1,   # deterministic — we want consistent structured output
-            "num_predict": 256,
+            "num_predict": num_predict,
         },
     }
     if system:

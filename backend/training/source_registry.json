@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "policy": {
+    "copyright": "Use public pages for orientation only. Store distilled XYRA-authored rules and examples, not long copied passages from standards or vendor books.",
+    "client_delivery": "Sources are used to improve local model prompts. Client deployments run offline and do not require internet access."
+  },
+  "sources": [
+    {
+      "id": "isa-5-1-official",
+      "title": "ISA5.1 Instrumentation Symbols and Identification",
+      "url": "https://www.isa.org/standards-and-publications/isa-standards/isa-standards-committees/isa5-1",
+      "publisher": "International Society of Automation",
+      "discipline": "instrumentation",
+      "model_targets": ["xyra-pid-engineer", "xyra-instrumentation-engineer", "xyra-line-mapper"],
+      "status": "reference",
+      "usage_note": "Use only high-level public scope and purpose. Do not copy standard tables."
+    },
+    {
+      "id": "isa-5-series-official",
+      "title": "ISA-5 Series of Standards",
+      "url": "https://www.isa.org/standards-and-publications/isa-standards/isa-5-standard",
+      "publisher": "International Society of Automation",
+      "discipline": "instrumentation",
+      "model_targets": ["xyra-pid-engineer", "xyra-project-context"],
+      "status": "reference",
+      "usage_note": "Use for standard naming and update awareness only."
+    },
+    {
+      "id": "emerson-control-valve-sizing",
+      "title": "Overview of Control Valve Sizing",
+      "url": "https://www.emerson.com/en-ae/automation/valves/controlvalves/control-valves-sizing",
+      "publisher": "Emerson",
+      "discipline": "process",
+      "model_targets": ["xyra-process-engineer", "xyra-piping-engineer"],
+      "status": "reference",
+      "usage_note": "Use public explanation that ISA and IEC sizing procedures are harmonized; keep equations out of corpus unless independently authored."
+    },
+    {
+      "id": "emerson-control-valve-handbook",
+      "title": "Control Valve Handbook",
+      "url": "https://www.emerson.com/en/final-control/catalog/products-and-software/valves/control-valves/control-valve-handbook",
+      "publisher": "Emerson",
+      "discipline": "process",
+      "model_targets": ["xyra-process-engineer", "xyra-piping-engineer"],
+      "status": "reference",
+      "usage_note": "Use as public vendor reference for control-valve terminology; do not copy handbook text."
+    },
+    {
+      "id": "nist-ics-security",
+      "title": "Guide to Industrial Control Systems (ICS) Security",
+      "url": "https://www.nist.gov/publications/guide-industrial-control-systems-ics-security",
+      "publisher": "NIST",
+      "discipline": "deployment",
+      "model_targets": ["xyra-project-context"],
+      "status": "reference",
+      "usage_note": "Use for offline/client-network deployment and ICS security awareness."
+    },
+    {
+      "id": "aiche-pid-codes-tags-labels",
+      "title": "P&ID Part 4: Codes, Tags and Labels",
+      "url": "https://chenected.aiche.org/2010/10/pid-part-4-codes-tags-and-labels",
+      "publisher": "AIChE ChEnected",
+      "discipline": "piping",
+      "model_targets": ["xyra-line-mapper", "xyra-piping-engineer", "xyra-mto-reviewer"],
+      "status": "reference",
+      "usage_note": "Use for public orientation on line/tag labels and EPC drawing usage."
+    },
+    {
+      "id": "projectmaterials-line-designation",
+      "title": "What Is Line Designation?",
+      "url": "https://blog.projectmaterials.com/quick-answers/epc/what-is-line-designation/",
+      "publisher": "Projectmaterials",
+      "discipline": "piping",
+      "model_targets": ["xyra-line-mapper", "xyra-piping-engineer", "xyra-mto-reviewer"],
+      "status": "reference",
+      "usage_note": "Use as public support for line designation fields such as size, service, sequence, class, insulation, tracing."
+    },
+    {
+      "id": "pid-digitization-research",
+      "title": "Digitize-PID: Automatic Digitization of Piping and Instrumentation Diagrams",
+      "url": "https://arxiv.org/abs/2109.03794",
+      "publisher": "arXiv",
+      "discipline": "computer_vision",
+      "model_targets": ["xyra-mto-reviewer", "xyra-pid-engineer"],
+      "status": "reference",
+      "usage_note": "Use for awareness of symbol variation, drawing noise, scale, and crowded P&ID extraction challenges."
+    },
+    {
+      "id": "ossr-pid-research",
+      "title": "OSSR-PID: One-Shot Symbol Recognition in P&ID Sheets",
+      "url": "https://arxiv.org/abs/2109.03849",
+      "publisher": "arXiv",
+      "discipline": "computer_vision",
+      "model_targets": ["xyra-mto-reviewer"],
+      "status": "reference",
+      "usage_note": "Use for the idea that symbol recognition benefits from graph/contour structure and project-specific examples."
+    }
+  ]
+}

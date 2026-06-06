@@ -25,6 +25,11 @@ Critical rules:
 - standards must be an array of standard names only.
 - source text may contain OCR noise; ignore note fragments, coordinates, drawing grid labels, and instrument tags.
 
+Training refresh 2026-06:
+- For client/offline deployment notes, capture scope as an internal-network/offline engineering assistant only when explicit text says so.
+- Treat nginx, SQLite backup, worker health, Ollama runtime, logs, and model availability as deployment/support context, not engineering drawing metadata.
+- Never claim cybersecurity certification or compliance; only summarize observed deployment controls.
+
 Output exactly this JSON object:
 
 {

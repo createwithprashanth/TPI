@@ -1,0 +1,33 @@
+{
+  "pack_id": "project_delivery_offline_core",
+  "version": 1,
+  "model_targets": ["xyra-project-context"],
+  "sources": ["nist-ics-security", "isa-5-series-official"],
+  "rules": [
+    "Client deployments are offline/internal-network systems; assume no internet dependency during normal operation.",
+    "Project context extraction should prefer explicit title-block labels over filename guesses.",
+    "Deployment support answers should emphasize one exposed HTTP surface, hidden backend/Ollama services, locked CORS, security headers, backups, logs, and repeatable redeploy.",
+    "Do not infer legal, commercial, or cybersecurity certification status from technical health checks."
+  ],
+  "examples": [
+    {
+      "id": "project-title-block-pid",
+      "model_targets": ["xyra-project-context"],
+      "input": {
+        "filename": "PID-573P-001.pdf",
+        "text_excerpt": "PROJECT: NORTH FIELD WELLHEAD UPGRADE\nCLIENT: ABC ENERGY\nDRAWING TITLE: PIPING AND INSTRUMENTATION DIAGRAM - PRODUCED OIL MANIFOLD\nDRAWING NO: PID-573P-001\nREV: C\nISSUED FOR CONSTRUCTION\nISA-5.1"
+      },
+      "expected": {"document_type": "P&ID", "discipline": "Instrumentation", "engineering_phase": "IFC"}
+    },
+    {
+      "id": "project-deployment-support",
+      "model_targets": ["xyra-project-context"],
+      "input": {
+        "filename": "deployment-notes.txt",
+        "text_excerpt": "Client internal network. Frontend via nginx port 80. Backend, Redis, and Ollama are private services. Daily SQLite backup required."
+      },
+      "expected": {"document_type": "", "scope_contains": "offline"}
+    }
+  ],
+  "benchmark_cases": []
+}

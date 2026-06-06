@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronDown, FolderOpen } from 'lucide-react';
+import { ChevronDown, FolderOpen, Moon, Sun } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import ProjectModal from './ProjectModal';
 
 interface WorkspaceBarProps {
@@ -21,6 +22,7 @@ const WorkspaceBar: React.FC<WorkspaceBarProps> = ({
   openFilesDisabled = false,
 }) => {
   const { project } = useProject();
+  const { theme, toggleTheme } = useTheme();
   const [modalOpen, setModalOpen] = useState(false);
   const [llmLive, setLlmLive] = useState<boolean | null>(null);
 
@@ -88,6 +90,27 @@ const WorkspaceBar: React.FC<WorkspaceBarProps> = ({
               Open Files
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-pressed={theme === 'light'}
+            className={`xyra-theme-toggle relative h-6 w-11 shrink-0 rounded-full border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/20 ${
+              theme === 'dark'
+                ? 'border-white/[0.08] bg-white/[0.08] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)]'
+                : 'border-black/[0.08] bg-gray-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7)]'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-white text-gray-900 shadow-sm ring-1 ring-black/5 transition-transform duration-200 ease-out ${
+                theme === 'light' ? 'translate-x-5' : 'translate-x-0.5'
+              }`}
+            >
+              {theme === 'dark' ? <Moon className="h-3 w-3" /> : <Sun className="h-3 w-3" />}
+            </span>
+          </button>
 
           {/* LLM live indicator */}
           {llmLive !== null && (

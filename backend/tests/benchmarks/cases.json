@@ -148,6 +148,8 @@
     {"id":"LM-017","tag":"LIT-101A","type":"LIT","candidates":[{"line":"6-PO-33453-251441-J-P","dist_px":450}],"expect":{"line_number":"","confidence_min":0.70}},
     {"id":"LM-018","tag":"PI-573P-09","type":"PI","candidates":[{"line":"6-PO-33453-251441-J-P","dist_px":3200}],"expect":{"line_number":"","confidence_min":0.00}},
     {"id":"LM-019","tag":"CVZT-573P-02","type":"CVZT","candidates":[{"line":"2-PO-33458-251441-J-N","dist_px":210},{"line":"4-PO-33450-251441-J-N","dist_px":1400}],"expect":{"line_number":"2-PO-33458-251441-J-N","confidence_min":0.85}},
-    {"id":"LM-020","tag":"SSV-573P-03","type":"SSV","candidates":[{"line":"2-PO-33455-256620-J-N","dist_px":340},{"line":"4-PO-33459-256620-J-N","dist_px":1800}],"expect":{"line_number":"2-PO-33455-256620-J-N","confidence_min":0.80}}
+    {"id":"LM-020","tag":"SSV-573P-03","type":"SSV","candidates":[{"line":"2-PO-33455-256620-J-N","dist_px":340},{"line":"4-PO-33459-256620-J-N","dist_px":1800}],"expect":{"line_number":"2-PO-33455-256620-J-N","confidence_min":0.80}},
+    {"id":"LM-021","tag":"XFD-573P-05","type":"XFD","candidates":[{"line":"2-PO-33458-251441-J-N","dist_px":120}],"expect":{"line_number":"","confidence_min":0.95}},
+    {"id":"LM-022","tag":"RO-573P-01","type":"RO","candidates":[{"line":"2-PG-24464-251482-X-N","dist_px":90},{"line":"4-PG-24465-251482-X-N","dist_px":720}],"expect":{"line_number":"2-PG-24464-251482-X-N","confidence_min":0.85}}
   ]
 }

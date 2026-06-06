@@ -1,611 +1,692 @@
-# XYRA Studio — Technical Documentation
+# XYRA Studio - System Documentation
 
----
+XYRA Studio is an on-premise engineering platform for EPC and plant engineering teams working with P&ID drawings. It combines drawing review, instrument extraction, piping MTO preparation, and local LLM assistance inside one browser-based studio.
 
-## Table of Contents
+The system is designed for client internal networks. In a production deployment, engineers access only the frontend on port 80. Backend, Redis, worker, and Ollama are hidden behind Docker networks and are not exposed to the host.
 
-1. [Overview](#overview)
-2. [Tools](#tools)
-3. [Architecture](#architecture)
-4. [LLM Integration](#llm-integration)
-5. [Tech Stack](#tech-stack)
-6. [Module Reference](#module-reference)
-7. [Data Flow](#data-flow)
-8. [Deployment](#deployment)
-9. [Customer Deployment — Windows Server](#customer-deployment--windows-server)
-10. [Future Expansion](#future-expansion)
+## Contents
 
----
+1. [Product Overview](#product-overview)
+2. [Engineering Structure Pack](#engineering-structure-pack)
+3. [Tools](#tools)
+4. [Architecture](#architecture)
+5. [Frontend Structure](#frontend-structure)
+6. [Backend Structure](#backend-structure)
+7. [LLM Models](#llm-models)
+8. [Data and Storage](#data-and-storage)
+9. [Workflows](#workflows)
+10. [Deployment](#deployment)
+11. [Security Surface](#security-surface)
+12. [Operations and Troubleshooting](#operations-and-troubleshooting)
+13. [Testing](#testing)
+14. [Extension Roadmap](#extension-roadmap)
+15. [Repository Notes](#repository-notes)
 
-## Overview
+## Product Overview
 
-XYRA Studio is an internal web application for process engineers working with Piping and Instrumentation Diagrams (P&IDs). It runs on a customer's internal server and is accessed through a browser by multiple engineers simultaneously.
+XYRA Studio currently includes these core capability areas:
 
-All processing happens on-premise — no drawings, instrument data, or analysis results are sent to external services (except Google Cloud Vision for OCR, which is configurable).
-
-**Repository:** [XYRA-AI-ENGINEERING/XYRA_Studio](https://github.com/XYRA-AI-ENGINEERING/XYRA_Studio)  
-**Frontend package:** `xyra-studio-frontend`
-
-The platform has three tools, each operating on uploaded PDF drawings. All tools share a single workspace: files are uploaded once and all tools read from the shared file state.
-
-| Tool | Purpose |
+| Area | Purpose |
 |---|---|
-| **Instrumentation** | Extracts instrument tags, maps them to pipe lines, generates engineering Excel reports |
-| **Piping MTO** | Counts piping symbols (valves, fittings) across drawings using template matching |
-| **PrecisionPDF** | Full-featured PDF viewer and annotation editor |
+| Instrumentation | Extract instrument tags from P&IDs and generate engineering deliverables such as Instrument Index, IO List, Verification Log, and Line List. |
+| Piping MTO | Detect and count piping components from P&IDs using user-created component libraries, exact computer-vision matching, size extraction, and EPC-style Excel output. |
+| PrecisionPDF | Review, annotate, search, and mark up PDFs inside the same studio workspace. |
+| AI Grid | Read, edit, sort, filter, and save shared engineering database records with AI-assisted discipline review. |
+| FlowSizing | Prepare sizing inputs/results for process and piping handoff workflows. |
+| Project Intelligence | Query shared project memory with instrumentation, process, and piping AI engineers. |
+| System Health | Show the client that the local compute fabric is alive: API, worker, Redis, Ollama, and XYRA models. |
 
----
+All tools share a common workspace. Uploaded drawings are available to every tool without re-uploading.
+
+The intended business model is a monthly licensed internal-network deployment. A typical client deployment is one Windows Server or Linux server running Docker, accessed by multiple engineers through Chrome or Edge.
+
+## Engineering Structure Pack
+
+The following engineering guides should be used before major feature work, client deployment, or architecture cleanup:
+
+| Guide | Purpose |
+|---|---|
+| `docs/XYRA_STUDIO_STRUCTURE.md` | System boundaries, loose-coupling rules, shared data ownership, and code review checklist. |
+| `docs/COMPONENT_CONTRACTS.md` | What each component owns, consumes, must avoid, and can improve next. |
+| `docs/PERFORMANCE_AND_SCALING.md` | Worker-job rules, SQLite scaling plan, frontend performance, and LLM context discipline. |
+| `docs/CUSTOMER_DEPLOYMENT_READINESS.md` | Client install checklist, first-run validation, backup, and supportability plan. |
+| `docs/FUTURE_TOOL_AND_MODEL_TEMPLATE.md` | Standard template for adding future tools, AI engineers, and shared DB tables safely. |
+| `docs/TEST_STRATEGY.md` | Required test layers, AI fallback tests, UI smoke checks, and client release gates. |
+| `backend/app/modules/README.md` | Backend module shape and coupling rules for future code work. |
 
 ## Tools
 
-### 1. Instrumentation
+### Instrumentation
 
-Automatically identifies and extracts instrument tags from P&ID drawings using a four-level processing pipeline.
+Instrumentation is the most developed engineering pipeline in the system. It processes uploaded P&IDs and generates structured Excel deliverables.
 
-**Workflow:**
-1. User uploads one or more P&ID PDFs and optionally sets an area code
-2. An anchor/calibration circle is optionally identified on the drawing for scale reference
-3. Processing is submitted as a background job (non-blocking)
-4. Frontend polls job status — live progress messages shown for each stage
-5. On completion, user downloads a ZIP containing four Excel workbooks
+Main capabilities:
 
-**Processing pipeline:**
+- Extract instrument tags from vector and scanned P&ID PDFs.
+- Classify tags using ISA-style instrument knowledge.
+- Detect equipment/noise/title-block fragments and lower confidence where needed.
+- Map instruments to connected pipe line numbers.
+- Infer instrument service using nearby line numbers, upstream/downstream context, and EPC drawing conventions.
+- Generate Instrument Index, IO List, Verification Log, and Line List.
+- Add review flags for uncertain extraction/classification/mapping cases.
+- Use project legend/context where available.
+- Run as background jobs through Redis Queue so large batches do not block the UI.
 
-```
-Level 1 — Calibration
-  Detects instrument circle radius from an anchor point
-  Establishes pixel-to-drawing-unit scale
+Important backend modules:
 
-Level 2 — Extraction  [two paths depending on PDF type]
-
-  PATH A — Vector PDF (PyMuPDF)                PATH B — Scanned PDF (OCR)
-  ─────────────────────────────────            ─────────────────────────────
-  PDF vector text extracted directly           pdf2image renders pages at 300 DPI
-  No Vision API call needed                    Google Cloud Vision reads all text
-  Instrument tags parsed from text             Tags matched by regex pattern
-  ↓                                            ↓
-  Level 3 — Line Mapping (geometry)            Level 3 — Line Mapping (directional)
-  Vector segment graph built from PDF          Axis-aligned proximity search
-  BFS through connected pipe segments          Finds nearest line number label
-  Finds associated line number label           within 1200px in 4 directions
-  ↓                                            ↓
-                                               Level 4 — LLM Line Mapping
-                                               Qwen2.5 7B (via Ollama) resolves
-                                               ambiguous or unmatched cases
-                                               Spatial candidates + engineering
-                                               context → structured JSON answer
-
-Level 4 — Classification
-  Tags grouped by loop, area, instrument type
-  Standard library applied for descriptions
-  Tag format validated against legend/pattern
-
-Excel + ZIP output
-  Instrument Index   — engineering-grade deliverable
-  IO List            — hardwired AI/AO/DI/DO points
-  Verification Log   — raw extraction with confidence flags
-  Line List          — all pipe line numbers found on drawings
-```
-
-**Output columns:**
-- `Connected_Line` — pipe line number the instrument is mapped to ("Line / Equip. Tag" in the Index)
-- `Line_Confidence` — 0.0–1.0 score when assigned by the LLM (Verification Log only)
-- `Line_Reason` — one-sentence LLM explanation for the assignment (Verification Log only)
-
-**Key behaviours:**
-- Multiple files submitted in a single batch share a batch ID
-- Jobs survive server restarts (persisted in Redis)
-- Output stored under `batch_outputs/{batch_id}/` on the server
-
----
-
-### 2. Piping MTO (Material Take-Off)
-
-Counts occurrences of a piping symbol across one or more P&ID drawings using OpenCV template matching.
-
-**Workflow:**
-1. User draws a rubber-band box around one instance of a symbol on the drawing preview
-2. Labels the symbol (e.g. "Ball Valve 2-inch")
-3. Multiple symbols can be queued before running
-4. Detection runs concurrently across all uploaded drawings and all pages
-5. Results shown as coloured bounding boxes overlaid on the drawing
-6. Individual false-positive matches can be removed in edit mode
-7. Sessions (symbol + results) persist within the workspace until cleared
-
-**Detection algorithm:**
-- PDF rendered at 300 DPI → OpenCV `TM_CCOEFF_NORMED` template matching
-- Raw candidates capped at 2,000 before NMS to prevent O(n²) blowup
-- Non-maximum suppression (IoU threshold) removes duplicate hits
-- ORB keypoint fallback for low-contrast templates
-- Rotation support for rotated symbol variants
-- Concurrency: up to `cpu_count - 1` simultaneous detection threads
-
-**Symbol Library:**
-- Symbols saved to a persistent server-side JSON file (shared across all users)
-- Read-modify-write operations protected by a threading lock
-- Saved symbols can be reused across sessions without redrawing
-
-**Exports:**
-
-| Format | Contents |
+| File | Role |
 |---|---|
-| Excel (.xlsx) | Symbol name, thumbnail image, per-drawing count, total |
-| CSV | Symbol name, drawing, count |
-| PDF report | Summary table + annotated drawing pages |
-| Annotated JPG | Drawing with coloured bounding boxes and legend |
+| `backend/app/modules/instrumap/core/instrument_processor.py` | Main orchestration for instrument extraction and Excel generation. |
+| `backend/app/modules/instrumap/core/level2_extraction_pymupdf.py` | Vector PDF text extraction path. |
+| `backend/app/modules/instrumap/core/level2_extraction_fast.py` | OCR/scanned PDF extraction path. |
+| `backend/app/modules/instrumap/core/line_extractor.py` | Pipe line number extraction. |
+| `backend/app/modules/instrumap/core/line_mapper.py` | Geometry/proximity instrument-to-line mapping. |
+| `backend/app/modules/instrumap/core/service_enricher.py` | Instrument service inference. |
+| `backend/app/modules/instrumap/core/project_legend.py` | Project legend extraction and context support. |
+| `backend/app/modules/instrumap/core/excel_writer.py` | Engineering Excel output. |
 
----
+### Piping MTO
 
-### 3. PrecisionPDF
+Piping MTO prepares a piping material take-off from P&IDs. The user selects a component once, saves it to the library, and runs detection across drawings.
 
-A full-featured PDF viewer and markup editor for reviewing and annotating P&ID drawings.
+Current capabilities:
 
-**Features:**
-- Page-by-page rendering via PDF.js
-- Selectable, searchable text layer
-- Canvas annotation layer (freehand draw, shapes, colours)
-- Annotation sidebar (list and navigate all markups)
-- Thumbnail sidebar for page navigation
-- Minimap overlay for spatial orientation in large drawings
-- Full-text search with highlights
-- Toolbar: zoom, pan, page controls, annotation tools, colour picker
+- User-created component library stored on the backend.
+- Rectangular capture with automatic outer whitespace trimming.
+- Component thumbnails in the UI.
+- Exact/pixel-aware matching with rotation support.
+- Tolerant mode and ORB fallback for difficult drawings.
+- Multi-page PDF detection.
+- False-positive removal from result overlays.
+- Size extraction near detected components, e.g. `2"`, `3/4"`, `4"x2"`.
+- AI review using local MTO reviewer model where available.
+- Graceful fallback: if AI review fails, MTO results still return.
+- EPC-style Excel package including MTO, Detection Register, QA Checks, and run metadata.
 
-**Lazy loaded** — the PrecisionPDF bundle is only fetched when the user first navigates to this tab, keeping initial load fast.
+Important backend modules:
 
----
+| File | Role |
+|---|---|
+| `backend/app/modules/piping_mto/routes.py` | MTO API routes. |
+| `backend/app/modules/piping_mto/service.py` | Library CRUD, detection dispatch, export package dispatch. |
+| `backend/app/modules/piping_mto/excel_writer.py` | EPC-style MTO Excel package writer. |
+| `backend/app/modules/piping_mto/reviewer.py` | AI review and fallback review logic. |
+| `backend/app/modules/instrumap/core/piping_mto.py` | OpenCV/PyMuPDF detection engine. |
+| `backend/data/symbol_library.json` | Shared component library. |
+
+Terminology in the UI should prefer `component`, `valve`, `instrument`, or the actual item type. Avoid using `symbol` in user-facing MTO workflow labels unless referring to a drawing legend.
+
+Library image format:
+
+- `templateImage`: raw base64 JPEG string, no `data:image/...` prefix.
+- `thumbnail`: raw base64 PNG string, no `data:image/...` prefix.
+- The frontend adds the MIME prefix when rendering.
+
+### PrecisionPDF
+
+PrecisionPDF is the drawing review and markup tool.
+
+Capabilities:
+
+- PDF.js rendering.
+- Page navigation.
+- Zoom and pan.
+- Searchable text layer.
+- Freehand annotation and shape tools.
+- Annotation sidebar.
+- Thumbnail sidebar.
+- Minimap overlay for large drawings.
+- Save/download annotated PDF.
+- P&ID symbol panel for review markup support.
+
+Important frontend modules:
+
+| File | Role |
+|---|---|
+| `frontend/src/pages/PrecisionPDFPage.tsx` | PrecisionPDF page wrapper. |
+| `frontend/src/components/pdf/ViewerContainer.tsx` | Main PDF viewer container. |
+| `frontend/src/components/pdf/Toolbar.tsx` | Viewer and annotation toolbar. |
+| `frontend/src/components/pdf/AnnotationLayer.tsx` | Annotation rendering. |
+| `frontend/src/components/pdf/CanvasLayer.tsx` | Drawing canvas layer. |
+| `frontend/src/components/pdf/TextLayer.tsx` | Searchable/selectable PDF text layer. |
+| `frontend/src/components/pdf/utils/savePdf.ts` | PDF export/save logic. |
+
+### System Health
+
+The System Health dashboard is a client-facing confidence screen. It should feel like the user is connected to a powerful local compute system.
+
+It shows:
+
+- API Core.
+- State Bus / Redis.
+- Worker Engine.
+- Local LLM Runtime / Ollama.
+- XYRA model array.
+- Queue and failed job counts.
+- System health percentage.
+- Digital data-wave background.
+
+Important modules:
+
+| File | Role |
+|---|---|
+| `frontend/src/components/workspace/SystemHealthDashboard.tsx` | Main UI. |
+| `frontend/src/components/workspace/SystemHealthDataFabric.tsx` | Data wave / compute fabric visual. |
+| `backend/app/modules/telemetry.py` | Run logs for instrumentation workflows. |
 
 ## Architecture
 
-```
-Browser (Chrome / Edge)
-  │
-  └── React SPA (Vite, served by nginx on port 80)
-        │
-        ├── /api/v1/pid/*  ──────────────────────────────────┐
-        └── /api/v1/mto/*  ──────────────────────────────────┤
-                                                              │
-                                              FastAPI (Uvicorn, port 8000)
-                                                    │
-                                    ┌───────────────┴───────────────┐
-                                    │                               │
-                               instrumentation                 piping_mto
-                               routes / service              routes / service
-                                    │                               │
-                              Redis Queue                    OpenCV detection
-                                    │                        Symbol library
-                              RQ Worker
-                                    │
-                          InstrumentProcessor
-                          (extract → classify → Excel)
-                                    │
-                                    ├── PyMuPDF path (vector PDF)
-                                    │     └── geometry line mapper
-                                    │
-                                    └── OCR path (scanned PDF)
-                                          ├── Google Vision OCR
-                                          ├── directional line mapper
-                                          └── LLM line mapper ──► Ollama
-                                                                    (port 11434)
-                                                                  Qwen2.5 7B
+High-level production deployment:
+
+```text
+Engineer Browser
+    |
+    | HTTP port 80 only
+    v
+nginx / React SPA
+    |
+    | /api proxy over Docker frontend network
+    v
+FastAPI Backend
+    |----------------------|
+    |                      |
+Redis Queue            Ollama
+    |                      |
+RQ Worker              Local XYRA models
 ```
 
-**Key architectural decisions:**
+Docker services:
 
-- **Per-product modules** — each tool is a self-contained module with its own `routes.py`, `service.py`, and `schemas.py`. Adding a new tool means adding one module directory.
+| Service | Role | Host exposure |
+|---|---|---|
+| `frontend` | nginx + built React SPA | `80:80` only |
+| `backend` | FastAPI API | internal Docker network only |
+| `worker` | RQ background worker | internal Docker network only |
+| `redis` | Queue/state broker | internal Docker network only |
+| `ollama` | Local LLM runtime | internal Docker network only |
 
-- **Thin routes, fat services** — route handlers only parse and validate; all logic lives in the service layer.
+Networks:
 
-- **Async API, sync CPU work** — FastAPI handlers are `async def`. CPU-bound work is offloaded via `run_in_executor` so the event loop is never blocked.
+| Network | Members | Purpose |
+|---|---|---|
+| `frontend` | frontend, backend | Allows nginx to proxy API requests to backend. |
+| `internal` | backend, worker, redis, ollama | Internal compute network. Marked `internal: true`. |
 
-- **RQ for long jobs** — Instrumentation analysis (OCR + Excel) can take 30–120 seconds per drawing. It runs in a separate RQ worker process. Frontend polls `GET /api/v1/pid/job/{job_id}`.
+Design principles:
 
-- **LLM is non-fatal** — if Ollama is offline or the model isn't loaded, line mapping degrades gracefully to directional fallback. No errors surface to the user.
+- Tools are loosely coupled. Instrumentation, Piping MTO, and PrecisionPDF should not depend on each other directly.
+- Shared file/workspace state lives in frontend context.
+- Backend modules own their own routes, schemas, and services.
+- Long-running processing runs in background workers.
+- LLM failures are non-fatal; deterministic engineering logic must still return usable results.
+- Client deployments expose the smallest possible network surface.
 
-- **Shared workspace context** — `WorkspaceContext` owns file state and PDF preview. All three tools read from it; none owns the files independently.
+## Frontend Structure
 
----
+Main files:
 
-## LLM Integration
-
-### Why
-
-P&ID drawings come in two types. **Vector PDFs** (native CAD export) contain embedded geometry — the line mapper uses graph traversal through PDF vector segments to trace pipe runs and identify which line each instrument connects to. **Scanned/raster PDFs** (photographed or printed-then-scanned) have no vector geometry. The only fallback is axis-aligned pixel-space proximity, which fails when lines are diagonal, when instruments are at junctions, or when the nearest label belongs to a different pipe run.
-
-Qwen2.5 7B fills this gap. Given an instrument tag, its position, and its N nearest candidate line numbers (sorted by distance), it applies engineering domain knowledge to pick the right one.
-
-### Model
-
-| Property | Value |
+| Path | Purpose |
 |---|---|
-| Model | Qwen2.5 7B (Q4_K_M quantisation) |
-| Served via | Ollama (OpenAI-compatible HTTP API) |
-| Size on disk | ~4.7 GB |
-| Inference speed | ~5–8 s/tag on CPU (M1) · ~0.3 s/tag on GPU (RTX 3090) |
-| Output format | JSON (forced via Ollama `"format": "json"` parameter) |
-| Temperature | 0.1 (near-deterministic for structured output) |
+| `frontend/src/App.tsx` | Application shell. |
+| `frontend/src/pages/InstruMapPage.tsx` | Main studio page and tool switching. |
+| `frontend/src/pages/pid/PIDAnalyserPage.tsx` | Instrumentation tool UI. |
+| `frontend/src/pages/mto/PipingMTOPage.tsx` | Piping MTO tool UI. |
+| `frontend/src/pages/PrecisionPDFPage.tsx` | PrecisionPDF page. |
+| `frontend/src/contexts/WorkspaceContext.tsx` | Shared uploaded files, active file, preview state. |
+| `frontend/src/contexts/ProjectContext.tsx` | Project metadata state. |
+| `frontend/src/services/api.ts` | Axios base client. |
+| `frontend/src/services/pid.ts` | Instrumentation API client. |
+| `frontend/src/services/mto.ts` | MTO API client. |
 
-### Custom model: `xyra-pid:v1`
+Workspace components:
 
-A custom Ollama model with a P&ID engineering system prompt baked in (`deploy/Modelfile`). Build it once after deployment:
+| Path | Purpose |
+|---|---|
+| `frontend/src/components/workspace/ActivityBar.tsx` | VS Code-inspired tool switcher. |
+| `frontend/src/components/workspace/WorkspaceBar.tsx` | Top studio bar. |
+| `frontend/src/components/workspace/FileTabs.tsx` | Uploaded file tabs. |
+| `frontend/src/components/workspace/PDFViewer.tsx` | Shared preview/drop target. |
+| `frontend/src/components/workspace/ProjectModal.tsx` | Project context entry. |
+| `frontend/src/components/workspace/StatusBar.tsx` | Bottom status display. |
+
+UI direction:
+
+- Keep controls compact and VS Code-inspired.
+- Prefer icon buttons for tools/actions.
+- Avoid unnecessary second rows in tool headers.
+- Keep MTO component library searchable and horizontally/vertically usable without hiding primary actions.
+- Use direct engineering terminology: `Prepare MTO`, `Component Library`, `Valve Type`, `Detection Register`, `Review Required`.
+
+## Backend Structure
+
+Main files:
+
+| Path | Purpose |
+|---|---|
+| `backend/main.py` | FastAPI app, routers, CORS, system endpoints. |
+| `backend/worker.py` | RQ worker entry point. |
+| `backend/app/config/settings.py` | Environment-driven settings. |
+| `backend/app/config/redis_client.py` | Redis and queue helpers. |
+| `backend/app/modules/pid_analyser/` | Instrumentation API wrapper. |
+| `backend/app/modules/instrumap/` | Instrumentation processing engine. |
+| `backend/app/modules/piping_mto/` | MTO API, library, exports, AI review. |
+| `backend/app/modules/project_context/` | Project/scope/title-block context extraction. |
+| `backend/app/modules/llm/` | Ollama client and LLM workflow helpers. |
+| `backend/app/modules/telemetry.py` | Local run logging. |
+
+API route groups:
+
+| Prefix | Purpose |
+|---|---|
+| `/api/v1/pid/*` | Instrumentation/P&ID analyser jobs, preview, download. |
+| `/api/v1/mto/*` | Piping MTO library, detection, review, export package. |
+| `/api/v1/system/*` | Health and system monitor endpoints. |
+
+## LLM Models
+
+XYRA uses local Ollama models. The base model is Qwen2.5 7B, with separate Modelfiles that bake in task-specific instructions.
+
+Expected custom models:
+
+| Model | Purpose |
+|---|---|
+| `xyra-pid-engineer` | Instrument tag understanding, ISA-5.1 style reasoning, noise rejection. |
+| `xyra-line-mapper` | Instrument-to-line mapping decisions. |
+| `xyra-project-context` | Project/title-block/scope/cover-sheet context extraction. |
+| `xyra-mto-reviewer` | MTO result review and QA suggestions. |
+
+Model names are configurable through `.env`:
+
+```env
+XYRA_INSTRUMENT_MODEL=xyra-pid-engineer
+XYRA_INSTRUMENT_MODEL_FALLBACK=qwen2.5:7b
+XYRA_LINE_MAPPER_MODEL=xyra-line-mapper
+XYRA_LINE_MAPPER_MODEL_FALLBACK=qwen2.5:7b
+XYRA_MTO_REVIEWER_MODEL=xyra-mto-reviewer
+XYRA_MTO_REVIEWER_MODEL_FALLBACK=qwen2.5:7b
+```
+
+Build models on a workstation:
 
 ```bash
-docker exec xyra-studio-ollama-1 ollama create xyra-pid:v1 --file /tmp/Modelfile
+ollama pull qwen2.5:7b
+ollama create xyra-pid-engineer -f backend/modelfiles/xyra-pid-engineer.modelfile
+ollama create xyra-line-mapper -f backend/modelfiles/xyra-line-mapper.modelfile
+ollama create xyra-project-context -f backend/modelfiles/xyra-project-context.modelfile
+ollama create xyra-mto-reviewer -f backend/modelfiles/xyra-mto-reviewer.modelfile
 ```
 
-The system prompt covers ISA 5.1 tag nomenclature, pipe line number formats, instrument connection rules (flow instruments on process lines, valves in-line, etc.), and common EPC drawing conventions.
+Windows helper:
 
-### How it works
+```powershell
+.\deploy\setup-model.ps1
+```
 
-For each unmatched instrument (after geometry and directional fallback):
+Important behavior:
 
-1. **Candidate generation** — sort all line numbers on the same page by Euclidean pixel distance, take top 8
-2. **Prompt construction** — include tag number, instrument type description, pixel position, and a ranked list of candidate lines with their size, fluid code, and distance
-3. **LLM call** — `POST /api/generate` to Ollama with `"format": "json"`
-4. **Response parsing** — extract `{ line_number, confidence, reason }` from the JSON response
-5. **Acceptance** — accepted only if `confidence >= 0.55`, otherwise the instrument remains unmatched
+- Model weights are not modified by this repo.
+- `ollama create` builds local model variants from Modelfiles.
+- If a custom model is unavailable, the system falls back to `qwen2.5:7b` where configured.
+- AI review failures should not block user results.
 
-### Fine-tuning roadmap
+## Data and Storage
 
-| Phase | Approach | When |
+| Data | Location | Notes |
 |---|---|---|
-| **Now** | `xyra-pid:v1` Modelfile (baked system prompt) | Ready to use |
-| **Near term** | Few-shot examples in every prompt (5–10 confirmed matches from the vector path) | When you have 50+ confirmed pairs |
-| **Later** | QLoRA fine-tuning on accumulated confirmed mappings — produces a 40 MB adapter | When you have 500+ confirmed pairs from real customer P&IDs |
+| Uploaded file state | Browser memory | Shared by tools during the session. |
+| Instrumentation batch output | `batch_outputs/` volume | Generated ZIP/Excel outputs. |
+| MTO component library | `backend/data/symbol_library.json` | Shared library across users. |
+| MTO export packages | `backend/data/mto_exports/` | Generated MTO packages. |
+| Project database | `backend/data/xyra_studio.db` | Offline SQLite database for project settings, instrument grid, extraction sessions, sizing placeholders, datasheet placeholders, and AI grid preferences. |
+| Redis queue/state | Docker volume `redis_data` | Jobs and worker state. |
+| Ollama model files | `models/` | Large local model binaries, not committed. |
+| Run logs | `logs/runs/` | Local troubleshooting logs. |
+| Environment | `.env` | Never commit. |
+| Google Vision key | `google_credentials.json` | Never commit. |
 
-The training data source: every time the vector path (graph traversal) confirms a mapping, that pair is a verified ground truth example. No manual labelling required.
+Current storage notes:
 
----
+- Instrumentation results are automatically upserted into the local project database after each successful run. The Excel/ZIP deliverables remain the primary user output; database writes are non-fatal so extraction results are not blocked by a DB issue.
+- The local database mirrors the web/Supabase contract for instrument index and AI grid preferences through `/api/v1/instruments` and `/api/v1/aigrid/preferences/{datasource_id}`.
+- Override the database path with `XYRA_DB_PATH` when a client deployment needs the DB on a backed-up volume.
+- The MTO library is a JSON file with backend locking. This is acceptable for a single backend process.
+- If using multiple backend workers/processes or needing stronger audit/history/role isolation, migrate the SQLite project database and MTO library to PostgreSQL.
+- PostgreSQL is free/open-source and is the recommended future database for mini-SPI style instrument records.
+- SQLite is the current offline XYRA Studio default because it is zero-install, self-contained, and easy to back up for single-server client deployments.
 
-## Tech Stack
+## Workflows
 
-### Frontend
+### Instrumentation Workflow
 
-| Layer | Technology | Version |
-|---|---|---|
-| Framework | React | 19 |
-| Language | TypeScript | 5.2 |
-| Build tool | Vite | 6.3 |
-| Styling | Tailwind CSS | 3.4 |
-| HTTP client | Axios | 1.13 |
-| Animations | Framer Motion | 12 |
-| PDF rendering | PDF.js (pdfjs-dist) | 5.7 |
-| PDF manipulation | pdf-lib | 1.17 |
-| Excel export | ExcelJS | 4.4 |
-| PDF export | jsPDF | 4.2 |
-| Icons | Lucide React | 0.523 |
-
-### Backend
-
-| Layer | Technology | Version |
-|---|---|---|
-| Framework | FastAPI | 0.118 |
-| Server | Uvicorn | 0.37 |
-| Language | Python | 3.11 |
-| Validation | Pydantic v2 | 2.12 |
-| Computer vision | OpenCV | 4.12 |
-| Numerical | NumPy | 2.2 |
-| PDF → image | pdf2image + Poppler | 1.17 |
-| PDF parsing | PyMuPDF (fitz) | 1.24 |
-| OCR | Google Cloud Vision | 3.11 |
-| Data processing | pandas | 2.3 |
-| Excel output | openpyxl / XlsxWriter | 3.1 / 3.2 |
-| Job queue | RQ | 2.1 |
-| Queue broker | Redis | 5.0 |
-
-### LLM / AI
-
-| Component | Technology |
-|---|---|
-| LLM inference server | Ollama (local, no internet required after model download) |
-| Model | Qwen2.5 7B Q4_K_M |
-| Custom model | `xyra-pid:v1` (Modelfile with P&ID system prompt) |
-| API protocol | Ollama HTTP API (OpenAI-compatible) |
-| GPU acceleration | NVIDIA CUDA (optional, falls back to CPU) |
-
----
-
-## Module Reference
-
-### Backend
-
-```
-backend/
-├── main.py                              Entry point — routers, CORS, lifespan
-├── worker.py                            RQ worker entry point
-├── app/
-│   ├── config/
-│   │   ├── settings.py                  Env-driven config (BaseSettings)
-│   │   └── redis_client.py              Redis connection + queue helpers
-│   └── modules/
-│       ├── llm/                         LLM service layer
-│       │   ├── service.py               Ollama HTTP client
-│       │   │                            OLLAMA_HOST env var for Docker networking
-│       │   │                            Forces JSON output, temperature 0.1
-│       │   └── line_mapper.py           LLM-powered instrument→line mapper
-│       │                                Spatial candidate ranking + prompt builder
-│       │                                Confidence threshold filtering (≥ 0.55)
-│       │
-│       ├── instrumap/                   Instrumentation processing engine
-│       │   └── core/
-│       │       ├── instrument_processor.py   Main pipeline orchestrator
-│       │       │                             Selects vector vs OCR path
-│       │       │                             Wires LLM mapper into OCR path
-│       │       ├── level1_calibration.py     Circle detection + scale reference
-│       │       ├── level2_extraction.py      OCR tag extraction (standard)
-│       │       ├── level2_extraction_fast.py OCR tag extraction (fast mode)
-│       │       ├── level2_extraction_pymupdf.py  Vector PDF extraction (no OCR)
-│       │       ├── level3_classification.py  Tag grouping + description library
-│       │       ├── line_extractor.py         Pipe line number extraction (4-pass)
-│       │       │                             Pass 1: single token · Pass 2: hyphen-join
-│       │       │                             Pass 3: concat · Pass 4: inch-mark anchor
-│       │       ├── line_mapper.py            Geometry-based line mapper (vector path)
-│       │       │                             Vector segment graph → BFS → line label
-│       │       │                             Directional fallback for stubs not in graph
-│       │       ├── excel_writer.py           Engineering Excel output (4 workbooks)
-│       │       ├── standard_library.py       ISA instrument description lookup
-│       │       ├── tag_validator.py          Tag format validation
-│       │       └── config.py                 Module constants
-│       │
-│       ├── pid_analyser/                P&ID Analyser API module
-│       │   ├── routes.py                /preview · /process · /job/{id} · /download
-│       │   ├── service.py               Job orchestration + status tracking
-│       │   └── schemas.py               Pydantic models
-│       │
-│       └── piping_mto/                  Piping MTO API module
-│           ├── routes.py                /library CRUD · /detect · /detect-all-pages
-│           ├── service.py               Detection dispatch + symbol library (locked)
-│           └── schemas.py               Pydantic models
-│
-└── data/
-    └── symbol_library.json              Persistent symbol library
+```text
+Upload P&ID PDFs
+    |
+Preview / optional calibration
+    |
+Submit background job
+    |
+Worker extracts text/tags/lines
+    |
+Classify instruments
+    |
+Map lines and infer services
+    |
+Generate Excel deliverables
+    |
+Download ZIP
 ```
 
-### Frontend
+Expected outputs:
 
-```
-frontend/src/
-├── pages/
-│   ├── InstruMapPage.tsx            Workspace shell — layout, routing, file input
-│   │                                WorkspaceBar + ActivityBar + editor area
-│   ├── pid/
-│   │   └── PIDAnalyserPage.tsx      Instrumentation — calibration, job polling, results
-│   ├── mto/
-│   │   ├── PipingMTOPage.tsx        Piping MTO — rubber-band, results, exports
-│   │   └── hooks/
-│   │       ├── useMtoSessions.ts    Session state — staged templates, results
-│   │       ├── useMtoDetection.ts   Detection runner — concurrency, cancel
-│   │       └── useMtoExports.ts     CSV, Excel, PDF, annotated image exports
-│   └── PrecisionPDFPage.tsx         PrecisionPDF wrapper (lazy-loaded)
-│
-├── services/
-│   ├── api.ts                       Axios base instance (VITE_API_URL)
-│   ├── pid.ts                       P&ID Analyser API calls
-│   └── mto.ts                       MTO API calls + symbol library CRUD
-│
-├── contexts/
-│   ├── WorkspaceContext.tsx         Shared file state, preview, zoom, closeFile()
-│   └── ProjectContext.tsx           Project metadata — persisted to localStorage
-│
-└── components/
-    ├── workspace/
-    │   ├── WorkspaceBar.tsx         Top-of-app bar: XYRA logo + project chip
-    │   ├── ActivityBar.tsx          48px icon-only tool switcher (VS Code style)
-    │   ├── FileTabs.tsx             Horizontal scrollable per-file tabs
-    │   ├── Breadcrumb.tsx           XYRA Studio › Tool › Filename
-    │   ├── ProjectModal.tsx         Project name/number/client/contractor modal
-    │   ├── StatusBar.tsx            Bottom status line (RUNNING/DONE + message)
-    │   └── PDFViewer.tsx            PDF image display + drag-and-drop empty state
-    └── pdf/                         PrecisionPDF rendering engine
-        ├── ViewerContainer.tsx
-        ├── PdfRenderer.tsx
-        ├── CanvasLayer.tsx
-        ├── TextLayer.tsx
-        ├── AnnotationLayer.tsx
-        ├── Toolbar.tsx
-        ├── ThumbnailSidebar.tsx
-        ├── AnnotationSidebar.tsx
-        ├── SearchHighlightLayer.tsx
-        ├── MiniMapOverlay.tsx
-        └── context/PdfContext.tsx
+- Instrument Index.
+- IO List.
+- Verification Log.
+- Line List.
+- Supporting highlighted/diagnostic output where enabled.
+
+### Piping MTO Workflow
+
+```text
+Upload P&ID PDFs
+    |
+Select component area on drawing
+    |
+System trims outer whitespace
+    |
+Save to Component Library
+    |
+Prepare MTO across drawings/pages
+    |
+Review detections and remove false positives
+    |
+AI review runs if available
+    |
+Export EPC-style MTO package
 ```
 
----
+Expected outputs:
 
-## Data Flow
+- Piping Material Take-Off.xlsx.
+- Detection Register.xlsx.
+- QA Checks.xlsx.
+- `mto_run.json`.
+- ZIP package.
 
-### Instrumentation — job lifecycle
+### PrecisionPDF Workflow
 
+```text
+Open uploaded PDF
+    |
+Review pages / search text
+    |
+Annotate or mark up drawing
+    |
+Navigate via thumbnails/minimap
+    |
+Save annotated PDF
 ```
-POST /api/v1/pid/preview        ← PDF bytes
-  → pdf2image (first page render)
-  ← base64 JPEG preview + page count
-
-POST /api/v1/pid/process        ← PDF bytes + calibration + project metadata
-  → RQ enqueue(process_pid_task, job_id)
-  ← { job_id, batch_id, status: "queued" }
-
-GET  /api/v1/pid/job/{job_id}   ← polled every 3 s by frontend
-  ← { status, progress: { stage, message } }
-  ← when finished: { result, download_ready: true, download_endpoint }
-
-GET  /api/v1/pid/download/{batch_id}
-  ← ZIP blob (4× Excel workbooks + highlighted image)
-```
-
-### Piping MTO — detection lifecycle
-
-```
-POST /api/v1/mto/detect-all-pages    ← PDF bytes + template box coords
-  → render PDF at 300 DPI
-  → TM_CCOEFF_NORMED per page → NMS
-  ← { total_count, pages: [{ page, count, matches }] }
-
-GET  /api/v1/mto/library             ← full symbol list
-POST /api/v1/mto/library             ← save new symbol (returns ID)
-PUT  /api/v1/mto/library/{id}        ← update name/thumbnail
-DELETE /api/v1/mto/library/{id}      ← remove entry
-```
-
----
 
 ## Deployment
 
-### Docker Compose (recommended)
+### Local Development
+
+Backend:
 
 ```bash
-git clone https://github.com/XYRA-AI-ENGINEERING/XYRA_Studio
-cd XYRA_Studio
-cp .env.example .env          # edit as needed
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+Worker:
+
+```bash
+cd backend
+source .venv/bin/activate
+python worker.py
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+Open:
+
+```text
+http://127.0.0.1:5173
+```
+
+### Docker / Client Deployment
+
+```bash
+cp .env.template .env
 docker compose up --build
 ```
 
-**Services started:**
+Open:
 
-| Container | Role | Port |
-|---|---|---|
-| `xyra-frontend` | nginx serving built React SPA | 80 |
-| `xyra-backend` | FastAPI + Uvicorn | 8000 (internal) |
-| `xyra-worker` | RQ background job worker | — |
-| `xyra-redis` | Redis job queue broker | 6379 (internal) |
-| `xyra-ollama` | Ollama LLM inference server | 11434 (internal) |
-
-The `models/` directory is mounted into the Ollama container as a volume. Model files persist across container restarts and never need to be re-downloaded.
-
-On first start, Ollama automatically pulls `qwen2.5:7b` (~4.7 GB). Progress:
-```bash
-docker compose logs -f ollama
+```text
+http://localhost
 ```
 
-After the model is ready, build the custom `xyra-pid:v1` model with the baked-in P&ID prompt:
-```bash
-.\deploy\setup-model.ps1      # Windows
-# or:
-docker cp deploy/Modelfile xyra-studio-ollama-1:/tmp/Modelfile
-docker exec xyra-studio-ollama-1 ollama create xyra-pid:v1 --file /tmp/Modelfile
-```
-
-### Environment variables (`.env`)
+For a client network install, set:
 
 ```env
-ENV=production
-REDIS_URL=redis://redis:6379
-OLLAMA_HOST=http://ollama:11434    # Docker service name — don't change
-PDF_DPI=300
-POPPLER_PATH=                      # leave empty — poppler is in the Docker image
-GOOGLE_APPLICATION_CREDENTIALS=/app/google_credentials.json
+CORS_ORIGINS=http://YOUR_SERVER_IP
+ALLOW_SYSTEM_WORKER_START=false
 INSTRUMAP_DEBUG=false
+PDF_DPI=300
 ```
 
-### Hardware requirements
+Only port 80 should be exposed to the client network.
 
-| Component | Minimum | Recommended |
-|---|---|---|
-| CPU | 4 cores | 8+ cores |
-| RAM | 16 GB | 32 GB |
-| Disk | 20 GB | 100 GB (batch outputs + model files) |
-| GPU | None (CPU inference ~5–8 s/tag) | NVIDIA RTX 3090 24 GB (0.3 s/tag) |
-| OS | Windows Server 2019 / Ubuntu 22.04 | Same |
+### Offline Deployment
 
-### Scaling notes
+Online machine:
 
-- **Symbol library** is a single JSON file with a threading lock. Safe for multiple threads within one process. If you run multiple Uvicorn workers (`--workers N`), migrate to SQLite (WAL mode).
-- **LLM throughput** is the bottleneck on scanned PDFs. One GPU on the Ollama server resolves ~3 instruments/second. For large batches, run the Ollama container with GPU passthrough.
-- **Batch outputs** accumulate on disk. Set up a cron job or Windows Task Scheduler to purge `batch_outputs/` entries older than 30 days.
-
----
-
-## Customer Deployment — Windows Server
-
-EPCs run Windows everywhere. XYRA Studio is designed to be installed on a single Windows Server machine and accessed by engineers on the internal network via browser.
-
-### Architecture on a customer site
-
-```
-EPC Internal Network
-
-  Engineers (Windows 10/11, Chrome/Edge)
-        │
-        │  HTTP on port 80
-        ▼
-  Windows Server 2019/2022
-  ┌─────────────────────────────────────────┐
-  │  Docker Desktop                          │
-  │  ├── nginx container    (port 80)        │
-  │  ├── FastAPI container  (internal)       │
-  │  ├── Redis container    (internal)       │
-  │  ├── RQ worker          (internal)       │
-  │  └── Ollama container   (internal)       │
-  │       └── qwen2.5:7b  (no GPU needed)   │
-  │                                          │
-  │  models\        ← model files on disk   │
-  │  google_credentials.json                 │
-  └─────────────────────────────────────────┘
-        │
-     No internet required after setup
-```
-
-### Online install (server has internet access)
-
-```powershell
-# Run as Administrator
-Set-ExecutionPolicy Bypass -Scope Process -Force
-.\deploy\install.ps1
-```
-
-The installer checks Docker, starts all services, and prints the URL to open in a browser.
-
-### Offline install (air-gapped site)
-
-**Step 1** — On a machine with internet, create the bundle:
 ```powershell
 .\deploy\bundle-offline.ps1
-# Output: deploy\XYRA_Studio_offline_bundle\  (~8 GB)
 ```
 
-**Step 2** — Copy the entire bundle folder to a USB drive.
+Client server:
 
-**Step 3** — On the customer server:
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force
-.\install-offline.ps1
+.\deploy\install-offline.ps1
 ```
 
-The offline installer loads pre-saved Docker image tars and Ollama model blobs — no internet required.
+Reference:
 
-### Network configuration
+- `deploy/install.ps1`
+- `deploy/install-offline.ps1`
+- `deploy/bundle-offline.ps1`
+- `deploy/docker-compose.offline.yml`
+- `NEW_LAPTOP_SETUP.md`
 
-The only port that needs to be open on the server's firewall is **80 (HTTP)**. Engineers access `http://<server-name>` or `http://<server-ip>` from their workstations. All other ports (8000, 6379, 11434) are internal to Docker.
+## Security Surface
 
-For HTTPS, put a reverse proxy (IIS ARR or nginx) in front of port 80 and handle TLS termination there.
+Production nginx configuration is in `frontend/nginx.conf`.
 
----
+Current controls:
 
-## Future Expansion
+- Only port `80` is published.
+- Backend, Redis, worker, and Ollama are not host-exposed.
+- nginx proxies `/api/*` to backend internally.
+- `server_tokens off`.
+- Security headers:
+  - `X-Frame-Options: DENY`
+  - `X-Content-Type-Options: nosniff`
+  - `X-XSS-Protection`
+  - `Referrer-Policy`
+  - `Permissions-Policy`
+  - `Content-Security-Policy`
+- API rate limiting:
+  - General API: 60 requests/minute per IP.
+  - Heavy upload/detection endpoints: 10 requests/minute per IP.
+- Dotfiles are denied.
+- `/api/v1/system/worker/start` is blocked at nginx in client builds.
+- Backend has `ALLOW_SYSTEM_WORKER_START=false` as defense in depth.
+- CORS is environment-configured and warns if production uses localhost defaults.
 
-### Adding a new tool
+Recommended future controls:
 
-1. Create `backend/app/modules/{tool_name}/` with `routes.py`, `service.py`, `schemas.py`
-2. Register the router in `main.py`
-3. Create `frontend/src/pages/{tool}/` with a page component and hooks
-4. Add `services/{tool}.ts` for API calls
-5. Add an entry to the `TOOLS` array in `ActivityBar.tsx` and `TOOL_LABELS` in `InstruMapPage.tsx`
+- Active Directory / LDAP login for client user identity.
+- Role separation: viewer, engineer, admin.
+- Audit log for library changes and exports.
+- HTTPS/TLS termination at IIS, nginx, or client reverse proxy.
+- Per-project data retention policy.
 
-### Planned
+## Operations and Troubleshooting
 
-| Item | Status | Notes |
+### Health Checks
+
+Docker:
+
+```bash
+docker compose ps
+docker compose logs -f frontend
+docker compose logs -f backend
+docker compose logs -f worker
+docker compose logs -f ollama
+docker compose logs -f redis
+```
+
+Local services:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/system/health
+curl http://127.0.0.1:8000/api/v1/mto/library
+redis-cli ping
+curl http://127.0.0.1:11434/api/tags
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm run build
+```
+
+Backend tests:
+
+```bash
+cd backend
+pytest
+```
+
+### Common Issues
+
+| Symptom | Likely cause | Action |
 |---|---|---|
-| **LLM fine-tuning pipeline** | Planned | QLoRA training on confirmed instrument→line pairs collected from production. Produces a customer-specific model adapter (~40 MB) that learns each firm's tagging conventions. |
-| **Feedback loop UI** | Planned | "Mark as correct / incorrect" buttons on the Instrumentation results table. Confirmed pairs saved to `training_data/` for future fine-tuning. |
-| **Active Directory / SSO** | Planned | Replace open access with AD-backed login; CORS locked to internal hostnames. |
-| **Local OCR alternative** | Planned | Replace Google Cloud Vision with PaddleOCR or Tesseract for fully offline operation — no API key required. Relevant for customers on fully air-gapped networks. |
+| System Health shows model down | Ollama not running or custom model not built | Run `ollama list`, rebuild models with `deploy/setup-model.ps1`. |
+| Instrumentation job stuck queued | Worker not running | Start `python worker.py` or check `docker compose logs worker`. |
+| MTO AI review 500 | Ollama/model issue | Results should still be returned without AI review; check `xyra-mto-reviewer`. |
+| Component thumbnails broken | Library image saved with wrong prefix | `symbol_library.json` must store raw base64 only. |
+| Backend CORS error | `.env` CORS not set to actual URL | Set `CORS_ORIGINS=http://SERVER_IP` and restart backend. |
+| Slow scanned P&ID processing | OCR and LLM are CPU/GPU heavy | Use GPU for Ollama, reduce batch size, monitor worker logs. |
+| Docker client install cannot reach app | Firewall or port mapping | Confirm only `80:80` is exposed and Windows firewall allows inbound 80. |
 
-### Candidate features
+### Logs
 
-| Feature | Description |
+Instrumentation run logs:
+
+```text
+logs/runs/
+```
+
+Generated outputs:
+
+```text
+batch_outputs/
+backend/data/mto_exports/
+```
+
+Application logs:
+
+- Local dev: terminal running backend/worker/frontend.
+- Docker: `docker compose logs`.
+
+Support principle: the system should produce enough local evidence for a one-person support operation. Prefer clear logs, downloadable run metadata, and non-fatal fallbacks over silent failure.
+
+## Testing
+
+Current test areas:
+
+| Test file | Purpose |
 |---|---|
-| **Revision diff** | Compare two versions of a P&ID — highlight added, removed, and changed instruments. Core is in `revision_diff.py`, not yet surfaced in UI. |
-| **Per-project symbol libraries** | Project-scoped symbol sets so different plant areas can have separate valve inventories. |
-| **SQLite symbol library** | Drop-in upgrade from JSON for multi-process deployments. |
-| **Batch export across projects** | Combined MTO Excel across multiple sessions and drawings in one action. |
-| **REST API for integrations** | Expose Instrumentation results via a versioned API so SAP / CMMS systems can pull instrument data directly. |
-| **Audit log** | Who added/modified/deleted library symbols and when. |
+| `backend/tests/test_piping_mto.py` | MTO detection logic. |
+| `backend/tests/test_piping_mto_export.py` | MTO export package. |
+| `backend/tests/test_line_extractor.py` | Pipe line number extraction. |
+| `backend/tests/test_llm_line_mapper.py` | LLM line mapping behavior. |
+| `backend/tests/test_llm_service.py` | LLM service/fallback behavior. |
+| `backend/tests/test_project_context.py` | Project context extraction. |
+| `backend/tests/test_telemetry.py` | Run logging. |
+| `backend/tests/benchmarks/run_benchmark.py` | Benchmark runner for model/pipeline changes. |
+
+Recommended before client handoff:
+
+```bash
+cd frontend && npm run build
+cd ../backend && pytest
+docker compose build frontend backend
+docker compose run --rm frontend nginx -t
+```
+
+Recommended real-drawing smoke tests:
+
+- Instrumentation batch on known P&IDs.
+- MTO detection with at least one vertical and one horizontal valve/component.
+- MTO size extraction near detected components.
+- Export package open-check in Excel.
+- System Health screen with all expected models visible.
+
+## Extension Roadmap
+
+Near-term engineering improvements:
+
+- MTO component selection with better shape-assisted capture while keeping automatic outside whitespace trim.
+- MTO per-project libraries.
+- MTO material description mapping from project valve/material class tables.
+- Project cover sheet and project context workflow.
+- More structured logs and support bundle download.
+- PostgreSQL migration option for larger multi-user deployments that outgrow the embedded SQLite project database.
+
+Client/business improvements:
+
+- Active Directory / LDAP login.
+- Roles and permissions.
+- Audit trail.
+- Deployment health checker and repair script.
+- One-click backup/restore for project data.
+- License activation and expiry controls for monthly subscription.
+
+Longer-term AI improvements:
+
+- Local OCR alternative for fully offline sites.
+- Retrieval over structured instrument/MTO database for engineer questions.
+- Confirmed-result benchmark sets per client.
+- Customer-specific model adapters once enough verified examples exist.
+
+## Repository Notes
+
+Files that are intentionally local and should not be committed:
+
+- `.env`
+- `google_credentials.json`
+- Ollama model binaries under `models/`
+- Temporary batch outputs
+- Customer drawings
+- Local logs unless explicitly needed for a test fixture
+
+When moving to another laptop, use:
+
+```text
+NEW_LAPTOP_SETUP.md
+```
+
+Git pull transfers source code, Modelfiles, UI, deployment scripts, and committed library/test data. It does not transfer local `.env`, model binaries, credentials, or uncommitted work.

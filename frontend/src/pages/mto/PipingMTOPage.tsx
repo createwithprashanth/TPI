@@ -222,21 +222,62 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
 
   // ── Canvas crop helper ──────────────────────────────────────────────────────
 
-  const cropBoxToBase64 = (box: { x1: number; y1: number; x2: number; y2: number }, opts?: { maxDim?: number; format?: 'png' | 'jpeg'; quality?: number }): string => {
+  const cropBoxToBase64 = (box: { x1: number; y1: number; x2: number; y2: number }, opts?: { maxDim?: number; format?: 'png' | 'jpeg'; quality?: number; trimWhitespace?: boolean }): string => {
     try {
       const img = imageRef.current;
       if (!img || !img.complete) return '';
       const bw = box.x2 - box.x1, bh = box.y2 - box.y1;
       if (bw < 2 || bh < 2) return '';
-      const scale = opts?.maxDim ? Math.min(1, opts.maxDim / Math.max(bw, bh)) : 1;
+
       const canvas = document.createElement('canvas');
-      canvas.width  = Math.max(1, Math.round(bw * scale));
-      canvas.height = Math.max(1, Math.round(bh * scale));
+      canvas.width = Math.max(1, Math.round(bw));
+      canvas.height = Math.max(1, Math.round(bh));
       const ctx = canvas.getContext('2d');
       if (!ctx) return '';
       ctx.drawImage(img, box.x1, box.y1, bw, bh, 0, 0, canvas.width, canvas.height);
+
+      let sourceCanvas = canvas;
+      if (opts?.trimWhitespace !== false) {
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let minX = canvas.width, minY = canvas.height, maxX = -1, maxY = -1;
+        for (let y = 0; y < canvas.height; y += 1) {
+          for (let x = 0; x < canvas.width; x += 1) {
+            const i = (y * canvas.width + x) * 4;
+            const alpha = data[i + 3];
+            if (alpha === 0) continue;
+            const luminance = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+            if (luminance >= 245) continue;
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+          }
+        }
+        if (maxX >= minX && maxY >= minY) {
+          const pad = 2;
+          const sx = Math.max(0, minX - pad);
+          const sy = Math.max(0, minY - pad);
+          const sw = Math.min(canvas.width, maxX + pad + 1) - sx;
+          const sh = Math.min(canvas.height, maxY + pad + 1) - sy;
+          const trimmed = document.createElement('canvas');
+          trimmed.width = Math.max(1, sw);
+          trimmed.height = Math.max(1, sh);
+          const trimmedCtx = trimmed.getContext('2d');
+          if (!trimmedCtx) return '';
+          trimmedCtx.drawImage(canvas, sx, sy, sw, sh, 0, 0, trimmed.width, trimmed.height);
+          sourceCanvas = trimmed;
+        }
+      }
+
+      const scale = opts?.maxDim ? Math.min(1, opts.maxDim / Math.max(sourceCanvas.width, sourceCanvas.height)) : 1;
+      const output = document.createElement('canvas');
+      output.width = Math.max(1, Math.round(sourceCanvas.width * scale));
+      output.height = Math.max(1, Math.round(sourceCanvas.height * scale));
+      const outputCtx = output.getContext('2d');
+      if (!outputCtx) return '';
+      outputCtx.drawImage(sourceCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height, 0, 0, output.width, output.height);
       const mime = opts?.format === 'jpeg' ? 'image/jpeg' : 'image/png';
-      return canvas.toDataURL(mime, opts?.quality ?? 0.92).split(',')[1] ?? '';
+      return output.toDataURL(mime, opts?.quality ?? 0.92).split(',')[1] ?? '';
     } catch { return ''; }
   };
 

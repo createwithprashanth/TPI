@@ -1,5 +1,6 @@
 import React, { useRef, useState, Suspense, lazy } from 'react';
 import { ProjectProvider } from '../contexts/ProjectContext';
+import { ThemeProvider } from '../contexts/ThemeContext';
 import { WorkspaceProvider, useWorkspace } from '../contexts/WorkspaceContext';
 import WorkspaceBar from '../components/workspace/WorkspaceBar';
 import ActivityBar from '../components/workspace/ActivityBar';
@@ -8,6 +9,8 @@ import SystemHealthDashboard from '../components/workspace/SystemHealthDashboard
 import type { WorkspaceView } from '../components/workspace/WorkspaceSidebar';
 import PIDAnalyserPage from './pid/PIDAnalyserPage';
 import PipingMTOPage from './mto/PipingMTOPage';
+import AiGridPage from './AiGridPage';
+import FlowSizingStudioPage from './FlowSizingStudioPage';
 
 const PrecisionPDFPage = lazy(() => import('./PrecisionPDFPage'));
 
@@ -15,6 +18,8 @@ const TOOL_LABELS: Record<WorkspaceView, string> = {
   pid: 'Instrumentation',
   piping: 'Piping MTO',
   precisionpdf: 'PrecisionPDF',
+  aigrid: 'AI Grid',
+  flowsizing: 'FlowSizing',
 };
 
 // ── Inner shell ───────────────────────────────────────────────────────────────
@@ -36,7 +41,7 @@ const WorkspaceShell: React.FC = () => {
   const handleDropFiles = (files: File[]) => loadFiles(files);
 
   return (
-    <div className="h-full flex flex-col bg-[#0c0c0e] overflow-hidden">
+    <div className="xyra-app h-full flex flex-col bg-[#0c0c0e] overflow-hidden">
 
       {/* ── Workspace bar — full width, above everything ── */}
       <WorkspaceBar
@@ -44,7 +49,7 @@ const WorkspaceShell: React.FC = () => {
         showAreaCode={view === 'pid'}
         areaCode={areaCode}
         onAreaCodeChange={setAreaCode}
-        onOpenFiles={view === 'precisionpdf' ? undefined : openFiles}
+        onOpenFiles={view === 'precisionpdf' || view === 'aigrid' ? undefined : openFiles}
         openFilesDisabled={isPreviewLoading}
       />
 
@@ -64,6 +69,14 @@ const WorkspaceShell: React.FC = () => {
             }>
               <PrecisionPDFPage />
             </Suspense>
+          </div>
+        ) : view === 'aigrid' ? (
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <AiGridPage />
+          </div>
+        ) : view === 'flowsizing' ? (
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <FlowSizingStudioPage />
           </div>
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -110,11 +123,13 @@ const WorkspaceShell: React.FC = () => {
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 const InstruMapPage: React.FC = () => (
-  <ProjectProvider>
-    <WorkspaceProvider>
-      <WorkspaceShell />
-    </WorkspaceProvider>
-  </ProjectProvider>
+  <ThemeProvider>
+    <ProjectProvider>
+      <WorkspaceProvider>
+        <WorkspaceShell />
+      </WorkspaceProvider>
+    </ProjectProvider>
+  </ThemeProvider>
 );
 
 export default InstruMapPage;

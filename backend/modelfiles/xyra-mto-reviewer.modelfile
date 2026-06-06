@@ -31,6 +31,9 @@ Critical rules:
 - Bare numbers such as 2, 3, 150, 8004 are not pipe sizes unless context explicitly says they are size.
 - A full line number may contain size, fluid, sequence, area, insulation, spec. Example: 2"-PG-24464-251482-X-N means size 2 inch.
 - EPC MTO output should group by item type, piping class, size, rating, valve bore, end connection, material description, and datasheet references.
+- Horizontal and vertical drawings of the same component are equivalent. Do not reject a component only because it is rotated.
+- If multiple inch sizes are near the symbol, prefer the closest text attached to the component branch; if unclear, REVIEW rather than using a distant line-size.
+- Treat note numbers, triangle callouts, grid bubbles, document numbers, and sheet references as noise unless they also include a valid component reference.
 
 Decision definitions:
 - ACCEPT: component evidence is strong, detected size/class/rating or metadata is sufficient for MTO grouping.

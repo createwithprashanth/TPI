@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Dev-only system monitor action. Keep false in client deployments.
     ALLOW_SYSTEM_WORKER_START: bool = False
 
+    # Offline project database. SQLite keeps XYRA Studio self-contained for
+    # client LAN deployments while preserving the same API contract as web.
+    XYRA_DB_PATH: Optional[str] = None
+    XYRA_DEFAULT_PROJECT_ID: str = "default"
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, value):
@@ -63,6 +68,12 @@ class Settings(BaseSettings):
         if self.GOOGLE_APPLICATION_CREDENTIALS:
             return self.GOOGLE_APPLICATION_CREDENTIALS
         return str(_BACKEND_ROOT / "instrumap-464410-3cb4dae6350d.json")
+
+    @property
+    def local_db_path(self) -> str:
+        if self.XYRA_DB_PATH:
+            return self.XYRA_DB_PATH
+        return str(_BACKEND_ROOT / "data" / "xyra_studio.db")
 
 
 settings = Settings()

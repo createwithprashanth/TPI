@@ -17,6 +17,9 @@ instrumap-*.json
 # Logs / temp
 /tmp/
 *.log
+backend/data/*.db
+backend/data/*.db-shm
+backend/data/*.db-wal
 
 # macOS
 .DS_Store

@@ -155,6 +155,7 @@ Physical final element — discrete open/close.
 IO_Type = DO  |  Signal = "24VDC"  |  Power = "24VDC"
 System = SIS/ESD for safety valves.
 Examples: SDV, BDV, ESV, ESDV, SSV, SSSV, SSOV, MSOV, ASDV, XV
+SSOV must be classified as a safety shutdown on-off valve: DO, SIS/ESD. Never decode SSOV as Speed or as a modulating control valve.
 
 ── SAFETY RELIEF VALVES (spring-loaded) ─────────────────────────
 No electrical actuator — purely mechanical.
@@ -256,7 +257,7 @@ SPEED / ROTATION (S-prefix):
   SAH   = Speed Alarm High                                                    Soft Link  DCS
 
 BEARING TEMPERATURE:
-  BTT   = Bearing Temperature Transmitter                                     AI  DCS
+  BTT   = Burner/Bearing Temperature Transmitter                              AI  DCS
   BTSH  = Bearing Temperature Switch High                                     DI  DCS
   BTSHH = Bearing Temperature Switch High High (trip)                         DI  SIS/ESD
   TT    = Temperature Transmitter (bearing use in machinery context)          AI  DCS
@@ -722,6 +723,12 @@ MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence":
 
 MESSAGE user Classify P&ID tag PLC-573P-01 (type PLC). Return ONLY JSON.
 MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag SSOV-573P-02 (type SSOV). Return ONLY JSON.
+MESSAGE assistant {"description": "Safety Shutdown On-Off Valve", "io_type": "DO", "system": "SIS/ESD", "confidence": 1.0}
+
+MESSAGE user Classify P&ID tag BTT-101-01 (type BTT). Return ONLY JSON.
+MESSAGE assistant {"description": "Burner Temperature Transmitter", "io_type": "AI", "system": "DCS", "confidence": 0.9}
 
 MESSAGE user Classify P&ID tag PPHS-101A (type PPHS). Return ONLY JSON.
 MESSAGE assistant {"description": "Pump Position High Speed Switch", "io_type": "DI", "system": "DCS", "confidence": 0.8}

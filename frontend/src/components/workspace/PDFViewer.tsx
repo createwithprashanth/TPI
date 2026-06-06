@@ -67,7 +67,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   return (
     <div
       ref={viewerRef}
-      className="flex-1 relative bg-[#111114] min-h-0"
+      className="xyra-scroll-contained flex-1 relative bg-[#111114] min-h-0"
       style={{
         overflow: zoom > 1 ? 'auto' : 'hidden',
         display: 'flex',

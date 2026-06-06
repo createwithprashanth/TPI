@@ -139,6 +139,7 @@ def process_pid_task(
 ) -> Dict[str, Any]:
     pid_temp_path = None
     _rl = None  # telemetry logger — flushed in finally
+    db_upsert_result = None
 
     try:
         logger.info(f"[Job {job_id}] Starting P&ID processing for batch {batch_id}")
@@ -351,6 +352,39 @@ def process_pid_task(
                 master_df = enrich_instrument_services(master_df, all_lines_df, all_equipment_df)
                 service_enrichment = build_service_enrichment(master_df, all_lines_df, all_equipment_df)
 
+                try:
+                    from app.modules.instruments.service import upsert_instrumap_dataframe
+
+                    db_project_id = project_no or project_name or None
+                    db_df = master_df
+                    if "P&ID_Filename" in master_df.columns:
+                        current_file = str(pdf_filename or "").strip()
+                        current_base = str(pid_filename_base or "").strip()
+                        file_series = master_df["P&ID_Filename"].fillna("").astype(str).str.strip()
+                        file_mask = file_series.isin({current_file, current_base})
+                        if file_mask.any():
+                            db_df = master_df[file_mask].copy()
+                    db_upsert_result = upsert_instrumap_dataframe(
+                        db_df,
+                        project_id=db_project_id,
+                        batch_id=batch_id,
+                        pdf_filename=pdf_filename,
+                        project_metadata=project_context,
+                    )
+                    logger.info(
+                        "[Job %s] Project DB upsert: %s inserted, %s updated, %s skipped",
+                        job_id,
+                        db_upsert_result.get("inserted", 0),
+                        db_upsert_result.get("updated", 0),
+                        db_upsert_result.get("skipped", 0),
+                    )
+                except Exception as db_exc:
+                    logger.warning(
+                        "[Job %s] Project DB upsert failed; deliverables will still be returned: %s",
+                        job_id,
+                        db_exc,
+                    )
+
                 write_engineering_excel(
                     batch_dir, master_df, full_df,
                     enrichment=service_enrichment,
@@ -383,6 +417,7 @@ def process_pid_task(
             "instrument_count": instruments_count,
             "detected_radius": final_calibration_radius,
             "project_context": project_info,
+            "project_database": db_upsert_result,
             "results_table": results_table,
         }
 

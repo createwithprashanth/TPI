@@ -49,7 +49,9 @@ def _call_library(tag: str) -> dict:
 
 
 def _call_instrument_model(tag: str, instr_type: str, loop: str) -> dict:
-    from app.modules.instrumap.core.type_enricher import _call_llm, _resolve_model
+    from app.modules.instrumap.core.type_enricher import _NOISE_RE, _call_llm, _resolve_model
+    if _NOISE_RE.match(tag):
+        return {"description": "", "io_type": "", "system": "", "confidence": 0.0}
     model = _resolve_model()
     if not model:
         return {}
@@ -181,12 +183,12 @@ def run_category(key: str, cases: list, verbose: bool) -> dict:
         if ok:
             passed += 1
             if verbose:
-                print(f"  ✓ {cid} {tag:<22} {src} ({elapsed:.0f}ms)")
+                print(f"  ✓ {cid} {tag:<22} {src} ({elapsed:.0f}ms)", flush=True)
         else:
             failed += 1
             got_desc = result.get("description") or result.get("line_number", "")
             failures.append((cid, tag, reason, got_desc, elapsed))
-            print(f"  ✗ {cid} {tag:<22} {src} FAIL: {reason}  got={got_desc!r:.40}  ({elapsed:.0f}ms)")
+            print(f"  ✗ {cid} {tag:<22} {src} FAIL: {reason}  got={got_desc!r:.40}  ({elapsed:.0f}ms)", flush=True)
 
     return {"passed": passed, "failed": failed, "errors": errors, "failures": failures}
 
@@ -211,9 +213,9 @@ def main():
     totals = {"passed": 0, "failed": 0, "errors": 0}
     t_start = time.monotonic()
 
-    print("=" * 70)
-    print("  XYRA BENCHMARK")
-    print("=" * 70)
+    print("=" * 70, flush=True)
+    print("  XYRA BENCHMARK", flush=True)
+    print("=" * 70, flush=True)
 
     for key in selected:
         json_key, label = CATEGORIES[key]
@@ -224,27 +226,27 @@ def main():
         lib_count = sum(1 for c in cases if c.get("method") == "library")
         llm_count = sum(1 for c in cases if c.get("method") == "llm")
         if lib_count + llm_count > 0:
-            print(f"\n── {label} ({len(cases)} cases: {lib_count} library, {llm_count} llm) ──")
+            print(f"\n── {label} ({len(cases)} cases: {lib_count} library, {llm_count} llm) ──", flush=True)
         else:
-            print(f"\n── {label} ({len(cases)} cases) ──")
+            print(f"\n── {label} ({len(cases)} cases) ──", flush=True)
 
         result = run_category(key, cases, args.verbose)
         for k in ("passed", "failed", "errors"):
             totals[k] += result[k]
         pct = 100 * result["passed"] // len(cases) if cases else 0
-        print(f"  → {result['passed']}/{len(cases)} passed  ({pct}%)")
+        print(f"  → {result['passed']}/{len(cases)} passed  ({pct}%)", flush=True)
 
     elapsed_total = time.monotonic() - t_start
     total_cases   = totals["passed"] + totals["failed"]
     total_pct     = 100 * totals["passed"] // total_cases if total_cases else 0
 
-    print()
-    print("=" * 70)
+    print(flush=True)
+    print("=" * 70, flush=True)
     print(f"  TOTAL  {totals['passed']}/{total_cases} passed  ({total_pct}%)   "
-          f"time={elapsed_total:.1f}s")
+          f"time={elapsed_total:.1f}s", flush=True)
     if totals["errors"]:
-        print(f"  ERRORS {totals['errors']} (model unavailable or exception)")
-    print("=" * 70)
+        print(f"  ERRORS {totals['errors']} (model unavailable or exception)", flush=True)
+    print("=" * 70, flush=True)
 
     sys.exit(0 if totals["failed"] == 0 else 1)
 

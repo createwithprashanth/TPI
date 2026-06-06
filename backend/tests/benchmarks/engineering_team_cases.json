@@ -1,0 +1,132 @@
+{
+  "meta": {
+    "name": "XYRA Engineering Team model smoke cases",
+    "purpose": "Quick checks for AI Grid role-specific reviewer models after Modelfile changes."
+  },
+  "cases": [
+    {
+      "model": "xyra-instrumentation-engineer",
+      "role": "instrumentation",
+      "row": {
+        "id": "inst-1",
+        "tag_number": "101-PT-001",
+        "instrument_type": "PT",
+        "io_type": "",
+        "signal_type": "",
+        "category": ""
+      },
+      "expected": [
+        ["io_type", "AI"],
+        ["signal_type", "4-20mA + HART"],
+        ["category", "field_device"]
+      ]
+    },
+    {
+      "model": "xyra-instrumentation-engineer",
+      "role": "instrumentation",
+      "row": {
+        "id": "inst-2",
+        "tag_number": "REV 0",
+        "instrument_type": "",
+        "status": "",
+        "review_required": false
+      },
+      "expected": [
+        ["review_required", true],
+        ["status", "For Review"]
+      ]
+    },
+    {
+      "model": "xyra-process-engineer",
+      "role": "process",
+      "row": {
+        "id": "proc-1",
+        "tag_number": "101-PIT-001",
+        "instrument_type": "PIT",
+        "service": "",
+        "line_tag": "2-PG-24464-251482-X-N",
+        "review_required": false
+      },
+      "expected": [
+        ["service", "Pressure measurement on process line"],
+        ["review_required", true]
+      ]
+    },
+    {
+      "model": "xyra-piping-engineer",
+      "role": "piping",
+      "row": {
+        "id": "pipe-1",
+        "tag_number": "101-FCV-001",
+        "instrument_type": "FCV",
+        "line_tag": "",
+        "flowsizing_type": "",
+        "review_required": false
+      },
+      "expected": [
+        ["review_required", true],
+        ["flowsizing_type", "control-valve"]
+      ]
+    },
+    {
+      "model": "xyra-piping-engineer",
+      "role": "piping",
+      "row": {
+        "id": "pipe-2",
+        "tag_number": "101-RO-001",
+        "instrument_type": "RO",
+        "line_tag": "2-PG-24464-251482-X-N",
+        "flowsizing_type": ""
+      },
+      "expected": [
+        ["flowsizing_type", "flow-element"]
+      ]
+    },
+    {
+      "model": "xyra-instrumentation-engineer",
+      "role": "instrumentation",
+      "row": {
+        "id": "inst-3",
+        "tag_number": "101-TE-002",
+        "instrument_type": "TE",
+        "io_type": "",
+        "signal_type": "",
+        "category": ""
+      },
+      "expected": [
+        ["io_type", "None"],
+        ["signal_type", "None"],
+        ["category", "passive"]
+      ]
+    },
+    {
+      "model": "xyra-piping-engineer",
+      "role": "piping",
+      "row": {
+        "id": "pipe-3",
+        "tag_number": "101-PSV-001",
+        "instrument_type": "PSV",
+        "line_tag": "3-GAS-1001-A1A-N",
+        "flowsizing_type": ""
+      },
+      "expected": [
+        ["flowsizing_type", "relief-valve"]
+      ]
+    },
+    {
+      "model": "xyra-process-engineer",
+      "role": "process",
+      "row": {
+        "id": "proc-2",
+        "tag_number": "101-XFD-001",
+        "instrument_type": "XFD",
+        "service": "",
+        "line_tag": "2-PG-24464-251482-X-N",
+        "review_required": false
+      },
+      "expected": [
+        ["review_required", true]
+      ]
+    }
+  ]
+}

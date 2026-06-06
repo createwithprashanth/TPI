@@ -11,8 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
 from app.config.redis_client import init_redis
+from app.config.local_db import db_path, init_db
 from app.modules.pid_analyser.routes import router as pid_router, PREFIX as PID_PREFIX
 from app.modules.piping_mto.routes import router as mto_router, PREFIX as MTO_PREFIX
+from app.modules.instruments.routes import router as instruments_router, PREFIX as INSTRUMENTS_PREFIX
+from app.modules.aigrid.routes import router as aigrid_router, PREFIX as AIGRID_PREFIX
+from app.modules.flowsizing.routes import router as flowsizing_router, PREFIX as FLOWSIZING_PREFIX
+from app.modules.engineering_team.routes import router as engineering_team_router, PREFIX as ENGINEERING_TEAM_PREFIX
+from app.modules.project_intelligence.routes import router as project_intelligence_router, PREFIX as PROJECT_INTELLIGENCE_PREFIX
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,6 +29,7 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_redis()
+    init_db()
     yield
 
 
@@ -42,6 +49,11 @@ app.add_middleware(
 
 app.include_router(pid_router, prefix=PID_PREFIX)
 app.include_router(mto_router, prefix=MTO_PREFIX)
+app.include_router(instruments_router, prefix=INSTRUMENTS_PREFIX)
+app.include_router(aigrid_router, prefix=AIGRID_PREFIX)
+app.include_router(flowsizing_router, prefix=FLOWSIZING_PREFIX)
+app.include_router(engineering_team_router, prefix=ENGINEERING_TEAM_PREFIX)
+app.include_router(project_intelligence_router, prefix=PROJECT_INTELLIGENCE_PREFIX)
 
 
 @app.get("/health")
@@ -63,6 +75,7 @@ async def system_health():
     import json as _json
     import urllib.request
     from app.config.redis_client import get_redis_connection, is_redis_available
+    from app.modules.ai_engineers.contracts import ENGINEER_CONTRACTS
     from app.modules.llm.service import (
         _is_available, OLLAMA_BASE_URL,
         INSTRUMENT_MODEL, LINE_MAPPER_MODEL, MTO_REVIEWER_MODEL,
@@ -103,7 +116,32 @@ async def system_health():
             scope="internal service",
         )
 
-        # 3. RQ Worker — instrumap queue registered and at least one live worker
+        # 3. Local project database
+        db_ok = False
+        db_detail = "SQLite project database is not initialized."
+        db_size_mb = 0.0
+        try:
+            init_db()
+            local_path = db_path()
+            db_ok = local_path.exists()
+            db_size_mb = round(local_path.stat().st_size / 1_000_000, 2) if db_ok else 0.0
+            db_detail = (
+                f"SQLite project database is online at {local_path.name}."
+                if db_ok
+                else "SQLite project database file is not available."
+            )
+        except Exception as exc:
+            db_detail = f"SQLite project database is unavailable: {exc}"
+        services["project_db"] = service(
+            "Project Database",
+            db_ok,
+            "offline instrument grid",
+            db_detail,
+            scope="local SQLite",
+            size_mb=db_size_mb,
+        )
+
+        # 4. RQ Worker — instrumap queue registered and at least one live worker
         # RQ 2.x stores only last_heartbeat in worker hashes (no pid/queues fields).
         # Queue registration lives in the rq:queues set; worker liveness via TTL.
         conn = get_redis_connection()
@@ -132,7 +170,7 @@ async def system_health():
             failed_jobs=failed_jobs,
         )
 
-        # 4. Ollama reachability + model metadata from /api/tags
+        # 5. Ollama reachability + model metadata from /api/tags
         ollama_ok = False
         models_meta: dict[str, dict] = {}
         try:
@@ -160,7 +198,7 @@ async def system_health():
             scope="internal service",
         )
 
-        # 5. xyra-pid-engineer model
+        # 6. xyra-pid-engineer model
         meta = models_meta.get(INSTRUMENT_MODEL, {})
         pid_ok = _is_available(INSTRUMENT_MODEL)
         services["pid_model"] = service(
@@ -171,7 +209,7 @@ async def system_health():
             **meta,
         )
 
-        # 6. xyra-line-mapper model
+        # 7. xyra-line-mapper model
         meta = models_meta.get(LINE_MAPPER_MODEL, {})
         line_ok = _is_available(LINE_MAPPER_MODEL)
         services["line_model"] = service(
@@ -182,7 +220,7 @@ async def system_health():
             **meta,
         )
 
-        # 7. Project/document context model
+        # 8. Project/document context model
         meta = models_meta.get(PROJECT_CONTEXT_MODEL, {})
         project_context_ok = _is_available(PROJECT_CONTEXT_MODEL)
         services["project_context_model"] = service(
@@ -193,7 +231,7 @@ async def system_health():
             **meta,
         )
 
-        # 8. Piping MTO reviewer model
+        # 9. Piping MTO reviewer model
         meta = models_meta.get(MTO_REVIEWER_MODEL, {})
         mto_reviewer_ok = _is_available(MTO_REVIEWER_MODEL)
         services["mto_reviewer_model"] = service(
@@ -203,6 +241,18 @@ async def system_health():
             "Piping MTO reviewer model is loaded." if mto_reviewer_ok else f"{MTO_REVIEWER_MODEL} is not available in Ollama.",
             **meta,
         )
+
+        # 10+. Discipline engineer models
+        for contract in ENGINEER_CONTRACTS.values():
+            meta = models_meta.get(contract.model, {})
+            model_ok = _is_available(contract.model)
+            services[contract.health_key] = service(
+                contract.model,
+                model_ok,
+                contract.health_role,
+                f"{contract.label} model is loaded." if model_ok else f"{contract.model} is not available in Ollama.",
+                **meta,
+            )
 
         return services, {
             "queue_depth": queue_depth,
