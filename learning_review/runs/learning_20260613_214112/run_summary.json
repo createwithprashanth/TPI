@@ -1,0 +1,25 @@
+{
+  "run_id": "learning_20260613_214112",
+  "project_id": "XYRA_GEOM_GPT41_LOOP_20260613",
+  "provider": "openai",
+  "model": "gpt-4.1",
+  "db_path": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/xyra_studio.db",
+  "mto_export_dir": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/mto_exports",
+  "elapsed_s": 37.34,
+  "payload_only": false,
+  "summary": {
+    "total_comments": 42,
+    "by_deliverable": {
+      "instrument_index": 23,
+      "io_list": 19
+    },
+    "by_severity": {
+      "high": 14,
+      "critical": 8,
+      "medium": 20
+    },
+    "by_fix_type": {
+      "manual_review": 42
+    }
+  }
+}

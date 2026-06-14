@@ -71,6 +71,9 @@ const COLUMNS: Column[] = [
   { key: 'io_type', label: 'IO', width: '90px', kind: 'select', optionsKey: 'io_type_options' },
   { key: 'signal_type', label: 'Signal', width: '150px', kind: 'select', optionsKey: 'signal_type_options' },
   { key: 'line_tag', label: 'Line', width: 'minmax(190px, 1.2fr)' },
+  { key: 'line_confidence', label: 'Line %', width: '76px', readOnly: true },
+  { key: 'line_association_method', label: 'Line Method', width: '130px', readOnly: true },
+  { key: 'geometry_evidence', label: 'Evidence', width: 'minmax(210px, 1.2fr)', readOnly: true },
   { key: 'pid_number', label: 'P&ID', width: 'minmax(150px, 1fr)' },
   { key: 'area_code', label: 'Area', width: '86px' },
   { key: 'status', label: 'Status', width: '158px', kind: 'select', optionsKey: 'status_options' },
@@ -98,7 +101,21 @@ const normalizeProjectId = (projectNo?: string, projectName?: string) => {
 
 const valueToText = (value: unknown) => {
   if (value === undefined || value === null) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+};
+
+const evidenceSummary = (value: unknown) => {
+  if (!value || typeof value !== 'object') return '';
+  const evidence = value as Record<string, any>;
+  if (typeof evidence.summary === 'string' && evidence.summary.trim()) {
+    return evidence.summary.trim();
+  }
+  const parts: string[] = [];
+  if (evidence.line?.tag) parts.push(`line ${evidence.line.tag}`);
+  if (evidence.valve?.tag) parts.push(`${evidence.valve.position || 'near'} valve ${evidence.valve.tag}`);
+  if (evidence.equipment?.tag) parts.push(`${evidence.equipment.position || 'near'} equipment ${evidence.equipment.tag}`);
+  return parts.join('; ');
 };
 
 const valuesEqual = (a: unknown, b: unknown) => {
@@ -652,9 +669,17 @@ const AiGridPage: React.FC = () => {
     }
 
     if (column.readOnly && !row._isNew) {
+      const title = column.key === 'line_association_method'
+        ? valueToText(row.line_association_reason || raw)
+        : valueToText(raw);
+      const display = column.key === 'line_confidence' && typeof raw === 'number'
+        ? `${Math.round(raw * 100)}%`
+        : column.key === 'geometry_evidence'
+        ? evidenceSummary(raw)
+        : valueToText(raw);
       return (
-        <div className="h-7 w-full truncate px-1.5 py-1.5 text-xs text-gray-500">
-          {valueToText(raw) || '-'}
+        <div className="h-7 w-full truncate px-1.5 py-1.5 text-xs text-gray-500" title={title}>
+          {display || '-'}
         </div>
       );
     }

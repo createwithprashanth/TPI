@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileUp, BoxSelect, FileText, ChevronDown, ChevronUp, TableProperties, Gauge } from 'lucide-react';
+import { FileUp, BoxSelect, FileText, ChevronDown, ChevronUp, TableProperties, Gauge, Database, GitCompare, Layers3 } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import type { ProjectInfo } from '../../services/pid';
 
-export type WorkspaceView = 'pid' | 'piping' | 'precisionpdf' | 'aigrid' | 'flowsizing';
+export type WorkspaceView = 'pid' | 'piping' | 'precisionpdf' | 'aigrid' | 'flowsizing' | 'datapump' | 'datadiff' | 'datasheet';
 
 interface NavItemProps {
   icon: React.ElementType;
@@ -33,7 +33,10 @@ const NAV_ITEMS: { view: WorkspaceView; icon: React.ElementType; label: string }
   { view: 'piping',       icon: BoxSelect,   label: 'Piping MTO' },
   { view: 'precisionpdf', icon: FileText,    label: 'PrecisionPDF' },
   { view: 'aigrid',       icon: TableProperties, label: 'AI Grid' },
-  { view: 'flowsizing',   icon: Gauge, label: 'FlowSizing' },
+  { view: 'flowsizing',   icon: Gauge,     label: 'FlowSizing' },
+  { view: 'datapump',    icon: Database,     label: 'DataPump' },
+  { view: 'datadiff',    icon: GitCompare,   label: 'DataDiff' },
+  { view: 'datasheet',   icon: Layers3,      label: 'Datasheet' },
 ];
 
 interface WorkspaceSidebarProps {

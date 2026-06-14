@@ -6,6 +6,7 @@ from .extractor import (
     legacy_project_info,
     load_project_context,
     merge_project_context,
+    refresh_current_document_context,
     save_project_context,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "legacy_project_info",
     "load_project_context",
     "merge_project_context",
+    "refresh_current_document_context",
     "save_project_context",
 ]

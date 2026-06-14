@@ -9,8 +9,13 @@ export interface MatchBox {
   x2: number;
   y2: number;
   score: number;
+  accepted?: boolean;
   sizeInch?: string;
   sizeSource?: string;
+  sizeSourceType?: string;
+  sizeCandidates?: any[];
+  nearbyText?: string[];
+  sizeAmbiguous?: boolean;
   sizeConfidence?: number;
   aiDecision?: string;
   aiConfidence?: number;
@@ -273,4 +278,107 @@ export const exportMtoPackage = async ({
   a.download = match?.[1] || `Piping_MTO_Results_${new Date().toISOString().slice(0, 10)}.zip`;
   a.click();
   URL.revokeObjectURL(url);
+};
+
+export interface MtoGridItem {
+  id: string;
+  project_id: string;
+  mto_run_id?: string;
+  component_key: string;
+  category_code?: string;
+  category_name?: string;
+  unit?: string;
+  item_type: string;
+  piping_class?: string;
+  size_inch?: string;
+  rating?: string;
+  valve_bore?: string;
+  end_connection?: string;
+  material_description?: string;
+  datasheet_document_no?: string;
+  datasheet_reference_no?: string;
+  quantity: number;
+  drawing_count?: number;
+  min_detection_score?: number;
+  avg_detection_score?: number;
+  min_size_confidence?: number;
+  review_status?: string;
+  review_required?: boolean;
+  remarks?: string;
+  updated_at?: string;
+}
+
+export interface MtoEvidence {
+  id: string;
+  drawing?: string;
+  page: number;
+  component_label: string;
+  detection_score?: number;
+  size_inch?: string;
+  size_source?: string;
+  size_source_type?: string;
+  size_confidence?: number;
+  size_ambiguous?: boolean;
+  ai_decision?: string;
+  ai_reason?: string;
+  evidence_snapshot?: any;
+}
+
+export const mtoProjectId = (project: any): string => {
+  const text = String(project?.project_no || project?.project_name || 'default').trim();
+  return text.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'default';
+};
+
+export const saveMtoGrid = async ({
+  project,
+  sessions,
+  threshold,
+}: {
+  project: any;
+  sessions: any[];
+  threshold: number;
+}): Promise<{ status: string; project_id: string; mto_run_id: string; rows_saved: number; detections_saved: number }> => {
+  const resp = await api.post('/api/v1/mto/grid/save', {
+    project_id: mtoProjectId(project),
+    project,
+    sessions,
+    threshold,
+  }, { timeout: 300000 });
+  return resp.data;
+};
+
+export const fetchMtoGrid = async ({
+  projectId = 'default',
+  search = '',
+  reviewRequired,
+  sortBy = 'item_type',
+  sortDir = 'asc',
+}: {
+  projectId?: string;
+  search?: string;
+  reviewRequired?: boolean;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+}): Promise<{ data: MtoGridItem[]; total: number }> => {
+  const resp = await api.get('/api/v1/mto/grid', {
+    params: {
+      project_id: projectId,
+      search,
+      review_required: reviewRequired,
+      sort_by: sortBy,
+      sort_dir: sortDir,
+      page_size: 5000,
+    },
+  });
+  return resp.data;
+};
+
+export const updateMtoGridItem = async (id: string, patch: Partial<MtoGridItem>): Promise<MtoGridItem> => {
+  const resp = await api.patch(`/api/v1/mto/grid/${id}`, patch);
+  return resp.data;
+};
+
+export const fetchMtoEvidence = async (id: string): Promise<{ item: MtoGridItem; evidence: MtoEvidence[] }> => {
+  const resp = await api.get(`/api/v1/mto/grid/${id}/evidence`);
+  return resp.data;
 };

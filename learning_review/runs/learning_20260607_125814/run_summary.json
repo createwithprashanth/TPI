@@ -1,0 +1,28 @@
+{
+  "run_id": "learning_20260607_125814",
+  "project_id": "XYRA_E2E_PID_GRID_TEST_20260607",
+  "provider": "gemini",
+  "model": "gemini-2.5-flash-lite",
+  "db_path": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/xyra_studio.db",
+  "mto_export_dir": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/mto_exports",
+  "elapsed_s": 76.25,
+  "payload_only": false,
+  "summary": {
+    "total_comments": 169,
+    "by_deliverable": {
+      "instrument_index": 80,
+      "io_list": 74,
+      "piping_mto": 15
+    },
+    "by_severity": {
+      "high": 73,
+      "medium": 93,
+      "low": 3
+    },
+    "by_fix_type": {
+      "manual_review": 131,
+      "model_prompt": 20,
+      "project_legend": 18
+    }
+  }
+}

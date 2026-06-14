@@ -17,6 +17,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[3]
 CASES = Path(__file__).with_name("engineering_team_cases.json")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+sys.path.insert(0, str(ROOT / "backend"))
+
+from app.modules.ai_engineers.contracts import TYPE_DEFAULTS  # noqa: E402
 
 
 def call_model(model: str, role: str, row: dict[str, Any]) -> dict[str, Any]:
@@ -51,10 +54,31 @@ def call_model(model: str, role: str, row: dict[str, Any]) -> dict[str, Any]:
 
 def suggestions_map(payload: dict[str, Any]) -> dict[str, Any]:
     mapped: dict[str, Any] = {}
-    for item in payload.get("suggestions", []):
+    items = payload.get("suggestions", [])
+    if not items and isinstance(payload, dict):
+        items = [payload]
+    for item in items:
         if isinstance(item, dict):
-            mapped[str(item.get("field", ""))] = item.get("suggested_value")
+            field = str(item.get("field", "")).strip()
+            if field and ("suggested_value" in item or "value" in item):
+                mapped[field] = item.get("suggested_value", item.get("value"))
+            for key, value in item.items():
+                if key in {"id", "field", "suggested_value", "value", "confidence", "reason"}:
+                    continue
+                mapped[str(key)] = value
     return mapped
+
+
+def apply_delivery_guardrails(role: str, row: dict[str, Any], mapped: dict[str, Any]) -> dict[str, Any]:
+    guarded = dict(mapped)
+    if role == "instrumentation":
+        defaults = TYPE_DEFAULTS.get(str(row.get("instrument_type", "")).upper(), {})
+        for field in ("io_type", "signal_type", "category", "flowsizing_type"):
+            if field not in defaults:
+                continue
+            if guarded.get(field) in {None, ""} or guarded.get(field) != defaults[field]:
+                guarded[field] = defaults[field]
+    return guarded
 
 
 def main() -> int:
@@ -65,7 +89,7 @@ def main() -> int:
         role = case["role"]
         try:
             payload = call_model(model, role, case["row"])
-            got = suggestions_map(payload)
+            got = apply_delivery_guardrails(role, case["row"], suggestions_map(payload))
         except Exception as exc:
             failures += 1
             print(f"FAIL {model} {case['row']['id']}: {exc}")

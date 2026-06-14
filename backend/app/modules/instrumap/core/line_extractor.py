@@ -53,7 +53,18 @@ _RE_LINE_NUMBER = re.compile(
 )
 
 # Single vowels that are clearly OCR noise, not fluid codes
-_REJECT_FLUID = {'A', 'E', 'I', 'O', 'U', 'Y'}
+_REJECT_FLUID = {
+    'A', 'E', 'I', 'O', 'U', 'Y',
+    'ANSI', 'API', 'DWG', 'DWGN', 'MIN', 'MAX', 'NOTE', 'TYP', 'TYPICAL',
+    # Instrument/type fragments seen in dense P&ID bodies. These can otherwise
+    # be misread as fluid codes when OCR joins a nearby note number + tag text:
+    # e.g. "24 LG 2005 LT" -> "24-LG-2005-LT".
+    'AT', 'FIT', 'FI', 'FT', 'FIC', 'FQI',
+    'HS', 'LAH', 'LAHH', 'LAL', 'LALL', 'LG', 'LI', 'LIC', 'LIT', 'LT',
+    'PDI', 'PDG', 'PDSL', 'PI', 'PIT', 'PT',
+    'TE', 'TI', 'TIT', 'TT', 'TW',
+    'VAH', 'VSH', 'XL', 'XZLC', 'XZLO', 'XZSC', 'XZSO',
+}
 
 # Tokens that look like a pipe size with inch mark — anchor point for Pass 4
 _RE_SIZE_ANCHOR = re.compile(
@@ -91,6 +102,13 @@ def _try_parse(text: str) -> Optional[Dict]:
     area      = (m.group(5) or '').upper()
     suffix1   = (m.group(6) or '').upper()  # insulation / spec (e.g. J)
     suffix2   = (m.group(7) or '').upper()  # secondary spec  (e.g. P)
+
+    # OCR reconstruction can glue an adjacent instrument suffix onto the final
+    # line spec, e.g. 2-PG-24468-251482-X-N18 beside PIT-...-18. In EPC line
+    # numbers the final spec is commonly a short alpha code; trailing digits
+    # here are stronger evidence of a neighbouring tag suffix than line data.
+    if re.match(r'^[A-Z]\d{2,3}$', suffix2):
+        suffix2 = suffix2[0]
 
     if fluid in _REJECT_FLUID:
         return None

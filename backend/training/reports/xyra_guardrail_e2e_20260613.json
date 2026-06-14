@@ -1,0 +1,146 @@
+{
+  "project_id": "XYRA_GUARDRAIL_E2E_20260613",
+  "db_path": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/xyra_studio.db",
+  "pid_dir": "/Users/prashanththipparthi/Downloads/Zoho WorkDrive",
+  "batch_id": "pid_grid_acceptance_1781380359",
+  "elapsed_s": 107.44,
+  "before": {
+    "instruments": 0,
+    "sessions": 0,
+    "history": 0
+  },
+  "after_extract": {
+    "instruments": 85,
+    "sessions": 1,
+    "history": 0
+  },
+  "after_ai": {
+    "instruments": 85,
+    "sessions": 1,
+    "history": 43
+  },
+  "pid_results": [
+    {
+      "file": "pid (1).pdf",
+      "status": "finished",
+      "instrument_count": 85,
+      "project_database": {
+        "inserted": 85,
+        "updated": 0,
+        "skipped": 0
+      },
+      "elapsed_s": 1.4
+    }
+  ],
+  "ai_grid": {
+    "rows_reviewed": 60,
+    "summary": {
+      "rows_reviewed": 60,
+      "suggestions": 43,
+      "by_engineer": {
+        "instrumentation": 43
+      },
+      "by_field": {
+        "io_type": 4,
+        "review_required": 3,
+        "signal_type": 24,
+        "status": 11,
+        "category": 1
+      }
+    },
+    "model_status": {
+      "instrumentation": {
+        "model": "xyra-instrumentation-engineer",
+        "status": "reviewed_limited_to_8",
+        "suggestions": 0
+      },
+      "process": {
+        "model": "xyra-process-engineer",
+        "status": "reviewed_limited_to_8",
+        "suggestions": 0
+      },
+      "piping": {
+        "model": "xyra-piping-engineer",
+        "status": "model_error_limited_to_6",
+        "suggestions": 0
+      }
+    },
+    "suggestions": 43,
+    "applied": 43,
+    "skipped": 0
+  },
+  "sample_rows": [
+    {
+      "tag_number": "CALL-08",
+      "instrument_type": "CALL",
+      "service": "Process conductivity low-low alarm",
+      "io_type": "Soft Link",
+      "line_tag": null,
+      "status": "Rejected - Noise",
+      "review_required": true
+    },
+    {
+      "tag_number": "EPC-28",
+      "instrument_type": "EPC",
+      "service": "Process voltage control",
+      "io_type": "Soft Link",
+      "line_tag": null,
+      "status": "Rejected - Noise",
+      "review_required": true
+    },
+    {
+      "tag_number": "FCV-1762P-12",
+      "instrument_type": "FCV",
+      "service": "1 in Chemical injection line valve control",
+      "io_type": "AO",
+      "line_tag": "1-IZ-26840-253411-Z-N",
+      "status": "Draft",
+      "review_required": false
+    },
+    {
+      "tag_number": "FE",
+      "instrument_type": "FE",
+      "service": "Flow element",
+      "io_type": "None",
+      "line_tag": null,
+      "status": "For Review",
+      "review_required": true
+    },
+    {
+      "tag_number": "FE-1762P-12",
+      "instrument_type": "FE",
+      "service": "Flow element line requires review",
+      "io_type": "None",
+      "line_tag": null,
+      "status": "For Review",
+      "review_required": true
+    },
+    {
+      "tag_number": "FI-1762P-12",
+      "instrument_type": "FI",
+      "service": "Flow indication on 6 in Vent gas line",
+      "io_type": "Soft Link",
+      "line_tag": "6-VG-20715-013461-Y-N",
+      "status": "Draft",
+      "review_required": false
+    },
+    {
+      "tag_number": "FIC",
+      "instrument_type": "FIC",
+      "service": "Process flow control",
+      "io_type": "Soft Link",
+      "line_tag": null,
+      "status": "For Review",
+      "review_required": true
+    },
+    {
+      "tag_number": "FIC-1762P-12",
+      "instrument_type": "FIC",
+      "service": "Process flow control line requires review",
+      "io_type": "Soft Link",
+      "line_tag": null,
+      "status": "For Review",
+      "review_required": true
+    }
+  ]
+}

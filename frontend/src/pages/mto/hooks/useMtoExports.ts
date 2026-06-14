@@ -185,7 +185,7 @@ export function useMtoExports({
         const scaleY = fr.imageHeight ? canvas.height / fr.imageHeight : 1;
         ctx.strokeStyle = session.color;
         ctx.lineWidth = Math.max(6, Math.round(canvas.width / 600));
-        for (const m of fr.matches.filter(m => (m.page ?? 1) === 1)) ctx.strokeRect(m.x1 * scaleX, m.y1 * scaleY, (m.x2 - m.x1) * scaleX, (m.y2 - m.y1) * scaleY);
+        for (const m of fr.matches.filter(m => m.accepted !== false && (m.page ?? 1) === 1)) ctx.strokeRect(m.x1 * scaleX, m.y1 * scaleY, (m.x2 - m.x1) * scaleX, (m.y2 - m.y1) * scaleY);
       }
       const pad = 24, swatchW = 40, swatchH = 28, lineH = 44, fontSize = 28;
       ctx.font = `bold ${fontSize}px sans-serif`; let ly = pad;
@@ -295,7 +295,7 @@ export function useMtoExports({
           const sx = fr.imageWidth ? canvas.width / fr.imageWidth : 1;
           const sy = fr.imageHeight ? canvas.height / fr.imageHeight : 1;
           ctx.strokeStyle = session.color; ctx.lineWidth = Math.max(6, Math.round(canvas.width / 600));
-          for (const m of fr.matches.filter(m => (m.page ?? 1) === 1)) ctx.strokeRect(m.x1 * sx, m.y1 * sy, (m.x2 - m.x1) * sx, (m.y2 - m.y1) * sy);
+          for (const m of fr.matches.filter(m => m.accepted !== false && (m.page ?? 1) === 1)) ctx.strokeRect(m.x1 * sx, m.y1 * sy, (m.x2 - m.x1) * sx, (m.y2 - m.y1) * sy);
         }
         pdf.addPage();
         const TITLE_H = 10;

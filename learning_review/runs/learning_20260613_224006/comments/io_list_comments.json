@@ -1,0 +1,77 @@
+{
+  "deliverable": "io_list",
+  "overall_grade": "B",
+  "summary": "Most IO rows have strong line/equipment associations and correct IO/signal/system fields. However, several hardwired safety and final element devices lack confirmed line or equipment tags, which is a high-impact EPC compliance issue. XYRA should improve detection and association logic for these critical rows, especially where geometry evidence is weak or ambiguous.",
+  "comments": [
+    {
+      "deliverable": "io_list",
+      "row_id": "692c42e05e3361c66576694ac2d8d2f1",
+      "tag_number": "PSAL-1762P-25",
+      "component_id": "",
+      "item_type": "",
+      "severity": "high",
+      "field": "line_tag",
+      "issue": "Hardwired safety device (PSAL) is missing a connected line or equipment tag.",
+      "suggested_value": null,
+      "reason": "EPC standards require all hardwired safety IO to be traceable to a process line or equipment for hazard analysis and maintenance.",
+      "evidence_needed": "PID or geometry evidence confirming the connected line or equipment.",
+      "fix_type": "manual_review"
+    },
+    {
+      "deliverable": "io_list",
+      "row_id": "6afee6e4064d82b4725252a1fce50c2e",
+      "tag_number": "SSV-1414P-02",
+      "component_id": "",
+      "item_type": "",
+      "severity": "critical",
+      "field": "line_tag",
+      "issue": "Shutdown valve (SSV) with hardwired DO is missing a confirmed line or equipment tag; nearest line label is not a confirmed connection.",
+      "suggested_value": null,
+      "reason": "Shutdown valves must be traceable to their process line for safety, cause & effect, and loop integrity.",
+      "evidence_needed": "PID or geometry evidence confirming the actual connected line.",
+      "fix_type": "manual_review"
+    },
+    {
+      "deliverable": "io_list",
+      "row_id": "26a7189591195960fe4738bcbd93a4a4",
+      "tag_number": "SSV-1414P-07",
+      "component_id": "",
+      "item_type": "",
+      "severity": "critical",
+      "field": "line_tag",
+      "issue": "Shutdown valve (SSV) with hardwired DO is missing a confirmed line or equipment tag; nearest line label is not a confirmed connection.",
+      "suggested_value": null,
+      "reason": "Shutdown valves must be traceable to their process line for safety, cause & effect, and loop integrity.",
+      "evidence_needed": "PID or geometry evidence confirming the actual connected line.",
+      "fix_type": "manual_review"
+    },
+    {
+      "deliverable": "io_list",
+      "row_id": "8a445935054319d8c5a64a873b76245c",
+      "tag_number": "SSV-1762P-08",
+      "component_id": "",
+      "item_type": "",
+      "severity": "critical",
+      "field": "line_tag",
+      "issue": "Shutdown valve (SSV) with hardwired DO is missing a confirmed line or equipment tag; nearest line label is not a confirmed connection.",
+      "suggested_value": null,
+      "reason": "Shutdown valves must be traceable to their process line for safety, cause & effect, and loop integrity.",
+      "evidence_needed": "PID or geometry evidence confirming the actual connected line.",
+      "fix_type": "manual_review"
+    },
+    {
+      "deliverable": "io_list",
+      "row_id": "b8c8302366e70a559f7b9b1d61c3d0d4",
+      "tag_number": "VENT-5000-IN",
+      "component_id": "",
+      "item_type": "",
+      "severity": "high",
+      "field": "line_tag",
+      "issue": "Vibration measurement instrument is missing a connected line or equipment tag; nearest equipment is only 'near' with moderate confidence.",
+      "suggested_value": null,
+      "reason": "Hardwired field devices must be traceable to a specific equipment or line for maintenance and troubleshooting.",
+      "evidence_needed": "PID or geometry evidence confirming the actual connected equipment or line.",
+      "fix_type": "manual_review"
+    }
+  ]
+}

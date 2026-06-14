@@ -1,0 +1,9 @@
+{
+  "run_id": "sanity_size_evidence",
+  "symbol_count": 1,
+  "total_quantity": 3,
+  "mto_rows": 2,
+  "qa_issues": 4,
+  "threshold": 0.7,
+  "ai_review": {}
+}

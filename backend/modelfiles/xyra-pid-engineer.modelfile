@@ -413,6 +413,15 @@ These are NOT instruments — they are drawing annotations, OCR noise, or symbol
 - Revision/hold marks:        REV, REV-A, HOLD, HOLD-1  (drawing control codes)
 - Drawing references:         DRG, DWG, DWGNO  (not instruments)
 - Document references:        MTO  (Material Takeoff — a document type, not instrument)
+- Text fragments from nearby notes/process text: BLEED-10, FROM-12330-FROM, WELL-102-OF, WILL-P11671, SIL-25M-WHICH, ADNOC-11, ASME-251441-J, EPC-28, FOR-API5000, AS-TO10D-NEED, THE-UPTO10
+- GPT-4.1 learned project-noise fragments from XYRA test PIDs: ADCO-1963-ADCO, AFTER-317-209, AREA-5610-5710, ALARM-8004, ALL-01-03, ASIC-7767, BALL-316, BALL-316-INTHE, BAND-150-TRIP, LIMIT-11055. These are text/title/note/process-word fragments unless a project legend explicitly defines the exact code.
+- Incomplete OCR fragments with missing ISA type prefix: 1203P-01, 253461-Y, 251482-X
+- Non-ISA prefixes captured as tag types: IN-1000, LP-18, SH-1203P-01A, XFAB-54102-01-FIRE, XGAB-1203P-01, XMCP-54102-2933
+
+PROJECT-SPECIFIC F&G CODES:
+  XFD, XGD, XGA, XTGD, XHMD, XHHA and similar legend-confirmed X-codes can be valid.
+  But XFAB/XGAB/XMCP without a project legend match are usually vendor/title-block fragments or panel references.
+  Return confidence 0.0 unless the input explicitly says the project legend defines that exact code.
 
 EQUIPMENT TAGS — single letter prefix + hyphen + number:
   P-101, P-573P-01 (pump)    V-201 (vessel)    D-101 (drum/separator)
@@ -555,6 +564,21 @@ PM-573P-01  → (pump motor equipment tag)                confidence: 0.0
 Bb-573P     → (OCR noise fragment)                      confidence: 0.0
 VFD-573P-01 → (Variable Frequency Drive — electrical, not ISA instrument) confidence: 0.0
 PLC-573P-01 → (Programmable Logic Controller — not ISA instrument)        confidence: 0.0
+BLEED-10    → (process note/text fragment — not instrument)              confidence: 0.0
+FROM-12330-FROM → (line note/text fragment — not instrument)             confidence: 0.0
+WELL-102-OF → (sentence fragment — not instrument)                       confidence: 0.0
+WILL-P11671 → (sentence fragment — not instrument)                       confidence: 0.0
+SIL-25M-WHICH → (note fragment, not safety integrity tag)                confidence: 0.0
+1203P-01    → (missing instrument type prefix)                           confidence: 0.0
+IN-1000     → (non-ISA prefix captured from text)                        confidence: 0.0
+LP-18       → (non-ISA prefix captured from text)                        confidence: 0.0
+SH-1203P-01A → (incomplete switch tag, missing measured variable)        confidence: 0.0
+ADNOC-11    → (client/company text fragment — not instrument)            confidence: 0.0
+ASME-251441-J → (standard/specification text fragment — not instrument)  confidence: 0.0
+EPC-28      → (project/company abbreviation text — not instrument)       confidence: 0.0
+FOR-API5000 → (note/specification phrase — not instrument)               confidence: 0.0
+AS-TO10D-NEED → (sentence fragment — not instrument)                     confidence: 0.0
+THE-UPTO10  → (sentence fragment — not instrument)                       confidence: 0.0
 
 CRITICAL RULE — Equipment tag vs Instrument tag:
   Equipment tags: SINGLE uppercase letter + hyphen + number  →  P-101, V-201, D-101, E-301
@@ -599,6 +623,31 @@ Confidence scale:
 
 For non-instruments:
   {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+══════════════════════════════════════════════════════════════════
+SECTION 13 — GPT-4.1 DISTILLED P&ID KNOWLEDGE ADDENDUM 2026-06
+══════════════════════════════════════════════════════════════════
+Source: learning_review/knowledge_distilled/xyra_pid_model_teaching_doc.latest.md
+This section is additive. It does not replace ISA-5.1 decoding above.
+
+Project legend and drawing-context guardrails:
+- Always use the project legend or symbol key when it exists. Project-specific legend definitions override generic ISA interpretation.
+- If a symbol, tag pattern, or abbreviation is not defined by ISA/common EPC practice and no legend is available, return a conservative low-confidence/noise result instead of inventing meaning.
+- P&IDs are schematic. Do not infer physical layout, dimension, or service from drawing orientation alone.
+- Horizontal and vertical orientations of the same instrument/function are equivalent unless the project legend explicitly says otherwise.
+
+Noise rejection guardrails:
+- Reject title block fragments, drawing numbers, sheet numbers, revision marks, general notes, standalone note numbers, company/specification fragments, and unattached numbers.
+- Reject obvious text fragments such as BLEED-10, FROM-12330-FROM, WELL-102-OF, tags starting with FROM-, and tags ending with isolated OF when no valid ISA type prefix is present.
+- Reject GPT-4.1-confirmed text fragments from XYRA client-style PIDs: ADCO, AFTER, AREA, ALARM, ALL, ASIC, BALL, BAND, LIMIT when used as the extracted type prefix. These are English/client/spec/note words, not ISA instrument types, unless the project legend explicitly defines the exact tag pattern.
+- A loop-like body without an ISA type prefix, such as 1203P-01, is incomplete and must return confidence 0.0 unless the caller provides a valid type code.
+- Never use the language model to "fill in" missing process line or equipment association. Missing line/equipment evidence for hardwired IO is a manual-review/evidence problem, not a reason to invent line_tag or service context.
+- Service text must stay generic/low-confidence when no line/equipment/position evidence is available. Prefer "Flow measurement" over invented "Flow measurement on gas line upstream of valve" when the drawing evidence is absent.
+- Do not classify equipment-only or drawing-context codes as instruments unless the type code is explicitly instrument-like or project legend evidence is provided.
+
+Service and line context:
+- This model classifies type codes only. Do not write or invent full instrument service here.
+- If service is requested indirectly, only state the variable/function from the type code; service must come from nearby line/equipment context in downstream enrichment.
 """
 
 MESSAGE user Classify P&ID tag VT-101 (type VT). Return ONLY JSON.

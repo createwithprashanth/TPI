@@ -27,6 +27,7 @@ from app.modules.instrumap.core.piping_mto import (
     _PAGE_CACHE,
     _fetch_page_gray,
     _size_from_text,
+    _rank_size_candidates_for_match,
 )
 
 
@@ -258,6 +259,20 @@ class TestPipeSizeSelection:
         size, source, _ = _nearest_size_for_match(match, words)
         assert size == "0.75"
         assert source == '3/4"'
+
+    def test_ranked_size_candidates_preserve_evidence_for_review(self):
+        match = [100, 100, 140, 180, 0.9]
+        words = [
+            _word('2"-PG-24466-251482-X-N', 118, 195, 250, 212),
+            _word('3/4"', 145, 124, 180, 140),
+        ]
+
+        candidates = _rank_size_candidates_for_match(match, words)
+
+        assert candidates[0]["size"] == "0.75"
+        assert candidates[0]["source"] == '3/4"'
+        assert candidates[0]["sourceType"] == "standalone"
+        assert any(candidate["sourceType"] == "line_number" for candidate in candidates)
 
 
 # ── _orb_fallback ─────────────────────────────────────────────────────────────

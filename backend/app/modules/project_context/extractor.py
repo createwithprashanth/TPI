@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 
 PROJECT_CONTEXT_MODEL = os.getenv("XYRA_PROJECT_CONTEXT_MODEL", "xyra-project-context")
 PROJECT_CONTEXT_MODEL_FALLBACK = os.getenv("XYRA_PROJECT_CONTEXT_MODEL_FALLBACK", "qwen2.5:7b")
-USE_LLM_CONTEXT = os.getenv("XYRA_PROJECT_CONTEXT_USE_LLM", "0").strip().lower() in {"1", "true", "yes"}
+_LLM_MODE_FALSE = {"0", "false", "no", "off", "never", "disabled"}
+_LLM_MODE_TRUE = {"1", "true", "yes", "on", "always", "enabled"}
+_LLM_MODE_AUTO = {"", "auto", "smart", "default"}
 
 _CONTEXT_KEYS = [
     "project_name",
@@ -76,7 +78,9 @@ _LABEL_PATTERNS = {
         r"\bdwg\s*(?:no|number|#)?\s*[:\-]\s*([A-Z0-9][A-Z0-9\-_/\.]+)",
     ],
     "revision": [
+        r"\brevision\s*(?:no|number|#)\s*[:\-]\s*([A-Z0-9]{1,4})\b",
         r"\brev(?:ision)?\.?\s*[:\-]\s*([A-Z0-9]{1,4})\b",
+        r"\brev\.?\s*([A-Z0-9]{1,4})\s+submission\b",
     ],
 }
 
@@ -136,6 +140,10 @@ def _set(ctx: Dict[str, Any], key: str, value: Any, basis: str, overwrite: bool 
     value = _clean(value)
     if not value:
         return
+    if key == "unit_area":
+        match = re.match(r"^(\d{1,4})\)?$", value)
+        if match:
+            value = match.group(1)
     if overwrite or not _clean(ctx.get(key)):
         ctx[key] = value
         ctx.setdefault("basis", {})[key] = basis
@@ -187,6 +195,64 @@ def _extract_labeled_fields(ctx: Dict[str, Any], text: str) -> None:
                 break
 
 
+def _extract_epc_title_block_fields(ctx: Dict[str, Any], text: str) -> None:
+    """Extract common unlabeled EPC/title-block patterns.
+
+    Many legacy P&IDs expose useful context as table text without nearby labels,
+    especially CRS cover pages and bottom-right title blocks. Keep this
+    conservative: only set values from distinctive project/title-block phrases.
+    """
+    lines = _candidate_lines(text)
+    upper_lines = [line.upper() for line in lines]
+
+    for index, line in enumerate(lines):
+        upper = upper_lines[index]
+
+        project_match = re.search(r"(.+?)\s+PROJECT\s+NO\.?\s*([A-Z0-9][A-Z0-9\- ]{2,})\b", line, flags=re.IGNORECASE)
+        if project_match:
+            _set(ctx, "project_name", project_match.group(1), "EPC title block project line")
+            _set(ctx, "project_no", project_match.group(2).replace(" ", ""), "EPC title block project line")
+            if index > 0 and not _clean(ctx.get("client_name")):
+                previous = lines[index - 1]
+                if re.search(r"\b(?:ADNOC|GAS|OIL|COMPANY|INDUSTRIES|LTD|LIMITED)\b", previous, flags=re.IGNORECASE):
+                    _set(ctx, "client_name", previous, "EPC title block client line")
+                    if "ADNOC" in previous.upper():
+                        _set(ctx, "country", "United Arab Emirates", "EPC title block client line")
+
+        if "PIPING" in upper and "INSTRUMENTATION" in upper and "DIAGRAM" in upper:
+            title_parts = [line]
+            for follow in lines[index + 1:index + 4]:
+                follow_upper = follow.upper()
+                if re.search(
+                    r"\b(?:DOCUMENT|DRAWING|REV|SCALE|PROJECT|JOB|REFERENCE|NOTES?|LEGENDS?|COMPLEX|COMPANY|INDUSTRIES|LTD|LIMITED)\b",
+                    follow_upper,
+                ):
+                    break
+                if len(follow) >= 4:
+                    title_parts.append(follow)
+            _set(ctx, "document_title", " ".join(title_parts), "EPC title block drawing title")
+            _set(ctx, "document_type", "P&ID", "EPC title block drawing title")
+            _set(ctx, "discipline", "Instrumentation", "EPC title block drawing title")
+
+        if "ABU" in upper and "DHABI" in upper and ("GAS" in upper or "OIL" in upper):
+            _set(ctx, "client_name", line, "EPC title block client")
+            _set(ctx, "country", "United Arab Emirates", "EPC title block client")
+
+        if re.fullmatch(r"[A-Z ]*HABSHAN[A-Z ]*", upper):
+            _set(ctx, "facility", line, "EPC title block facility")
+            _set(ctx, "location", "Habshan", "EPC title block facility")
+            _set(ctx, "country", "United Arab Emirates", "EPC title block facility")
+
+    joined = "\n".join(lines)
+    developed_match = re.search(
+        r"THIS\s+DRAWING\s+IS\s+DEVELOPED\s+FROM\s+(.+?)\s+DRAWING\s+NO\.\s*([A-Z0-9\-_/\.]+)",
+        joined,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if developed_match:
+        _set(ctx, "client_name", developed_match.group(1), "developed-from title block note")
+
+
 def _infer_from_hints(ctx: Dict[str, Any], text: str, filename: str) -> None:
     haystack = f"{filename}\n{text}".lower()
     for value, hints in _DISCIPLINE_HINTS:
@@ -220,6 +286,34 @@ def _infer_document_no(ctx: Dict[str, Any], filename: str) -> None:
     candidates = re.findall(r"\b[A-Z]{1,5}[-_][A-Z0-9][A-Z0-9\-_/\.]{4,}\b", stem.upper())
     if candidates:
         _set(ctx, "document_no", candidates[0], "filename")
+        return
+
+    numeric_doc = re.match(r"^(\d{2,4}-\d{2,4}-\d{2,6})(?:-([A-Z0-9]{1,4}))?$", stem.upper())
+    if numeric_doc:
+        _set(ctx, "document_no", numeric_doc.group(1), "filename")
+        if numeric_doc.group(2):
+            _set(ctx, "revision", numeric_doc.group(2), "filename")
+        if not _clean(ctx.get("unit_area")):
+            _set(ctx, "unit_area", numeric_doc.group(1).split("-", 1)[0], "filename")
+        return
+
+    stem_upper = stem.upper()
+    stem_tokens = stem_upper.split("-")
+    if (
+        len(stem_tokens) >= 6
+        and re.search(r"[A-Z]", stem_tokens[0])
+        and re.search(r"\d", stem_tokens[0])
+        and all(re.fullmatch(r"[A-Z0-9]{1,8}", token) for token in stem_tokens)
+    ):
+        document_no = "-".join(stem_tokens[:-1])
+        revision = stem_tokens[-1]
+        _set(ctx, "document_no", document_no, "filename")
+        _set(ctx, "revision", revision, "filename")
+        if not _clean(ctx.get("unit_area")):
+            for token in stem_tokens[:-1]:
+                if re.fullmatch(r"\d{2,4}", token):
+                    _set(ctx, "unit_area", token.lstrip("0") or token, "filename")
+                    break
 
 
 def _infer_scope(ctx: Dict[str, Any]) -> None:
@@ -229,10 +323,57 @@ def _infer_scope(ctx: Dict[str, Any]) -> None:
     facility = _clean(ctx.get("facility"))
 
     if doc_type == "P&ID":
-        subject = unit or facility or "uploaded P&ID drawings"
+        if facility and unit:
+            subject = f"{facility} / Unit {unit}"
+        else:
+            subject = f"Unit {unit}" if unit else (facility or "uploaded P&ID drawings")
         _set(ctx, "scope", f"Extraction and review of instruments, lines, equipment, and IO points from {subject}.", "document type")
     elif discipline:
         _set(ctx, "scope", f"{discipline} document extraction and review for uploaded drawings.", "discipline")
+
+
+def _project_context_llm_mode() -> str:
+    mode = os.getenv("XYRA_PROJECT_CONTEXT_USE_LLM", "auto").strip().lower()
+    if mode in _LLM_MODE_TRUE:
+        return "always"
+    if mode in _LLM_MODE_FALSE:
+        return "never"
+    if mode in _LLM_MODE_AUTO:
+        return "auto"
+    logger.warning("Unknown XYRA_PROJECT_CONTEXT_USE_LLM=%r; using auto mode", mode)
+    return "auto"
+
+
+def _project_context_timeout_seconds() -> int:
+    raw = os.getenv("XYRA_PROJECT_CONTEXT_TIMEOUT_SECONDS", "45").strip()
+    try:
+        return max(5, min(180, int(raw)))
+    except ValueError:
+        logger.warning("Invalid XYRA_PROJECT_CONTEXT_TIMEOUT_SECONDS=%r; using 45", raw)
+        return 45
+
+
+def _should_run_llm_context(ctx: Dict[str, Any], text: str, enabled: Optional[bool]) -> bool:
+    if not text.strip():
+        return False
+    if enabled is not None:
+        return enabled
+
+    mode = _project_context_llm_mode()
+    if mode == "never":
+        return False
+    if mode == "always":
+        return True
+
+    important = ["project_name", "project_no", "client_name", "document_no", "document_title", "document_type"]
+    missing_important = [key for key in important if not _clean(ctx.get(key))]
+    weak_context = _confidence(ctx) != "High"
+    suspicious_title = _clean(ctx.get("document_title")).lower() in {
+        "piping & instrumentation diagram",
+        "piping and instrumentation diagram",
+        "p&id",
+    }
+    return weak_context or bool(missing_important) or suspicious_title
 
 
 def _run_llm_normalization(
@@ -241,17 +382,25 @@ def _run_llm_normalization(
     filename: str,
     enabled: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    if enabled is None:
-        enabled = USE_LLM_CONTEXT
-    if not enabled or not text.strip():
+    if not _should_run_llm_context(ctx, text, enabled):
         return ctx
     try:
         from app.modules.llm.service import generate
 
         prompt = json.dumps({
-            "task": "Normalize engineering project context from drawing text. Do not invent missing values.",
+            "task": (
+                "Normalize engineering project context from drawing text. "
+                "Fill only blank, unknown, or obviously weak fields. Do not invent missing values."
+            ),
             "filename": filename,
             "current_context": {k: ctx.get(k, "") for k in _CONTEXT_KEYS},
+            "current_basis": ctx.get("basis", {}),
+            "merge_rules": [
+                "Do not replace user supplied, filename, PDF label, or EPC title block values unless the current value is blank.",
+                "Use title-block/project text over casual filename guesses.",
+                "Return empty string for fields not directly supported by the text.",
+                "Keep document_title as the actual drawing title, not the uploaded filename.",
+            ],
             "text_excerpt": text[:6000],
             "output_schema": {
                 **{key: "string or blank" for key in _CONTEXT_KEYS},
@@ -262,9 +411,16 @@ def _run_llm_normalization(
             "You are xyra-project-context. Extract project/document metadata from EPC drawings. "
             "Return strict JSON only. Preserve blanks for unknown values. Never guess."
         )
-        result = generate(prompt, model=PROJECT_CONTEXT_MODEL, system=system, timeout=12)
+        timeout = _project_context_timeout_seconds()
+        result = generate(prompt, model=PROJECT_CONTEXT_MODEL, system=system, timeout=timeout, num_predict=700)
         if not result:
-            result = generate(prompt, model=PROJECT_CONTEXT_MODEL_FALLBACK, system=system, timeout=12)
+            result = generate(
+                prompt,
+                model=PROJECT_CONTEXT_MODEL_FALLBACK,
+                system=system,
+                timeout=timeout,
+                num_predict=700,
+            )
         if isinstance(result, dict):
             for key in _CONTEXT_KEYS:
                 _set(ctx, key, result.get(key), f"{PROJECT_CONTEXT_MODEL} normalization")
@@ -289,6 +445,7 @@ def extract_project_context_from_pdf(
     ctx["source_files"] = [filename]
     text = _extract_pdf_text(pdf_content)
     _extract_labeled_fields(ctx, text)
+    _extract_epc_title_block_fields(ctx, text)
     _infer_from_hints(ctx, text, filename)
     _infer_document_no(ctx, filename)
     _infer_scope(ctx)
@@ -336,6 +493,42 @@ def merge_project_context(
     merged["confidence"] = _confidence(merged)
     merged["generated_on"] = date.today().isoformat()
     return merged
+
+
+def refresh_current_document_context(
+    context: Dict[str, Any],
+    detected: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Keep batch/project context, but refresh fields that belong to this file.
+
+    InstruMap processes multi-PDF batches incrementally. Project-level fields
+    such as client/project number should carry across the batch, while document
+    number/revision/title must follow the current drawing so DB rows and covers
+    do not inherit the first file's title block.
+    """
+    detected = detected or {}
+    refreshed = deepcopy(context or blank_project_context())
+    document_keys = [
+        "document_no",
+        "revision",
+        "document_title",
+        "document_type",
+        "discipline",
+        "engineering_phase",
+        "unit_area",
+    ]
+    for key in document_keys:
+        _set(
+            refreshed,
+            key,
+            detected.get(key),
+            detected.get("basis", {}).get(key, "current document context"),
+            overwrite=True,
+        )
+    _infer_scope(refreshed)
+    refreshed["confidence"] = _confidence(refreshed)
+    refreshed["generated_on"] = date.today().isoformat()
+    return refreshed
 
 
 def load_project_context(path: str | os.PathLike[str]) -> Dict[str, Any]:

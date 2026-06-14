@@ -27,6 +27,7 @@ except ImportError:
 
 from .standard_library import InstrumentLogicEngine
 from .line_extractor import extract_line_numbers as _extract_line_numbers
+from .page_classifier import classify_page_for_instruments
 
 # Minimum ratio of pages with embedded text to treat PDF as vector
 _VECTOR_TEXT_RATIO = 0.5
@@ -354,6 +355,7 @@ def extract_from_pdf(
     all_lines = []
     instrument_counter = 1
     total_circles_found = 0
+    skipped_pages = []
 
     for page_idx, page in enumerate(doc):
         page_number = page_idx + 1
@@ -372,6 +374,32 @@ def extract_from_pdf(
             for w in words_raw
             if w[4].strip()
         ]
+        page_text = page.get_text("text") or ""
+        drawing_count = len(page.get_drawings())
+        page_class = classify_page_for_instruments(
+            page_text,
+            word_count=len(words_raw),
+            drawing_count=drawing_count,
+        )
+        if not page_class.should_extract:
+            skipped_pages.append({
+                "page": page_number,
+                "kind": page_class.kind,
+                "reason": page_class.reason,
+                "admin_score": page_class.admin_score,
+                "pid_score": page_class.pid_score,
+                "word_count": page_class.word_count,
+                "drawing_count": page_class.drawing_count,
+            })
+            logger.info(
+                "PyMuPDF page %s: skipped %s page (%s, words=%s, drawings=%s)",
+                page_number,
+                page_class.kind,
+                page_class.reason,
+                page_class.word_count,
+                page_class.drawing_count,
+            )
+            continue
 
         # ── Instrument extraction ─────────────────────────────────────────────
         circles = _extract_circles(page, min_r_pt, max_r_pt)
@@ -553,5 +581,6 @@ def extract_from_pdf(
     stats = {
         "circles_found":  total_circles_found,
         "tags_extracted": len(instruments_df),
+        "skipped_pages": skipped_pages,
     }
     return instruments_df, lines_df, stats

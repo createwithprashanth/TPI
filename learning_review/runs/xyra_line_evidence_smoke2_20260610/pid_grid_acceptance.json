@@ -1,0 +1,154 @@
+{
+  "project_id": "XYRA_LINE_EVIDENCE_SMOKE2_20260610",
+  "db_path": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/xyra_studio.db",
+  "pid_dir": "/Users/prashanththipparthi/Downloads/Zoho WorkDrive",
+  "batch_id": "pid_grid_acceptance_1781102663",
+  "elapsed_s": 192.69,
+  "before": {
+    "instruments": 0,
+    "sessions": 0,
+    "history": 0
+  },
+  "after_extract": {
+    "instruments": 144,
+    "sessions": 2,
+    "history": 0
+  },
+  "after_ai": {
+    "instruments": 144,
+    "sessions": 2,
+    "history": 9
+  },
+  "pid_results": [
+    {
+      "file": "pid (1).pdf",
+      "status": "finished",
+      "instrument_count": 85,
+      "project_database": {
+        "inserted": 85,
+        "updated": 0,
+        "skipped": 0
+      },
+      "elapsed_s": 1.33
+    },
+    {
+      "file": "pid (10).pdf",
+      "status": "finished",
+      "instrument_count": 76,
+      "project_database": {
+        "inserted": 59,
+        "updated": 0,
+        "skipped": 0
+      },
+      "elapsed_s": 1.2
+    }
+  ],
+  "ai_grid": {
+    "rows_reviewed": 20,
+    "summary": {
+      "rows_reviewed": 20,
+      "suggestions": 9,
+      "by_engineer": {
+        "instrumentation": 9
+      },
+      "by_field": {
+        "signal_type": 8,
+        "category": 1
+      }
+    },
+    "model_status": {
+      "instrumentation": {
+        "model": "xyra-instrumentation-engineer",
+        "status": "reviewed",
+        "suggestions": 0
+      },
+      "process": {
+        "model": "xyra-process-engineer",
+        "status": "reviewed",
+        "suggestions": 0
+      },
+      "piping": {
+        "model": "xyra-piping-engineer",
+        "status": "model_error",
+        "suggestions": 0
+      }
+    },
+    "suggestions": 9,
+    "applied": 9,
+    "skipped": 0
+  },
+  "sample_rows": [
+    {
+      "tag_number": "1414P-26",
+      "instrument_type": "P",
+      "service": "Pressure",
+      "io_type": "Soft Link",
+      "line_tag": null,
+      "status": "Rejected - Noise",
+      "review_required": true
+    },
+    {
+      "tag_number": "CALL-08",
+      "instrument_type": "CALL",
+      "service": "Process conductivity low-low alarm",
+      "io_type": "Soft Link",
+      "line_tag": null,
+      "status": "Rejected - Noise",
+      "review_required": true
+    },
+    {
+      "tag_number": "EPC-28",
+      "instrument_type": "EPC",
+      "service": "Process voltage control",
+      "io_type": "Soft Link",
+      "line_tag": null,
+      "status": "Rejected - Noise",
+      "review_required": true
+    },
+    {
+      "tag_number": "FCV-1414P-26",
+      "instrument_type": "FCV",
+      "service": "2 in Produced gas line valve control",
+      "io_type": "AO",
+      "line_tag": "2-PG-24331-251482-X-N",
+      "status": "Draft",
+      "review_required": false
+    },
+    {
+      "tag_number": "FCV-1762P-12",
+      "instrument_type": "FCV",
+      "service": "1 in Chemical injection line valve control",
+      "io_type": "AO",
+      "line_tag": "1-IZ-26840-253411-Z-N",
+      "status": "Draft",
+      "review_required": false
+    },
+    {
+      "tag_number": "FE",
+      "instrument_type": "FE",
+      "service": "Flow element",
+      "io_type": "None",
+      "line_tag": null,
+      "status": "Suppressed - Incomplete",
+      "review_required": true
+    },
+    {
+      "tag_number": "FE-1414P-26",
+      "instrument_type": "FE",
+      "service": "Flow element",
+      "io_type": "None",
+      "line_tag": null,
+      "status": "For Review",
+      "review_required": true
+    },
+    {
+      "tag_number": "FE-1762P-12",
+      "instrument_type": "FE",
+      "service": "Flow element",
+      "io_type": "None",
+      "line_tag": null,
+      "status": "For Review",
+      "review_required": true
+    }
+  ]
+}

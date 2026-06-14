@@ -33,7 +33,7 @@
       },
       "expected": [
         ["review_required", true],
-        ["status", "For Review"]
+        ["status", "Rejected - Noise"]
       ]
     },
     {
@@ -126,6 +126,126 @@
       },
       "expected": [
         ["review_required", true]
+      ]
+    },
+    {
+      "model": "xyra-instrumentation-engineer",
+      "role": "instrumentation",
+      "row": {
+        "id": "inst-4",
+        "tag_number": "BALL-316-INTHE",
+        "instrument_type": "BALL",
+        "status": "Draft",
+        "review_required": false
+      },
+      "expected": [
+        ["review_required", true],
+        ["status", "Rejected - Noise"]
+      ]
+    },
+    {
+      "model": "xyra-instrumentation-engineer",
+      "role": "instrumentation",
+      "row": {
+        "id": "inst-5",
+        "tag_number": "LIMIT-11055",
+        "instrument_type": "LIMIT",
+        "status": "Draft",
+        "review_required": false
+      },
+      "expected": [
+        ["review_required", true],
+        ["status", "Rejected - Noise"]
+      ]
+    },
+    {
+      "model": "xyra-process-engineer",
+      "role": "process",
+      "row": {
+        "id": "proc-3",
+        "tag_number": "PIT-1762P-18",
+        "instrument_type": "PIT",
+        "service": "",
+        "line_tag": "2-PG-24464-251482-X-N",
+        "geometry_evidence": {
+          "line": {
+            "tag": "2-PG-24464-251482-X-N",
+            "confidence": 0.91,
+            "method": "pipe_graph",
+            "size": "2",
+            "size_unit": "in",
+            "fluid_code": "PG",
+            "connection_side": "right",
+            "pipe_axis": "horizontal"
+          },
+          "valve": {
+            "tag": "FCV-1762P-12",
+            "position": "upstream",
+            "confidence": 0.88
+          },
+          "summary": "line 2-PG-24464-251482-X-N horizontal via right stub; upstream valve FCV-1762P-12",
+          "overall_confidence": 0.91
+        },
+        "review_required": false
+      },
+      "expected": [
+        ["service", "Pressure measurement on 2 in Produced gas line upstream of FCV-1762P-12"]
+      ]
+    },
+    {
+      "model": "xyra-piping-engineer",
+      "role": "piping",
+      "row": {
+        "id": "pipe-4",
+        "tag_number": "101-FCV-001",
+        "instrument_type": "FCV",
+        "line_tag": "",
+        "flowsizing_type": "",
+        "geometry_evidence": {
+          "line": {
+            "tag": "2-PG-24464-251482-X-N",
+            "confidence": 0.91,
+            "method": "pipe_graph",
+            "size": "2",
+            "fluid_code": "PG",
+            "connection_side": "right",
+            "pipe_axis": "horizontal"
+          },
+          "summary": "line 2-PG-24464-251482-X-N horizontal via right stub",
+          "overall_confidence": 0.91
+        },
+        "review_required": false,
+        "status": "Draft"
+      },
+      "expected": [
+        ["line_tag", "2-PG-24464-251482-X-N"],
+        ["flowsizing_type", "control-valve"]
+      ]
+    },
+    {
+      "model": "xyra-instrumentation-engineer",
+      "role": "instrumentation",
+      "row": {
+        "id": "inst-6",
+        "tag_number": "101-PIT-001",
+        "instrument_type": "PIT",
+        "io_type": "AI",
+        "line_tag": "",
+        "geometry_evidence": {
+          "equipment": {
+            "tag": "V-100",
+            "position": "upstream",
+            "confidence": 0.71
+          },
+          "summary": "upstream equipment V-100",
+          "overall_confidence": 0.71
+        },
+        "review_required": false,
+        "status": "Draft"
+      },
+      "expected": [
+        ["review_required", true],
+        ["status", "For Review"]
       ]
     }
   ]

@@ -1,0 +1,2391 @@
+{
+  "deliverable": "instrument_index",
+  "project_id": "XYRA_GEOM_GPT41_LOOP9_20260613",
+  "context": {
+    "project": {
+      "project_id": "XYRA_GEOM_GPT41_LOOP9_20260613",
+      "name": "XYRA Geometry GPT41 Learning Loop 9",
+      "project_no": "XYRA_GEOM_GPT41_LOOP9_20260613",
+      "client_name": "Internal Learning",
+      "contractor_name": "",
+      "location": "",
+      "country": null,
+      "description": null,
+      "created_at": "2026-06-13 18:32:31",
+      "updated_at": "2026-06-13 18:32:35"
+    },
+    "counts": {
+      "instruments": 198,
+      "active_instruments": 159,
+      "rejected_noise": 22,
+      "sessions": 3,
+      "review_required": 23,
+      "missing_service": 0,
+      "missing_line_tag": 54
+    },
+    "by_type": [
+      {
+        "key": "PI",
+        "count": 26
+      },
+      {
+        "key": "PIT",
+        "count": 18
+      },
+      {
+        "key": "SSV",
+        "count": 11
+      },
+      {
+        "key": "TI",
+        "count": 6
+      },
+      {
+        "key": "TW",
+        "count": 6
+      },
+      {
+        "key": "TP",
+        "count": 5
+      },
+      {
+        "key": "PSAH",
+        "count": 4
+      },
+      {
+        "key": "TE",
+        "count": 4
+      },
+      {
+        "key": "TIT",
+        "count": 4
+      },
+      {
+        "key": "XA",
+        "count": 4
+      },
+      {
+        "key": "ZIH",
+        "count": 4
+      },
+      {
+        "key": "ZIL",
+        "count": 4
+      },
+      {
+        "key": "FI",
+        "count": 3
+      },
+      {
+        "key": "FIT",
+        "count": 3
+      },
+      {
+        "key": "HS",
+        "count": 3
+      },
+      {
+        "key": "HSD",
+        "count": 3
+      },
+      {
+        "key": "PSAL",
+        "count": 3
+      },
+      {
+        "key": "PSDL",
+        "count": 3
+      },
+      {
+        "key": "SSSV",
+        "count": 3
+      },
+      {
+        "key": "FCV",
+        "count": 2
+      },
+      {
+        "key": "FE",
+        "count": 2
+      },
+      {
+        "key": "FIC",
+        "count": 2
+      },
+      {
+        "key": "FQI",
+        "count": 2
+      },
+      {
+        "key": "FZT",
+        "count": 2
+      },
+      {
+        "key": "HIC",
+        "count": 2
+      }
+    ]
+  },
+  "instructions": [
+    "Review as senior EPC instrumentation checker.",
+    "Find wrong/noisy tags, missing service, wrong IO/signal/category, weak line assignment, and missing review flags.",
+    "Use geometry_evidence, line_candidates, line_association_method, and line_association_reason to judge whether line/service assignments are supported.",
+    "geometry_evidence.nearest_line_label is weak review evidence only; it is not a confirmed line_tag unless supported by pipe graph or project legend.",
+    "When geometry_evidence is absent, say whether the issue is missing evidence rather than model knowledge.",
+    "Do not invent project-specific values. Use manual_review or project_legend when evidence is missing."
+  ],
+  "rows": [
+    {
+      "id": "3bccf6dd278d257a7b2bf27986fa25d4",
+      "tag_number": "FE-1414P-26",
+      "suffix": "26",
+      "instrument_type": "FE",
+      "service": "Flow element line requires review",
+      "category": "passive",
+      "io_type": "None",
+      "signal_type": null,
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24461-251482-X-N",
+          "distance_px": 721.7,
+          "off_axis_px": 49.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1414P-26",
+          "line": "2-PG-24331-251482-X-N",
+          "source_tag": "FIT-1414P-26",
+          "source_type": "FIT",
+          "confidence": 0.68,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "2-PG-24331-251482-X-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "FCV-1414P-26",
+                  "type": "FCV",
+                  "line": "2-PG-24331-251482-X-N",
+                  "confidence": 0.597,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 161px",
+                  "distance_px": 1148.6
+                },
+                {
+                  "tag": "FIT-1414P-26",
+                  "type": "FIT",
+                  "line": "2-PG-24331-251482-X-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 500.0
+                }
+              ]
+            },
+            {
+              "line": "6-VG-20650-013461-Y-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "FI-1414P-26",
+                  "type": "FI",
+                  "line": "6-VG-20650-013461-Y-N",
+                  "confidence": 0.601,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 38px",
+                  "distance_px": 4513.4
+                },
+                {
+                  "tag": "FQI-1414P-26",
+                  "type": "FQI",
+                  "line": "6-VG-20650-013461-Y-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 4437.1
+                }
+              ]
+            },
+            {
+              "line": "1-IZ-26710-253411-Z-N",
+              "confidence": 0.574,
+              "sources": [
+                {
+                  "tag": "FZT-1414P-26",
+                  "type": "FZT",
+                  "line": "1-IZ-26710-253411-Z-N",
+                  "confidence": 0.574,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 185px",
+                  "distance_px": 1369.7
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": {
+          "tag": "FCV-1414P-26",
+          "type": "FCV",
+          "position": "downstream",
+          "distance_px": 1148.6,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": {
+          "tag": "M-26113-01",
+          "type": "Motor",
+          "code": "M",
+          "position": "upstream",
+          "distance_px": 642.9,
+          "confidence": 0.726,
+          "basis": "nearest same-page equipment"
+        },
+        "overall_confidence": 0.726,
+        "summary": "nearest axis-aligned line label 2-PG-24461-251482-X-N (721.7px);  conflicting loop line 2-PG-24331-251482-X-N from FIT-1414P-26; downstream valve FCV-1414P-26; upstream equipment M-26113-01"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": "flow-element",
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from FIT-1414P-26 on 2-PG-24331-251482-X-N (68%); conflicting loop lines require review; evidence: nearest axis-aligned line label 2-PG-24461-251482-X-N (721.7px);  conflicting loop line 2-PG-24331-251482-X-N from FIT-1414P-26; downstream valve FCV-1414P-26; upstream equipment M-26113-01 (73%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "1a416bd80fbe20f8be9591d6bce7baf9",
+      "tag_number": "FE-1762P-12",
+      "suffix": "12",
+      "instrument_type": "FE",
+      "service": "Flow element line requires review",
+      "category": "passive",
+      "io_type": "None",
+      "signal_type": null,
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24461-251482-X-NFE",
+          "distance_px": 363.3,
+          "off_axis_px": 49.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1762P-12",
+          "line": "2-VG-20718-013461-Y-N",
+          "source_tag": "FIT-1762P-12",
+          "source_type": "FIT",
+          "confidence": 0.542,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "6-VG-20715-013461-Y-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "FI-1762P-12",
+                  "type": "FI",
+                  "line": "6-VG-20715-013461-Y-N",
+                  "confidence": 0.601,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 38px",
+                  "distance_px": 4612.3
+                },
+                {
+                  "tag": "FQI-1762P-12",
+                  "type": "FQI",
+                  "line": "6-VG-20715-013461-Y-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 4537.7
+                }
+              ]
+            },
+            {
+              "line": "1-IZ-26840-253411-Z-N",
+              "confidence": 0.638,
+              "sources": [
+                {
+                  "tag": "FCV-1762P-12",
+                  "type": "FCV",
+                  "line": "1-IZ-26840-253411-Z-N",
+                  "confidence": 0.634,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 27px",
+                  "distance_px": 1087.5
+                },
+                {
+                  "tag": "FZT-1762P-12",
+                  "type": "FZT",
+                  "line": "1-IZ-26840-253411-Z-N",
+                  "confidence": 0.638,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 61px",
+                  "distance_px": 1329.8
+                }
+              ]
+            },
+            {
+              "line": "2-VG-20718-013461-Y-N",
+              "confidence": 0.542,
+              "sources": [
+                {
+                  "tag": "FIT-1762P-12",
+                  "type": "FIT",
+                  "line": "2-VG-20718-013461-Y-N",
+                  "confidence": 0.542,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 155px",
+                  "distance_px": 500.0
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": {
+          "tag": "FCV-1762P-12",
+          "type": "FCV",
+          "position": "downstream",
+          "distance_px": 1087.5,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": {
+          "tag": "M-26113-01",
+          "type": "Motor",
+          "code": "M",
+          "position": "upstream",
+          "distance_px": 645.5,
+          "confidence": 0.725,
+          "basis": "nearest same-page equipment"
+        },
+        "overall_confidence": 0.725,
+        "summary": "nearest axis-aligned line label 2-PG-24461-251482-X-NFE (363.3px);  conflicting loop line 2-VG-20718-013461-Y-N from FIT-1762P-12; downstream valve FCV-1762P-12; upstream equipment M-26113-01"
+      },
+      "pid_number": "pid (1).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": "flow-element",
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from FIT-1762P-12 on 2-VG-20718-013461-Y-N (54%); conflicting loop lines require review; evidence: nearest axis-aligned line label 2-PG-24461-251482-X-NFE (363.3px);  conflicting loop line 2-VG-20718-013461-Y-N from FIT-1762P-12; downstream valve FCV-1762P-12; upstream equipment M-26113-01 (72%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:31"
+    },
+    {
+      "id": "5521eaea0a7ae21192925a3b7ae8e4d7",
+      "tag_number": "FIC-1414P-26",
+      "suffix": "26",
+      "instrument_type": "FIC",
+      "service": "Process flow control line requires review",
+      "category": "controller",
+      "io_type": "Soft Link",
+      "signal_type": null,
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-D-9602-NOTE",
+          "distance_px": 1579.0,
+          "off_axis_px": 238.0,
+          "axis_aligned": true,
+          "confidence": 0.34,
+          "size": "2",
+          "fluid_code": "D",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1414P-26",
+          "line": "2-PG-24331-251482-X-N",
+          "source_tag": "FIT-1414P-26",
+          "source_type": "FIT",
+          "confidence": 0.68,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "2-PG-24331-251482-X-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "FCV-1414P-26",
+                  "type": "FCV",
+                  "line": "2-PG-24331-251482-X-N",
+                  "confidence": 0.597,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 161px",
+                  "distance_px": 3399.7
+                },
+                {
+                  "tag": "FIT-1414P-26",
+                  "type": "FIT",
+                  "line": "2-PG-24331-251482-X-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 3463.6
+                }
+              ]
+            },
+            {
+              "line": "6-VG-20650-013461-Y-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "FI-1414P-26",
+                  "type": "FI",
+                  "line": "6-VG-20650-013461-Y-N",
+                  "confidence": 0.601,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 38px",
+                  "distance_px": 1320.3
+                },
+                {
+                  "tag": "FQI-1414P-26",
+                  "type": "FQI",
+                  "line": "6-VG-20650-013461-Y-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 865.8
+                }
+              ]
+            },
+            {
+              "line": "1-IZ-26710-253411-Z-N",
+              "confidence": 0.574,
+              "sources": [
+                {
+                  "tag": "FZT-1414P-26",
+                  "type": "FZT",
+                  "line": "1-IZ-26710-253411-Z-N",
+                  "confidence": 0.574,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 185px",
+                  "distance_px": 3238.3
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": null,
+        "equipment": null,
+        "overall_confidence": 0.68,
+        "summary": "nearest axis-aligned line label 2-D-9602-NOTE (1579.0px);  conflicting loop line 2-PG-24331-251482-X-N from FIT-1414P-26"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from FIT-1414P-26 on 2-PG-24331-251482-X-N (68%); conflicting loop lines require review; evidence: nearest axis-aligned line label 2-D-9602-NOTE (1579.0px);  conflicting loop line 2-PG-24331-251482-X-N from FIT-1414P-26 (68%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "a77115898a01720bb18e692a720f1b12",
+      "tag_number": "FIC-1762P-12",
+      "suffix": "12",
+      "instrument_type": "FIC",
+      "service": "Process flow control line requires review",
+      "category": "controller",
+      "io_type": "Soft Link",
+      "signal_type": null,
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "6-VG-20715-013461-Y-N",
+          "distance_px": 1573.6,
+          "off_axis_px": 925.0,
+          "axis_aligned": false,
+          "confidence": 0.2,
+          "size": "6",
+          "fluid_code": "VG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1762P-12",
+          "line": "2-VG-20718-013461-Y-N",
+          "source_tag": "FIT-1762P-12",
+          "source_type": "FIT",
+          "confidence": 0.542,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "6-VG-20715-013461-Y-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "FI-1762P-12",
+                  "type": "FI",
+                  "line": "6-VG-20715-013461-Y-N",
+                  "confidence": 0.601,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 38px",
+                  "distance_px": 1320.3
+                },
+                {
+                  "tag": "FQI-1762P-12",
+                  "type": "FQI",
+                  "line": "6-VG-20715-013461-Y-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 865.8
+                }
+              ]
+            },
+            {
+              "line": "1-IZ-26840-253411-Z-N",
+              "confidence": 0.638,
+              "sources": [
+                {
+                  "tag": "FCV-1762P-12",
+                  "type": "FCV",
+                  "line": "1-IZ-26840-253411-Z-N",
+                  "confidence": 0.634,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 27px",
+                  "distance_px": 3607.8
+                },
+                {
+                  "tag": "FZT-1762P-12",
+                  "type": "FZT",
+                  "line": "1-IZ-26840-253411-Z-N",
+                  "confidence": 0.638,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 61px",
+                  "distance_px": 3384.2
+                }
+              ]
+            },
+            {
+              "line": "2-VG-20718-013461-Y-N",
+              "confidence": 0.542,
+              "sources": [
+                {
+                  "tag": "FIT-1762P-12",
+                  "type": "FIT",
+                  "line": "2-VG-20718-013461-Y-N",
+                  "confidence": 0.542,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 155px",
+                  "distance_px": 3564.2
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": null,
+        "equipment": null,
+        "overall_confidence": 0.542,
+        "summary": "nearest line label 6-VG-20715-013461-Y-N (1573.6px);  conflicting loop line 2-VG-20718-013461-Y-N from FIT-1762P-12"
+      },
+      "pid_number": "pid (1).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from FIT-1762P-12 on 2-VG-20718-013461-Y-N (54%); conflicting loop lines require review; evidence: nearest line label 6-VG-20715-013461-Y-N (1573.6px);  conflicting loop line 2-VG-20718-013461-Y-N from FIT-1762P-12 (54%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:31"
+    },
+    {
+      "id": "2105ee05405959d4ae54cfa8323aa1ab",
+      "tag_number": "PIC-1414P-26",
+      "suffix": "26",
+      "instrument_type": "PIC",
+      "service": "Process pressure control line requires review",
+      "category": "controller",
+      "io_type": "Soft Link",
+      "signal_type": null,
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-VG-23007-253461-Y-N",
+          "distance_px": 1453.4,
+          "off_axis_px": 650.0,
+          "axis_aligned": false,
+          "confidence": 0.2,
+          "size": "2",
+          "fluid_code": "VG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1414P-26",
+          "line": "2-PG-24334-251482-X-N",
+          "source_tag": "PIT-1414P-26",
+          "source_type": "PIT",
+          "confidence": 0.651,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "6-VG-20650-013461-Y-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "PI-1414P-26",
+                  "type": "PI",
+                  "line": "6-VG-20650-013461-Y-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 504.9
+                }
+              ]
+            },
+            {
+              "line": "2-PG-24334-251482-X-N",
+              "confidence": 0.651,
+              "sources": [
+                {
+                  "tag": "PIT-1414P-26",
+                  "type": "PIT",
+                  "line": "2-PG-24334-251482-X-N",
+                  "confidence": 0.651,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 36px",
+                  "distance_px": 2717.3
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": null,
+        "equipment": null,
+        "overall_confidence": 0.651,
+        "summary": "nearest line label 2-VG-23007-253461-Y-N (1453.4px);  conflicting loop line 2-PG-24334-251482-X-N from PIT-1414P-26"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from PIT-1414P-26 on 2-PG-24334-251482-X-N (65%); conflicting loop lines require review; evidence: nearest line label 2-VG-23007-253461-Y-N (1453.4px);  conflicting loop line 2-PG-24334-251482-X-N from PIT-1414P-26 (65%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "9eee0fc7ab9cc9315b84f12cc8ebd04a",
+      "tag_number": "PIC-1762P-12",
+      "suffix": "12",
+      "instrument_type": "PIC",
+      "service": "Process pressure control line requires review",
+      "category": "controller",
+      "io_type": "Soft Link",
+      "signal_type": null,
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-VG-23007-253461-Y-N",
+          "distance_px": 1453.4,
+          "off_axis_px": 650.0,
+          "axis_aligned": false,
+          "confidence": 0.2,
+          "size": "2",
+          "fluid_code": "VG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1762P-12",
+          "line": "2-PG-24464-251482-X-N",
+          "source_tag": "PIT-1762P-12",
+          "source_type": "PIT",
+          "confidence": 0.629,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "6-VG-20715-013461-Y-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "PI-1762P-12",
+                  "type": "PI",
+                  "line": "6-VG-20715-013461-Y-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 504.9
+                }
+              ]
+            },
+            {
+              "line": "2-PG-24464-251482-X-N",
+              "confidence": 0.629,
+              "sources": [
+                {
+                  "tag": "PIT-1762P-12",
+                  "type": "PIT",
+                  "line": "2-PG-24464-251482-X-N",
+                  "confidence": 0.629,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 36px",
+                  "distance_px": 3021.1
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": null,
+        "equipment": null,
+        "overall_confidence": 0.629,
+        "summary": "nearest line label 2-VG-23007-253461-Y-N (1453.4px);  conflicting loop line 2-PG-24464-251482-X-N from PIT-1762P-12"
+      },
+      "pid_number": "pid (1).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from PIT-1762P-12 on 2-PG-24464-251482-X-N (63%); conflicting loop lines require review; evidence: nearest line label 2-VG-23007-253461-Y-N (1453.4px);  conflicting loop line 2-PG-24464-251482-X-N from PIT-1762P-12 (63%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:31"
+    },
+    {
+      "id": "c5e132447d77668683600ca09a31b88b",
+      "tag_number": "PSAL-1762P-25",
+      "suffix": "25",
+      "instrument_type": "PSAL",
+      "service": "Pressure low switch",
+      "category": "safety",
+      "io_type": "DI",
+      "signal_type": "24VDC (Dry Contact)",
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": null,
+        "loop_context": null,
+        "valve": null,
+        "equipment": null,
+        "overall_confidence": 0.0,
+        "summary": ""
+      },
+      "pid_number": "pid (11).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "Review required: hardwired IO has no connected line/equipment tag; PSAL pressure switch tag",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": 0.65
+      },
+      "updated_at": "2026-06-13 18:32:35"
+    },
+    {
+      "id": "f82f5a527400c713d4eaf289a27f4c16",
+      "tag_number": "PSDH-1762P-02",
+      "suffix": "02",
+      "instrument_type": "PSDH",
+      "service": "Differential pressure high switch line requires review",
+      "category": null,
+      "io_type": "Soft Link",
+      "signal_type": null,
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "4-PO-27769-FC1L6C-FX-P",
+          "distance_px": 649.0,
+          "off_axis_px": 8.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "4",
+          "fluid_code": "PO",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1762P-02",
+          "line": "4-PO-27769-FC1L6C-FX-PSP",
+          "source_tag": "PIT-1762P-02",
+          "source_type": "PIT",
+          "confidence": 0.784,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "4-PO-27769-FC1L6C-FX-PSP",
+              "confidence": 0.784,
+              "sources": [
+                {
+                  "tag": "PIT-1762P-02",
+                  "type": "PIT",
+                  "line": "4-PO-27769-FC1L6C-FX-PSP",
+                  "confidence": 0.784,
+                  "method": "pipe_graph",
+                  "reason": "line label is 138px from traced pipe graph",
+                  "distance_px": 251.2
+                }
+              ]
+            },
+            {
+              "line": "4-PO-27769-FC1L6C-FX-P",
+              "confidence": 0.651,
+              "sources": [
+                {
+                  "tag": "PSAH-1762P-02",
+                  "type": "PSAH",
+                  "line": "4-PO-27769-FC1L6C-FX-P",
+                  "confidence": 0.651,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 2px",
+                  "distance_px": 275.2
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": {
+          "tag": "SSSV-1762P-04",
+          "type": "SSSV",
+          "position": "upstream",
+          "distance_px": 1092.7,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": null,
+        "overall_confidence": 0.784,
+        "summary": "nearest axis-aligned line label 4-PO-27769-FC1L6C-FX-P (649.0px);  conflicting loop line 4-PO-27769-FC1L6C-FX-PSP from PIT-1762P-02; upstream valve SSSV-1762P-04"
+      },
+      "pid_number": "pid (11).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from PIT-1762P-02 on 4-PO-27769-FC1L6C-FX-PSP (78%); conflicting loop lines require review; evidence: nearest axis-aligned line label 4-PO-27769-FC1L6C-FX-P (649.0px);  conflicting loop line 4-PO-27769-FC1L6C-FX-PSP from PIT-1762P-02; upstream valve SSSV-1762P-04 (78%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:35"
+    },
+    {
+      "id": "5b98ebd34a20212c927dde8fd54bfe4b",
+      "tag_number": "PSDL-1762P-07",
+      "suffix": "07",
+      "instrument_type": "PSDL",
+      "service": "Differential pressure low switch line requires review",
+      "category": null,
+      "io_type": "Soft Link",
+      "signal_type": null,
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24338-251482-X-NVR",
+          "distance_px": 443.5,
+          "off_axis_px": 20.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1762P-07",
+          "line": "4-PO-27769-FC1L6C-FX-PSP",
+          "source_tag": "PIT-1762P-07",
+          "source_type": "PIT",
+          "confidence": 0.57,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "2-PO-27773-FE3L0C-FX-P",
+              "confidence": 0.591,
+              "sources": [
+                {
+                  "tag": "PSAL-1762P-07",
+                  "type": "PSAL",
+                  "line": "2-PO-27773-FE3L0C-FX-P",
+                  "confidence": 0.591,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 63px",
+                  "distance_px": 276.3
+                }
+              ]
+            },
+            {
+              "line": "4-PO-27769-FC1L6C-FX-PSP",
+              "confidence": 0.57,
+              "sources": [
+                {
+                  "tag": "PIT-1762P-07",
+                  "type": "PIT",
+                  "line": "4-PO-27769-FC1L6C-FX-PSP",
+                  "confidence": 0.57,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 253px",
+                  "distance_px": 259.3
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": {
+          "tag": "SSSV-1762P-04",
+          "type": "SSSV",
+          "position": "upstream",
+          "distance_px": 793.5,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": null,
+        "overall_confidence": 0.62,
+        "summary": "nearest axis-aligned line label 2-PG-24338-251482-X-NVR (443.5px);  conflicting loop line 4-PO-27769-FC1L6C-FX-PSP from PIT-1762P-07; upstream valve SSSV-1762P-04"
+      },
+      "pid_number": "pid (11).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from PIT-1762P-07 on 4-PO-27769-FC1L6C-FX-PSP (57%); conflicting loop lines require review; evidence: nearest axis-aligned line label 2-PG-24338-251482-X-NVR (443.5px);  conflicting loop line 4-PO-27769-FC1L6C-FX-PSP from PIT-1762P-07; upstream valve SSSV-1762P-04 (62%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:35"
+    },
+    {
+      "id": "842dc0f4c4226111a634a3ea60b6fec9",
+      "tag_number": "PY-1414P-26",
+      "suffix": "26",
+      "instrument_type": "PY",
+      "service": "Pressure signal conversion line requires review",
+      "category": "field_device",
+      "io_type": "Soft Link",
+      "signal_type": null,
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "6-VG-20715-013461-Y-N",
+          "distance_px": 929.5,
+          "off_axis_px": 91.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "6",
+          "fluid_code": "VG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1414P-26",
+          "line": "2-PG-24334-251482-X-N",
+          "source_tag": "PIT-1414P-26",
+          "source_type": "PIT",
+          "confidence": 0.651,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "6-VG-20650-013461-Y-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "PI-1414P-26",
+                  "type": "PI",
+                  "line": "6-VG-20650-013461-Y-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 874.2
+                }
+              ]
+            },
+            {
+              "line": "2-PG-24334-251482-X-N",
+              "confidence": 0.651,
+              "sources": [
+                {
+                  "tag": "PIT-1414P-26",
+                  "type": "PIT",
+                  "line": "2-PG-24334-251482-X-N",
+                  "confidence": 0.651,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 36px",
+                  "distance_px": 2908.4
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": null,
+        "equipment": null,
+        "overall_confidence": 0.651,
+        "summary": "nearest axis-aligned line label 6-VG-20715-013461-Y-N (929.5px);  conflicting loop line 2-PG-24334-251482-X-N from PIT-1414P-26"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from PIT-1414P-26 on 2-PG-24334-251482-X-N (65%); conflicting loop lines require review; evidence: nearest axis-aligned line label 6-VG-20715-013461-Y-N (929.5px);  conflicting loop line 2-PG-24334-251482-X-N from PIT-1414P-26 (65%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "6c26c4353df0ce372ad6d0d581db45bc",
+      "tag_number": "PY-1762P-12",
+      "suffix": "12",
+      "instrument_type": "PY",
+      "service": "Pressure signal conversion line requires review",
+      "category": "field_device",
+      "io_type": "Soft Link",
+      "signal_type": null,
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "6-VG-20715-013461-Y-N",
+          "distance_px": 929.5,
+          "off_axis_px": 91.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "6",
+          "fluid_code": "VG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1762P-12",
+          "line": "2-PG-24464-251482-X-N",
+          "source_tag": "PIT-1762P-12",
+          "source_type": "PIT",
+          "confidence": 0.629,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "6-VG-20715-013461-Y-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "PI-1762P-12",
+                  "type": "PI",
+                  "line": "6-VG-20715-013461-Y-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 874.2
+                }
+              ]
+            },
+            {
+              "line": "2-PG-24464-251482-X-N",
+              "confidence": 0.629,
+              "sources": [
+                {
+                  "tag": "PIT-1762P-12",
+                  "type": "PIT",
+                  "line": "2-PG-24464-251482-X-N",
+                  "confidence": 0.629,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 36px",
+                  "distance_px": 3194.1
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": null,
+        "equipment": null,
+        "overall_confidence": 0.629,
+        "summary": "nearest axis-aligned line label 6-VG-20715-013461-Y-N (929.5px);  conflicting loop line 2-PG-24464-251482-X-N from PIT-1762P-12"
+      },
+      "pid_number": "pid (1).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from PIT-1762P-12 on 2-PG-24464-251482-X-N (63%); conflicting loop lines require review; evidence: nearest axis-aligned line label 6-VG-20715-013461-Y-N (929.5px);  conflicting loop line 2-PG-24464-251482-X-N from PIT-1762P-12 (63%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:31"
+    },
+    {
+      "id": "c2e5e7fc4712ca683581d818c03332d5",
+      "tag_number": "SSV-1414P-02",
+      "suffix": "02",
+      "instrument_type": "SSV",
+      "service": "Shutdown valve command",
+      "category": "final_element",
+      "io_type": "DO",
+      "signal_type": "24VDC",
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24338-251482-X-NVR",
+          "distance_px": 780.6,
+          "off_axis_px": 365.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": null,
+        "valve": {
+          "tag": "SSV-1414P-03",
+          "type": "SSV",
+          "position": "downstream",
+          "distance_px": 257.0,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": null,
+        "overall_confidence": 0.62,
+        "summary": "nearest axis-aligned line label 2-PG-24338-251482-X-NVR (780.6px); downstream valve SSV-1414P-03"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "SIS/ESD",
+      "flowsizing_type": "control-valve",
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "Review required: hardwired IO has no connected line/equipment tag; SSV shutdown valve",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": 0.9
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "99c3fe45c213810aaec2e05c67bb9e79",
+      "tag_number": "SSV-1414P-07",
+      "suffix": "07",
+      "instrument_type": "SSV",
+      "service": "Shutdown valve command",
+      "category": "final_element",
+      "io_type": "DO",
+      "signal_type": "24VDC",
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24468-251482-X-N",
+          "distance_px": 1016.5,
+          "off_axis_px": 372.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": null,
+        "valve": {
+          "tag": "SSV-1414P-02",
+          "type": "SSV",
+          "position": "downstream",
+          "distance_px": 473.7,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": null,
+        "overall_confidence": 0.62,
+        "summary": "nearest axis-aligned line label 2-PG-24468-251482-X-N (1016.5px); downstream valve SSV-1414P-02"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "SIS/ESD",
+      "flowsizing_type": "control-valve",
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "Review required: hardwired IO has no connected line/equipment tag; SSV shutdown valve",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": 0.9
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "fbf7e5a0e51ef4292e84f610eefc206c",
+      "tag_number": "SSV-1762P-08",
+      "suffix": "08",
+      "instrument_type": "SSV",
+      "service": "Shutdown valve command",
+      "category": "final_element",
+      "io_type": "DO",
+      "signal_type": "24VDC",
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24468-251482-X-N",
+          "distance_px": 1016.5,
+          "off_axis_px": 372.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": null,
+        "valve": {
+          "tag": "SSV-1762P-05",
+          "type": "SSV",
+          "position": "upstream",
+          "distance_px": 504.9,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": null,
+        "overall_confidence": 0.62,
+        "summary": "nearest axis-aligned line label 2-PG-24468-251482-X-N (1016.5px); upstream valve SSV-1762P-05"
+      },
+      "pid_number": "pid (1).pdf",
+      "location": "Panel",
+      "system": "SIS/ESD",
+      "flowsizing_type": "control-valve",
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "Review required: hardwired IO has no connected line/equipment tag; SSV shutdown valve",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": 0.9
+      },
+      "updated_at": "2026-06-13 18:32:31"
+    },
+    {
+      "id": "432950984d3591db25e3900005f738b9",
+      "tag_number": "TE-1414P-12",
+      "suffix": "12",
+      "instrument_type": "TE",
+      "service": "Temperature element line requires review",
+      "category": "passive",
+      "io_type": "None",
+      "signal_type": null,
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24465-251482-X-N",
+          "distance_px": 1125.7,
+          "off_axis_px": 123.0,
+          "axis_aligned": true,
+          "confidence": 0.34,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1414P-12",
+          "line": "2-PG-24335-251482-X-N",
+          "source_tag": "TIT-1414P-12",
+          "source_type": "TIT",
+          "confidence": 0.592,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "2-PG-24334-251482-X-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "TI-1414P-12",
+                  "type": "TI",
+                  "line": "2-PG-24334-251482-X-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 3885.0
+                }
+              ]
+            },
+            {
+              "line": "2-PG-24335-251482-X-N",
+              "confidence": 0.592,
+              "sources": [
+                {
+                  "tag": "TIT-1414P-12",
+                  "type": "TIT",
+                  "line": "2-PG-24335-251482-X-N",
+                  "confidence": 0.592,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 51px",
+                  "distance_px": 174.0
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": {
+          "tag": "FCV-1414P-26",
+          "type": "FCV",
+          "position": "upstream",
+          "distance_px": 699.3,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": {
+          "tag": "M-26109-01",
+          "type": "Motor",
+          "code": "M",
+          "position": "upstream",
+          "distance_px": 2380.3,
+          "confidence": 0.579,
+          "basis": "nearest same-page equipment"
+        },
+        "overall_confidence": 0.62,
+        "summary": "nearest axis-aligned line label 2-PG-24465-251482-X-N (1125.7px);  conflicting loop line 2-PG-24335-251482-X-N from TIT-1414P-12; upstream valve FCV-1414P-26; upstream equipment M-26109-01"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from TIT-1414P-12 on 2-PG-24335-251482-X-N (59%); conflicting loop lines require review; evidence: nearest axis-aligned line label 2-PG-24465-251482-X-N (1125.7px);  conflicting loop line 2-PG-24335-251482-X-N from TIT-1414P-12; upstream valve FCV-1414P-26; upstream equipment M-26109-01 (62%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "e9f79534d01b0a00a9ca7bfedfb2f4fa",
+      "tag_number": "TE-1414P-13",
+      "suffix": "13",
+      "instrument_type": "TE",
+      "service": "Temperature element line requires review",
+      "category": "passive",
+      "io_type": "None",
+      "signal_type": null,
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24469-253461-Y-N",
+          "distance_px": 1556.9,
+          "off_axis_px": 76.0,
+          "axis_aligned": true,
+          "confidence": 0.34,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1414P-13",
+          "line": "2-PG-24331-251482-X-N",
+          "source_tag": "TIT-1414P-13",
+          "source_type": "TIT",
+          "confidence": 0.54,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "2-PG-24338-251482-X-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "TI-1414P-13",
+                  "type": "TI",
+                  "line": "2-PG-24338-251482-X-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 4484.7
+                }
+              ]
+            },
+            {
+              "line": "2-PG-24331-251482-X-N",
+              "confidence": 0.54,
+              "sources": [
+                {
+                  "tag": "TIT-1414P-13",
+                  "type": "TIT",
+                  "line": "2-PG-24331-251482-X-N",
+                  "confidence": 0.54,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 312px",
+                  "distance_px": 173.0
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": {
+          "tag": "FCV-1414P-26",
+          "type": "FCV",
+          "position": "downstream",
+          "distance_px": 395.7,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": {
+          "tag": "M-26109-01",
+          "type": "Motor",
+          "code": "M",
+          "position": "upstream",
+          "distance_px": 1313.1,
+          "confidence": 0.669,
+          "basis": "nearest same-page equipment"
+        },
+        "overall_confidence": 0.669,
+        "summary": "nearest axis-aligned line label 2-PG-24469-253461-Y-N (1556.9px);  conflicting loop line 2-PG-24331-251482-X-N from TIT-1414P-13; downstream valve FCV-1414P-26; upstream equipment M-26109-01"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from TIT-1414P-13 on 2-PG-24331-251482-X-N (54%); conflicting loop lines require review; evidence: nearest axis-aligned line label 2-PG-24469-253461-Y-N (1556.9px);  conflicting loop line 2-PG-24331-251482-X-N from TIT-1414P-13; downstream valve FCV-1414P-26; upstream equipment M-26109-01 (67%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "1f3f7b76d996d2240f389f2c9fd2d5d4",
+      "tag_number": "TE-1762P-01",
+      "suffix": "01",
+      "instrument_type": "TE",
+      "service": "Temperature element line requires review",
+      "category": "passive",
+      "io_type": "None",
+      "signal_type": null,
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24461-251482-X-N",
+          "distance_px": 474.7,
+          "off_axis_px": 157.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1762P-01",
+          "line": "2-PG-24461-251482-X-NFE",
+          "source_tag": "TIT-1762P-01",
+          "source_type": "TIT",
+          "confidence": 0.673,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "2-PG-24468-251482-X-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "TI-1762P-01",
+                  "type": "TI",
+                  "line": "2-PG-24468-251482-X-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 4573.2
+                }
+              ]
+            },
+            {
+              "line": "2-PG-24461-251482-X-NFE",
+              "confidence": 0.673,
+              "sources": [
+                {
+                  "tag": "TIT-1762P-01",
+                  "type": "TIT",
+                  "line": "2-PG-24461-251482-X-NFE",
+                  "confidence": 0.673,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 30px",
+                  "distance_px": 173.0
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": {
+          "tag": "FCV-1762P-12",
+          "type": "FCV",
+          "position": "downstream",
+          "distance_px": 345.0,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": {
+          "tag": "M-26113-01",
+          "type": "Motor",
+          "code": "M",
+          "position": "upstream",
+          "distance_px": 1280.4,
+          "confidence": 0.672,
+          "basis": "nearest same-page equipment"
+        },
+        "overall_confidence": 0.673,
+        "summary": "nearest axis-aligned line label 2-PG-24461-251482-X-N (474.7px);  conflicting loop line 2-PG-24461-251482-X-NFE from TIT-1762P-01; downstream valve FCV-1762P-12; upstream equipment M-26113-01"
+      },
+      "pid_number": "pid (1).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from TIT-1762P-01 on 2-PG-24461-251482-X-NFE (67%); conflicting loop lines require review; evidence: nearest axis-aligned line label 2-PG-24461-251482-X-N (474.7px);  conflicting loop line 2-PG-24461-251482-X-NFE from TIT-1762P-01; downstream valve FCV-1762P-12; upstream equipment M-26113-01 (67%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:31"
+    },
+    {
+      "id": "98537e1f03c52adf3251b9c4dea86610",
+      "tag_number": "TW-1414P-12",
+      "suffix": "12",
+      "instrument_type": "TW",
+      "service": "Thermowell line requires review",
+      "category": "passive",
+      "io_type": "None",
+      "signal_type": null,
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "1-IZ-26710-253411-Z-N",
+          "distance_px": 857.8,
+          "off_axis_px": 38.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "1",
+          "fluid_code": "IZ",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1414P-12",
+          "line": "2-PG-24335-251482-X-N",
+          "source_tag": "TIT-1414P-12",
+          "source_type": "TIT",
+          "confidence": 0.592,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "2-PG-24334-251482-X-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "TI-1414P-12",
+                  "type": "TI",
+                  "line": "2-PG-24334-251482-X-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 4054.1
+                }
+              ]
+            },
+            {
+              "line": "2-PG-24335-251482-X-N",
+              "confidence": 0.592,
+              "sources": [
+                {
+                  "tag": "TIT-1414P-12",
+                  "type": "TIT",
+                  "line": "2-PG-24335-251482-X-N",
+                  "confidence": 0.592,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 51px",
+                  "distance_px": 177.0
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": {
+          "tag": "FCV-1414P-26",
+          "type": "FCV",
+          "position": "upstream",
+          "distance_px": 370.6,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": {
+          "tag": "M-26109-01",
+          "type": "Motor",
+          "code": "M",
+          "position": "upstream",
+          "distance_px": 2057.1,
+          "confidence": 0.606,
+          "basis": "nearest same-page equipment"
+        },
+        "overall_confidence": 0.62,
+        "summary": "nearest axis-aligned line label 1-IZ-26710-253411-Z-N (857.8px);  conflicting loop line 2-PG-24335-251482-X-N from TIT-1414P-12; upstream valve FCV-1414P-26; upstream equipment M-26109-01"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from TIT-1414P-12 on 2-PG-24335-251482-X-N (59%); conflicting loop lines require review; evidence: nearest axis-aligned line label 1-IZ-26710-253411-Z-N (857.8px);  conflicting loop line 2-PG-24335-251482-X-N from TIT-1414P-12; upstream valve FCV-1414P-26; upstream equipment M-26109-01 (62%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "b2402ae6ca159da9db8425054b503339",
+      "tag_number": "TW-1414P-13",
+      "suffix": "13",
+      "instrument_type": "TW",
+      "service": "Thermowell line requires review",
+      "category": "passive",
+      "io_type": "None",
+      "signal_type": null,
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24461-251482-X-NFE",
+          "distance_px": 573.6,
+          "off_axis_px": 156.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1414P-13",
+          "line": "2-PG-24331-251482-X-N",
+          "source_tag": "TIT-1414P-13",
+          "source_type": "TIT",
+          "confidence": 0.54,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "2-PG-24338-251482-X-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "TI-1414P-13",
+                  "type": "TI",
+                  "line": "2-PG-24338-251482-X-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 4670.1
+                }
+              ]
+            },
+            {
+              "line": "2-PG-24331-251482-X-N",
+              "confidence": 0.54,
+              "sources": [
+                {
+                  "tag": "TIT-1414P-13",
+                  "type": "TIT",
+                  "line": "2-PG-24331-251482-X-N",
+                  "confidence": 0.54,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 312px",
+                  "distance_px": 186.0
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": {
+          "tag": "FCV-1414P-26",
+          "type": "FCV",
+          "position": "downstream",
+          "distance_px": 707.7,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": {
+          "tag": "M-26109-01",
+          "type": "Motor",
+          "code": "M",
+          "position": "upstream",
+          "distance_px": 981.2,
+          "confidence": 0.697,
+          "basis": "nearest same-page equipment"
+        },
+        "overall_confidence": 0.697,
+        "summary": "nearest axis-aligned line label 2-PG-24461-251482-X-NFE (573.6px);  conflicting loop line 2-PG-24331-251482-X-N from TIT-1414P-13; downstream valve FCV-1414P-26; upstream equipment M-26109-01"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from TIT-1414P-13 on 2-PG-24331-251482-X-N (54%); conflicting loop lines require review; evidence: nearest axis-aligned line label 2-PG-24461-251482-X-NFE (573.6px);  conflicting loop line 2-PG-24331-251482-X-N from TIT-1414P-13; downstream valve FCV-1414P-26; upstream equipment M-26109-01 (70%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "32d5d4b0ab54270c179d611de7b6fd3c",
+      "tag_number": "TW-1762P-01",
+      "suffix": "01",
+      "instrument_type": "TW",
+      "service": "Thermowell line requires review",
+      "category": "passive",
+      "io_type": "None",
+      "signal_type": null,
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-PG-24461-251482-X-NFE",
+          "distance_px": 477.2,
+          "off_axis_px": 156.0,
+          "axis_aligned": true,
+          "confidence": 0.42,
+          "size": "2",
+          "fluid_code": "PG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": {
+          "loop": "1762P-01",
+          "line": "2-PG-24461-251482-X-NFE",
+          "source_tag": "TIT-1762P-01",
+          "source_type": "TIT",
+          "confidence": 0.673,
+          "method": "same_loop_context",
+          "conflict": true,
+          "candidate_lines": [
+            {
+              "line": "2-PG-24468-251482-X-N",
+              "confidence": 0.68,
+              "sources": [
+                {
+                  "tag": "TI-1762P-01",
+                  "type": "TI",
+                  "line": "2-PG-24468-251482-X-N",
+                  "confidence": 0.68,
+                  "method": "loop_propagation",
+                  "reason": "loop propagation: same loop instance inherited from a graph-mapped instrument",
+                  "distance_px": 4755.1
+                }
+              ]
+            },
+            {
+              "line": "2-PG-24461-251482-X-NFE",
+              "confidence": 0.673,
+              "sources": [
+                {
+                  "tag": "TIT-1762P-01",
+                  "type": "TIT",
+                  "line": "2-PG-24461-251482-X-NFE",
+                  "confidence": 0.673,
+                  "method": "axis_aligned_text",
+                  "reason": "line label is axis-aligned with instrument; off-axis 30px",
+                  "distance_px": 186.0
+                }
+              ]
+            }
+          ],
+          "basis": "same loop instance with mapped physical instrument or valve"
+        },
+        "valve": {
+          "tag": "FCV-1762P-12",
+          "type": "FCV",
+          "position": "downstream",
+          "distance_px": 688.0,
+          "confidence": 0.62,
+          "basis": "same loop proximity"
+        },
+        "equipment": {
+          "tag": "M-26113-01",
+          "type": "Motor",
+          "code": "M",
+          "position": "upstream",
+          "distance_px": 950.4,
+          "confidence": 0.7,
+          "basis": "nearest same-page equipment"
+        },
+        "overall_confidence": 0.7,
+        "summary": "nearest axis-aligned line label 2-PG-24461-251482-X-NFE (477.2px);  conflicting loop line 2-PG-24461-251482-X-NFE from TIT-1762P-01; downstream valve FCV-1762P-12; upstream equipment M-26113-01"
+      },
+      "pid_number": "pid (1).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "same-loop context from TIT-1762P-01 on 2-PG-24461-251482-X-NFE (67%); conflicting loop lines require review; evidence: nearest axis-aligned line label 2-PG-24461-251482-X-NFE (477.2px);  conflicting loop line 2-PG-24461-251482-X-NFE from TIT-1762P-01; downstream valve FCV-1762P-12; upstream equipment M-26113-01 (70%)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": null
+      },
+      "updated_at": "2026-06-13 18:32:31"
+    },
+    {
+      "id": "4bbe1f5b63edf4419e9d58df3200fcc1",
+      "tag_number": "VENT-5000-IN",
+      "suffix": "IN",
+      "instrument_type": "VENT",
+      "service": "Vibration measurement at motor",
+      "category": "field_device",
+      "io_type": "AI",
+      "signal_type": "4-20mA + HART",
+      "loop_number": "5000",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": {
+          "tag": "2-VG-20718-013461-Y-N",
+          "distance_px": 1503.6,
+          "off_axis_px": 302.0,
+          "axis_aligned": true,
+          "confidence": 0.34,
+          "size": "2",
+          "fluid_code": "VG",
+          "basis": "nearest extracted line label; not a confirmed pipe connection"
+        },
+        "loop_context": null,
+        "valve": null,
+        "equipment": {
+          "tag": "M-26113-01",
+          "type": "Motor",
+          "code": "M",
+          "position": "near",
+          "distance_px": 2395.3,
+          "confidence": 0.577,
+          "basis": "nearest same-page equipment"
+        },
+        "overall_confidence": 0.577,
+        "summary": "nearest axis-aligned line label 2-VG-20718-013461-Y-N (1503.6px); near equipment M-26113-01"
+      },
+      "pid_number": "pid (1).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "Review required: hardwired IO has no connected line/equipment tag; nearest equipment M-26113-01 (near)",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": 0.9
+      },
+      "updated_at": "2026-06-13 18:32:31"
+    },
+    {
+      "id": "7e47aac2494256cfd46e885dbf2b2b1d",
+      "tag_number": "RO-1414P-03",
+      "suffix": "03",
+      "instrument_type": "RO",
+      "service": "Radiation Orifice",
+      "category": "passive",
+      "io_type": "None",
+      "signal_type": null,
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": "2-VG-22942-253461-Y-N",
+      "line_confidence": 0.789,
+      "line_association_method": "pipe_graph",
+      "line_association_reason": "line label is 133px from traced pipe graph",
+      "line_candidates": [
+        {
+          "line_number": "2-VG-22942-253461-Y-N",
+          "method": "pipe_graph",
+          "confidence": 0.789,
+          "distance_px": 133.1,
+          "evidence": "line label is 133px from traced pipe graph",
+          "segment_count": 52,
+          "connection_side": "down",
+          "pipe_axis": "mixed",
+          "stub_count": 3,
+          "run_segment_count": 52,
+          "stub_length_px": 184.9
+        }
+      ],
+      "geometry_evidence": {
+        "version": 1,
+        "line": {
+          "tag": "2-VG-22942-253461-Y-N",
+          "confidence": 0.789,
+          "method": "pipe_graph",
+          "reason": "line label is 133px from traced pipe graph",
+          "candidates": [
+            {
+              "line_number": "2-VG-22942-253461-Y-N",
+              "method": "pipe_graph",
+              "confidence": 0.789,
+              "distance_px": 133.1,
+              "evidence": "line label is 133px from traced pipe graph",
+              "segment_count": 52,
+              "connection_side": "down",
+              "pipe_axis": "mixed",
+              "stub_count": 3,
+              "run_segment_count": 52,
+              "stub_length_px": 184.9
+            }
+          ],
+          "size": "2",
+          "size_unit": "in",
+          "fluid_code": "VG",
+          "connection_side": "down",
+          "pipe_axis": "mixed",
+          "stub_count": 3,
+          "run_segment_count": 52
+        },
+        "nearest_line_label": null,
+        "loop_context": null,
+        "valve": {
+          "tag": "SSV-1414P-06",
+          "type": "SSV",
+          "position": "downstream",
+          "distance_px": 1785.0,
+          "confidence": 0.88,
+          "basis": "same connected line"
+        },
+        "equipment": null,
+        "overall_confidence": 0.88,
+        "summary": "line 2-VG-22942-253461-Y-N mixed via down stub; downstream valve SSV-1414P-06"
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": "flow-element",
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "Review required: service description has low confidence; description fallback",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.789,
+        "service": 0.35
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "8a06680c7f218639cf47efda534cafae",
+      "tag_number": "RO-1762P-03",
+      "suffix": "03",
+      "instrument_type": "RO",
+      "service": "Radiation Orifice",
+      "category": "passive",
+      "io_type": "None",
+      "signal_type": null,
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": "2-VG-23007-253461-Y-N",
+      "line_confidence": 0.789,
+      "line_association_method": "pipe_graph",
+      "line_association_reason": "line label is 133px from traced pipe graph",
+      "line_candidates": [
+        {
+          "line_number": "2-VG-23007-253461-Y-N",
+          "method": "pipe_graph",
+          "confidence": 0.789,
+          "distance_px": 133.1,
+          "evidence": "line label is 133px from traced pipe graph",
+          "segment_count": 56,
+          "connection_side": "down",
+          "pipe_axis": "mixed",
+          "stub_count": 3,
+          "run_segment_count": 56,
+          "stub_length_px": 159.6
+        }
+      ],
+      "geometry_evidence": {
+        "version": 1,
+        "line": {
+          "tag": "2-VG-23007-253461-Y-N",
+          "confidence": 0.789,
+          "method": "pipe_graph",
+          "reason": "line label is 133px from traced pipe graph",
+          "candidates": [
+            {
+              "line_number": "2-VG-23007-253461-Y-N",
+              "method": "pipe_graph",
+              "confidence": 0.789,
+              "distance_px": 133.1,
+              "evidence": "line label is 133px from traced pipe graph",
+              "segment_count": 56,
+              "connection_side": "down",
+              "pipe_axis": "mixed",
+              "stub_count": 3,
+              "run_segment_count": 56,
+              "stub_length_px": 159.6
+            }
+          ],
+          "size": "2",
+          "size_unit": "in",
+          "fluid_code": "VG",
+          "connection_side": "down",
+          "pipe_axis": "mixed",
+          "stub_count": 3,
+          "run_segment_count": 56
+        },
+        "nearest_line_label": null,
+        "loop_context": null,
+        "valve": {
+          "tag": "SSV-1762P-05",
+          "type": "SSV",
+          "position": "downstream",
+          "distance_px": 1785.0,
+          "confidence": 0.88,
+          "basis": "same connected line"
+        },
+        "equipment": null,
+        "overall_confidence": 0.88,
+        "summary": "line 2-VG-23007-253461-Y-N mixed via down stub; downstream valve SSV-1762P-05"
+      },
+      "pid_number": "pid (1).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": "flow-element",
+      "source": "ai_extracted",
+      "status": "For Review",
+      "review_required": 1,
+      "notes": "Review required: service description has low confidence; description fallback",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.789,
+        "service": 0.35
+      },
+      "updated_at": "2026-06-13 18:32:31"
+    },
+    {
+      "id": "6f368590cabb99f822ff0166d9a65b36",
+      "tag_number": "HIC-1414P-26",
+      "suffix": "26",
+      "instrument_type": "HIC",
+      "service": "Manual indicating controller",
+      "category": null,
+      "io_type": "Soft Link",
+      "signal_type": null,
+      "loop_number": "1414P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": null,
+        "loop_context": null,
+        "valve": null,
+        "equipment": null,
+        "overall_confidence": 0.0,
+        "summary": ""
+      },
+      "pid_number": "pid (10).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "Draft",
+      "review_required": 0,
+      "notes": "HIC hand/indicating controller tag",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": 0.65
+      },
+      "updated_at": "2026-06-13 18:32:33"
+    },
+    {
+      "id": "97d0f6f2de973413753e25164c2ccd16",
+      "tag_number": "HIC-1762P-12",
+      "suffix": "12",
+      "instrument_type": "HIC",
+      "service": "Manual indicating controller",
+      "category": null,
+      "io_type": "Soft Link",
+      "signal_type": null,
+      "loop_number": "1762P",
+      "area_code": null,
+      "line_tag": null,
+      "line_confidence": 0.0,
+      "line_association_method": null,
+      "line_association_reason": null,
+      "line_candidates": [],
+      "geometry_evidence": {
+        "version": 1,
+        "line": null,
+        "nearest_line_label": null,
+        "loop_context": null,
+        "valve": null,
+        "equipment": null,
+        "overall_confidence": 0.0,
+        "summary": ""
+      },
+      "pid_number": "pid (1).pdf",
+      "location": "Panel",
+      "system": "DCS",
+      "flowsizing_type": null,
+      "source": "ai_extracted",
+      "status": "Draft",
+      "review_required": 0,
+      "notes": "HIC hand/indicating controller tag",
+      "field_confidence": {
+        "tag_number": 0.95,
+        "line_tag": 0.0,
+        "service": 0.65
+      },
+      "updated_at": "2026-06-13 18:32:31"
+    }
+  ]
+}

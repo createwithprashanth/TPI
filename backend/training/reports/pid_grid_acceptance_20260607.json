@@ -2,8 +2,8 @@
   "project_id": "XYRA_E2E_PID_GRID_TEST_20260607",
   "db_path": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/xyra_studio.db",
   "pid_dir": "/Users/prashanththipparthi/Downloads/Zoho WorkDrive",
-  "batch_id": "pid_grid_acceptance_1780779305",
-  "elapsed_s": 168.03,
+  "batch_id": "pid_grid_acceptance_1780862551",
+  "elapsed_s": 131.35,
   "before": {
     "instruments": 0,
     "sessions": 0,
@@ -17,7 +17,7 @@
   "after_ai": {
     "instruments": 649,
     "sessions": 11,
-    "history": 10
+    "history": 4
   },
   "pid_results": [
     {
@@ -29,7 +29,7 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 1.34
+      "elapsed_s": 1.29
     },
     {
       "file": "pid (10).pdf",
@@ -40,7 +40,7 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 1.22
+      "elapsed_s": 1.15
     },
     {
       "file": "pid (11).pdf",
@@ -51,7 +51,7 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 2.34
+      "elapsed_s": 2.24
     },
     {
       "file": "pid (2).pdf",
@@ -62,7 +62,7 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 1.58
+      "elapsed_s": 1.53
     },
     {
       "file": "pid (3).pdf",
@@ -73,7 +73,7 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 2.02
+      "elapsed_s": 1.91
     },
     {
       "file": "pid (4).pdf",
@@ -84,7 +84,7 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 1.65
+      "elapsed_s": 1.58
     },
     {
       "file": "pid (5).pdf",
@@ -95,7 +95,7 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 2.09
+      "elapsed_s": 1.93
     },
     {
       "file": "pid (6).pdf",
@@ -106,7 +106,7 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 1.65
+      "elapsed_s": 1.61
     },
     {
       "file": "pid (7).pdf",
@@ -117,7 +117,7 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 2.37
+      "elapsed_s": 2.29
     },
     {
       "file": "pid (8).pdf",
@@ -128,7 +128,7 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 1.9
+      "elapsed_s": 1.84
     },
     {
       "file": "pid (9).pdf",
@@ -139,48 +139,46 @@
         "updated": 0,
         "skipped": 0
       },
-      "elapsed_s": 2.67
+      "elapsed_s": 2.54
     }
   ],
   "ai_grid": {
     "rows_reviewed": 5,
     "summary": {
       "rows_reviewed": 5,
-      "suggestions": 10,
+      "suggestions": 5,
       "by_engineer": {
-        "instrumentation": 3,
-        "piping": 5,
-        "process": 2
+        "process": 1,
+        "piping": 3,
+        "instrumentation": 1
       },
       "by_field": {
-        "io_type": 1,
-        "review_required": 2,
-        "flowsizing_type": 3,
-        "signal_type": 1,
-        "service": 1,
-        "status": 2
+        "review_required": 1,
+        "flowsizing_type": 2,
+        "status": 1,
+        "signal_type": 1
       }
     },
     "model_status": {
       "instrumentation": {
         "model": "xyra-instrumentation-engineer",
         "status": "reviewed",
-        "suggestions": 3
+        "suggestions": 0
       },
       "process": {
         "model": "xyra-process-engineer",
         "status": "reviewed",
-        "suggestions": 2
+        "suggestions": 1
       },
       "piping": {
         "model": "xyra-piping-engineer",
         "status": "reviewed",
-        "suggestions": 6
+        "suggestions": 4
       }
     },
-    "suggestions": 10,
-    "applied": 10,
-    "skipped": 0
+    "suggestions": 5,
+    "applied": 4,
+    "skipped": 1
   },
   "sample_rows": [
     {
@@ -189,8 +187,8 @@
       "service": "Pressure",
       "io_type": "Soft Link",
       "line_tag": null,
-      "status": "Draft",
-      "review_required": false
+      "status": "Rejected - Noise",
+      "review_required": true
     },
     {
       "tag_number": "1370P",
@@ -198,8 +196,8 @@
       "service": "Pressure",
       "io_type": "Soft Link",
       "line_tag": null,
-      "status": "Draft",
-      "review_required": false
+      "status": "Rejected - Noise",
+      "review_required": true
     },
     {
       "tag_number": "1370P-20",
@@ -207,8 +205,8 @@
       "service": "Pressure",
       "io_type": "Soft Link",
       "line_tag": null,
-      "status": "Draft",
-      "review_required": false
+      "status": "Rejected - Noise",
+      "review_required": true
     },
     {
       "tag_number": "1370P-25",
@@ -216,8 +214,8 @@
       "service": "Pressure",
       "io_type": "Soft Link",
       "line_tag": null,
-      "status": "Draft",
-      "review_required": false
+      "status": "Rejected - Noise",
+      "review_required": true
     },
     {
       "tag_number": "1375P",
@@ -225,8 +223,8 @@
       "service": "Pressure",
       "io_type": "Soft Link",
       "line_tag": null,
-      "status": "Draft",
-      "review_required": false
+      "status": "Rejected - Noise",
+      "review_required": true
     },
     {
       "tag_number": "1375P-20",
@@ -234,8 +232,8 @@
       "service": "Pressure",
       "io_type": "Soft Link",
       "line_tag": null,
-      "status": "Draft",
-      "review_required": false
+      "status": "Rejected - Noise",
+      "review_required": true
     },
     {
       "tag_number": "1375P-25",
@@ -243,8 +241,8 @@
       "service": "Pressure",
       "io_type": "Soft Link",
       "line_tag": null,
-      "status": "Draft",
-      "review_required": false
+      "status": "Rejected - Noise",
+      "review_required": true
     },
     {
       "tag_number": "1414P",
@@ -252,8 +250,8 @@
       "service": "Pressure",
       "io_type": "Soft Link",
       "line_tag": null,
-      "status": "Draft",
-      "review_required": false
+      "status": "Rejected - Noise",
+      "review_required": true
     }
   ]
 }

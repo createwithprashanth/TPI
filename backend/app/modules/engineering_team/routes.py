@@ -14,6 +14,7 @@ from app.modules.ai_engineers.contracts import (
     ENGINEER_MODELS,
     EngineerRole,
     ROLE_ALLOWED_FIELDS,
+    SOFT_DISPLAY_CONTROLLER_TYPES,
     TYPE_DEFAULTS,
 )
 from app.modules.llm.service import (
@@ -26,9 +27,40 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 NOISE_PREFIXES = ("NOTE", "REV", "DWG", "SHT", "TITLE", "AREA", "UNIT", "LINE")
-MODEL_ROW_LIMIT = 60
-MODEL_TIMEOUT_SECONDS = int(os.getenv("XYRA_ENGINEERING_MODEL_TIMEOUT", "90"))
-MODEL_NUM_PREDICT = int(os.getenv("XYRA_ENGINEERING_MODEL_NUM_PREDICT", "1600"))
+PROCESS_CONNECTED_TYPES = frozenset(
+    {
+        "FT",
+        "FIT",
+        "FIC",
+        "FCV",
+        "FE",
+        "RO",
+        "PT",
+        "PIT",
+        "PDT",
+        "PDIT",
+        "LT",
+        "LIT",
+        "TE",
+        "TW",
+        "TT",
+        "TIT",
+        "AT",
+        "PCV",
+        "LCV",
+        "TCV",
+        "HCV",
+        "BDV",
+        "SDV",
+        "SSV",
+        "MOV",
+        "XV",
+        "PSV",
+    }
+)
+MODEL_ROW_LIMIT = int(os.getenv("XYRA_ENGINEERING_MODEL_ROW_LIMIT", "8"))
+MODEL_TIMEOUT_SECONDS = int(os.getenv("XYRA_ENGINEERING_MODEL_TIMEOUT", "25"))
+MODEL_NUM_PREDICT = int(os.getenv("XYRA_ENGINEERING_MODEL_NUM_PREDICT", "900"))
 
 
 class ReviewRow(BaseModel):
@@ -46,6 +78,8 @@ class ReviewRow(BaseModel):
     review_required: bool | None = None
     flowsizing_type: str | None = None
     source: str | None = None
+    geometry_evidence: dict[str, Any] | None = None
+    notes: str | None = None
 
 
 class ReviewRequest(BaseModel):
@@ -112,7 +146,7 @@ def _instrumentation_review(row: ReviewRow) -> list[ReviewSuggestion]:
 
     if tag.startswith(NOISE_PREFIXES) or tag in {"D", "NO", "MIN", "MAX"}:
         _add(suggestions, row, "instrumentation", "review_required", True, 0.9, "Looks like a drawing note/title-block fragment rather than an instrument tag.")
-        _add(suggestions, row, "instrumentation", "status", "For Review", 0.85, "Potential noise tag should not be issued without review.")
+        _add(suggestions, row, "instrumentation", "status", "Rejected - Noise", 0.85, "Obvious note/title-block text should not be issued as an instrument.")
 
     prefix = "".join(ch for ch in tag.split("-")[0] if ch.isalpha())
     inferred_type = prefix if prefix in TYPE_DEFAULTS else ""
@@ -123,14 +157,22 @@ def _instrumentation_review(row: ReviewRow) -> list[ReviewSuggestion]:
     defaults = TYPE_DEFAULTS.get(inst_type)
     if defaults:
         for field in ("io_type", "signal_type", "category", "flowsizing_type"):
-            if field in defaults and not _text(getattr(row, field, None)):
+            if field not in defaults:
+                continue
+            current = _text(getattr(row, field, None))
+            should_override = (
+                current
+                and field in {"io_type", "signal_type", "category"}
+                and current != _text(defaults[field])
+            )
+            if not current or should_override:
                 _add(
                     suggestions,
                     row,
                     "instrumentation",
                     field,
                     defaults[field],
-                    0.78,
+                    0.9 if should_override else 0.78,
                     f"{inst_type} normally maps to {field.replace('_', ' ')} `{defaults[field]}`.",
                 )
 
@@ -140,6 +182,32 @@ def _instrumentation_review(row: ReviewRow) -> list[ReviewSuggestion]:
     if _text(row.source) == "ai_extracted" and row.review_required is None:
         _add(suggestions, row, "instrumentation", "review_required", True, 0.65, "AI extracted rows should explicitly carry a review flag.")
 
+    geometry = row.geometry_evidence or {}
+    line_evidence = geometry.get("line") if isinstance(geometry, dict) else None
+    has_confirmed_line = isinstance(line_evidence, dict) and bool(_text(line_evidence.get("tag")))
+    has_weak_geometry = isinstance(geometry, dict) and bool(
+        geometry.get("equipment") or geometry.get("valve") or geometry.get("nearest_line_label")
+    )
+    if inst_type in PROCESS_CONNECTED_TYPES and not _text(row.line_tag) and has_weak_geometry and not has_confirmed_line:
+        _add(
+            suggestions,
+            row,
+            "instrumentation",
+            "review_required",
+            True,
+            0.86,
+            "Process-connected instrument has no confirmed line tag; geometry evidence is contextual only.",
+        )
+        _add(
+            suggestions,
+            row,
+            "instrumentation",
+            "status",
+            "For Review",
+            0.78,
+            "Weak geometry context should be confirmed before issue.",
+        )
+
     return suggestions
 
 
@@ -148,8 +216,29 @@ def _process_review(row: ReviewRow) -> list[ReviewSuggestion]:
     inst_type = _upper(row.instrument_type)
     tag = _upper(row.tag_number)
 
-    if inst_type in {"FT", "FIT", "FIC", "FCV", "FE", "RO", "PT", "PIT", "PDT", "LT", "LIT", "TT", "TIT", "AT", "FCV", "PCV", "LCV", "TCV"}:
-        if not _text(row.line_tag):
+    if inst_type in PROCESS_CONNECTED_TYPES:
+        line = _text(row.line_tag)
+        geometry = row.geometry_evidence or {}
+        line_evidence = geometry.get("line") if isinstance(geometry, dict) else None
+        if not line and isinstance(line_evidence, dict):
+            evidence_tag = _text(line_evidence.get("tag"))
+            evidence_method = _text(line_evidence.get("method"))
+            try:
+                evidence_confidence = float(line_evidence.get("confidence") or 0)
+            except (TypeError, ValueError):
+                evidence_confidence = 0.0
+            if evidence_tag and evidence_method in {"pipe_graph", "loop_propagation"} and evidence_confidence >= 0.78:
+                _add(
+                    suggestions,
+                    row,
+                    "process",
+                    "line_tag",
+                    evidence_tag,
+                    min(evidence_confidence, 0.9),
+                    f"Geometry evidence traced a process connection to {evidence_tag}.",
+                )
+                line = evidence_tag
+        if not line:
             _add(suggestions, row, "process", "review_required", True, 0.84, "Process-facing instrument has no connected line number.")
             _add(suggestions, row, "process", "status", "For Review", 0.76, "Missing process connection must be checked before issue.")
 
@@ -210,7 +299,7 @@ def _summarize(rows: list[ReviewRow], suggestions: list[ReviewSuggestion]) -> di
 
 
 def _row_payload(row: ReviewRow) -> dict:
-    return {
+    payload = {
         "id": row.id,
         "tag_number": row.tag_number or "",
         "instrument_type": row.instrument_type or "",
@@ -225,6 +314,52 @@ def _row_payload(row: ReviewRow) -> dict:
         "flowsizing_type": row.flowsizing_type or "",
         "source": row.source or "",
     }
+    if row.geometry_evidence:
+        payload["geometry_evidence"] = _compact_geometry_evidence(row.geometry_evidence)
+    if row.notes:
+        payload["notes"] = row.notes
+    return payload
+
+
+def _compact_geometry_evidence(geometry: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key in ("line", "nearest_line_label", "loop_context", "valve", "equipment"):
+        value = geometry.get(key)
+        if not isinstance(value, dict):
+            continue
+        if key == "line":
+            compact[key] = {
+                item_key: value.get(item_key)
+                for item_key in (
+                    "tag",
+                    "confidence",
+                    "method",
+                    "reason",
+                    "size",
+                    "size_unit",
+                    "fluid_code",
+                    "connection_side",
+                    "pipe_axis",
+                )
+                if value.get(item_key) not in {None, ""}
+            }
+        elif key == "loop_context":
+            compact[key] = {
+                item_key: value.get(item_key)
+                for item_key in ("loop", "line", "source_tag", "source_type", "confidence", "method", "conflict")
+                if value.get(item_key) not in {None, ""}
+            }
+        else:
+            compact[key] = {
+                item_key: value.get(item_key)
+                for item_key in ("tag", "position", "confidence", "method", "basis", "size", "fluid_code")
+                if value.get(item_key) not in {None, ""}
+            }
+    if geometry.get("summary"):
+        compact["summary"] = geometry.get("summary")
+    if geometry.get("overall_confidence") is not None:
+        compact["overall_confidence"] = geometry.get("overall_confidence")
+    return compact
 
 
 def _build_model_prompt(body: ReviewRequest, role: EngineerRole, rows: list[ReviewRow]) -> str:
@@ -239,6 +374,19 @@ def _build_model_prompt(body: ReviewRequest, role: EngineerRole, rows: list[Revi
     )
 
 
+def _model_rows_for_role(role: EngineerRole, rows: list[ReviewRow]) -> list[ReviewRow]:
+    if role == "instrumentation":
+        return rows[:MODEL_ROW_LIMIT]
+    if role == "process":
+        relevant = [row for row in rows if _upper(row.instrument_type) in PROCESS_CONNECTED_TYPES or not _text(row.service)]
+        return (relevant or rows)[:MODEL_ROW_LIMIT]
+    if role == "piping":
+        inline_types = {"FCV", "PCV", "LCV", "TCV", "HCV", "BDV", "SDV", "SSV", "MOV", "XV", "PSV", "FE", "RO"}
+        relevant = [row for row in rows if _upper(row.instrument_type) in inline_types or _upper(row.tag_number).startswith(("BV", "GV", "CV"))]
+        return (relevant or rows)[:MODEL_ROW_LIMIT]
+    return rows[:MODEL_ROW_LIMIT]
+
+
 def _coerce_model_suggestions(
     role: EngineerRole,
     rows_by_id: dict[str, ReviewRow],
@@ -247,6 +395,8 @@ def _coerce_model_suggestions(
     if not isinstance(payload, dict):
         return []
     raw_items = payload.get("suggestions", [])
+    if not raw_items and any(field in payload for field in ALL_SUGGESTION_FIELDS):
+        raw_items = [payload]
     if not isinstance(raw_items, list):
         return []
 
@@ -258,33 +408,68 @@ def _coerce_model_suggestions(
         row = rows_by_id.get(row_id)
         if not row:
             continue
-        field = _text(raw.get("field"))
-        if field not in ALL_SUGGESTION_FIELDS:
-            continue
-        if field not in ROLE_ALLOWED_FIELDS[role]:
-            continue
-        suggested_value = raw.get("suggested_value")
-        current = getattr(row, field, None)
-        if current == suggested_value:
-            continue
-        try:
-            confidence = float(raw.get("confidence", 0))
-        except (TypeError, ValueError):
-            confidence = 0.0
-        confidence = max(0.0, min(confidence, 1.0))
-        reason = _text(raw.get("reason"))[:240] or f"{role} model suggested a review update."
-        suggestions.append(
-            ReviewSuggestion(
-                id=row.id,
-                tag_number=_text(row.tag_number),
-                engineer=role,
-                field=field,
-                current_value=current,
-                suggested_value=suggested_value,
-                confidence=round(confidence, 2),
-                reason=reason,
+
+        normalized_items = []
+        if _text(raw.get("field")) and ("suggested_value" in raw or "value" in raw):
+            normalized_items.append(
+                {
+                    "field": _text(raw.get("field")),
+                    "suggested_value": raw.get("suggested_value", raw.get("value")),
+                    "confidence": raw.get("confidence", 0),
+                    "reason": raw.get("reason"),
+                }
             )
+        # Local LLMs sometimes emit shorthand JSON:
+        # {"id":"1","io_type":"AI","category":"field_device"}
+        normalized_items.extend(
+            {
+                "field": field,
+                "suggested_value": raw.get(field),
+                "confidence": raw.get("confidence", 0),
+                "reason": raw.get("reason"),
+            }
+            for field in ALL_SUGGESTION_FIELDS
+            if field in raw
         )
+
+        for item in normalized_items:
+            field = _text(item.get("field"))
+            if field not in ALL_SUGGESTION_FIELDS:
+                continue
+            if field not in ROLE_ALLOWED_FIELDS[role]:
+                continue
+            suggested_value = item.get("suggested_value")
+            current = getattr(row, field, None)
+            inst_type = _upper(row.instrument_type)
+            defaults = TYPE_DEFAULTS.get(inst_type, {})
+            if field in defaults and _text(suggested_value) != _text(defaults.get(field)):
+                continue
+            if (
+                inst_type in SOFT_DISPLAY_CONTROLLER_TYPES
+                and field in {"io_type", "signal_type"}
+                and _text(suggested_value) != _text(defaults.get(field, ""))
+            ):
+                continue
+            if current == suggested_value:
+                continue
+            try:
+                confidence = float(item.get("confidence", 0))
+            except (TypeError, ValueError):
+                confidence = 0.0
+            confidence = max(0.0, min(confidence, 1.0))
+            reason = _text(item.get("reason"))[:240] or f"{role} model suggested a review update."
+            suggestions.append(
+                ReviewSuggestion(
+                    id=row.id,
+                    tag_number=_text(row.tag_number),
+                    engineer=role,
+                    field=field,
+                    current_value=current,
+                    suggested_value=suggested_value,
+                    confidence=round(confidence, 2),
+                    reason=reason,
+                )
+            )
     return suggestions
 
 
@@ -328,14 +513,14 @@ async def review_rows(body: ReviewRequest) -> dict:
             suggestions.extend(_piping_review(row))
 
     if body.use_models:
-        model_rows = body.rows[:MODEL_ROW_LIMIT]
         for role in roles:
             model = ENGINEER_MODELS[role]
+            model_rows = _model_rows_for_role(role, body.rows)
             status, model_suggestions = await asyncio.to_thread(_call_role_model_sync, body, role, model_rows)
             suggestions.extend(model_suggestions)
             model_status[role] = {
                 "model": model,
-                "status": status if len(body.rows) <= MODEL_ROW_LIMIT else f"{status}_limited_to_{MODEL_ROW_LIMIT}",
+                "status": status if len(model_rows) == len(body.rows) else f"{status}_limited_to_{len(model_rows)}",
                 "suggestions": len(model_suggestions),
             }
     else:

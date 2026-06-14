@@ -35,6 +35,10 @@ _NOISE_RE = re.compile(
     r"|[A-Z]-\d"                                    # V-201, P-101 (single-letter equip tag)
     r"|Bb-\w+"                                      # Bb-1762 style well/battery labels
     r"|[A-Za-z]\d+$"                                # P1, R1 (letter + digits only)
+    r"|(?:ADCO|ADNOC|AFTER|ALARM|ALL|AREA|ASIC|ASME|BALL|BAND|BLEED|CALL|EPC|FIRE|FLAME|FLOW|FROM|GATE|LIMIT|NEED|WELL|WILL|WHICH)(?:-|$)"  # English/process-note/project fragments
+    r"|(?:FOR|HAVE|IN|LIFT|LOCAL|LP|PLUGS|SH|SIL|THE|XFAB|XGAB|XMCP)(?:-|$)"  # non-ISA OCR fragments seen in P&ID reviews
+    r"|.*-(?:ADNOC|ASME|NEED)$"                    # company/spec/note words at the end of an OCR tag
+    r"|\d+[A-Z]+-\d+"                               # 1203P-01 style missing type prefix
     r"|(?:REV|HOLD|DRG|MTO|VFD|PLC|MCC|PM)(?:-|$)"   # known non-instruments
     r")",
     re.IGNORECASE,
@@ -88,7 +92,7 @@ _SETTLED_IO = {"AI", "AO", "DI", "DO", "Soft Link", ""}
 # Programmatic signal/power derivation from io_type
 _IO_SIGNAL: dict = {
     "AI":        ("4-20mA + HART",       "24VDC (Loop Powered)"),
-    "AO":        ("4-20mA",              "Loop Powered"),
+    "AO":        ("4-20mA",              "24VDC"),
     "DI":        ("24VDC (Dry Contact)", "24VDC"),
     "DO":        ("24VDC",               "24VDC"),
     "Soft Link": ("",                    ""),

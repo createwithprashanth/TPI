@@ -1,0 +1,77 @@
+{
+  "deliverable": "io_list",
+  "overall_grade": "B",
+  "summary": "Most IO rows have strong line/equipment association evidence. However, several hardwired IOs lack any connected line or equipment tag and have insufficient geometry evidence, which is a high-impact issue for EPC handover. Some loop context conflicts are present but generally supported by evidence. No critical errors in IO type or signal type detected.",
+  "comments": [
+    {
+      "deliverable": "io_list",
+      "row_id": "636f8eec59bf8b161a5e4a5341c33be3",
+      "tag_number": "PSAL-1762P-25",
+      "component_id": "",
+      "item_type": "",
+      "severity": "high",
+      "field": "line_tag",
+      "issue": "Hardwired IO has no connected line or equipment tag and geometry evidence is blank.",
+      "suggested_value": null,
+      "reason": "For hardwired IO, a process line or equipment association is required for traceability and construction.",
+      "evidence_needed": "P&ID geometry or legend confirming if this device is truly not associated with a process line/equipment.",
+      "fix_type": "manual_review"
+    },
+    {
+      "deliverable": "io_list",
+      "row_id": "bc54d0b655b315097b13f14444fe15f1",
+      "tag_number": "SSV-1414P-02",
+      "component_id": "",
+      "item_type": "",
+      "severity": "high",
+      "field": "line_tag",
+      "issue": "Shutdown valve command (hardwired DO) has no connected line or equipment tag; geometry evidence only references another valve, not a process line.",
+      "suggested_value": null,
+      "reason": "Shutdown valves should be traceable to a process line or equipment for correct installation and loop verification.",
+      "evidence_needed": "P&ID geometry or legend confirming line/equipment association for SSV-1414P-02.",
+      "fix_type": "manual_review"
+    },
+    {
+      "deliverable": "io_list",
+      "row_id": "893dfe8e809dc71e518fae490832dab3",
+      "tag_number": "SSV-1414P-07",
+      "component_id": "",
+      "item_type": "",
+      "severity": "high",
+      "field": "line_tag",
+      "issue": "Shutdown valve command (hardwired DO) has no connected line or equipment tag; geometry evidence only references another valve.",
+      "suggested_value": null,
+      "reason": "Shutdown valves require process line or equipment association for EPC handover and construction.",
+      "evidence_needed": "P&ID geometry or legend confirming line/equipment association for SSV-1414P-07.",
+      "fix_type": "manual_review"
+    },
+    {
+      "deliverable": "io_list",
+      "row_id": "cc196cf10b776daddc7dac0f18dd18b0",
+      "tag_number": "SSV-1762P-08",
+      "component_id": "",
+      "item_type": "",
+      "severity": "high",
+      "field": "line_tag",
+      "issue": "Shutdown valve command (hardwired DO) has no connected line or equipment tag; geometry evidence only references another valve.",
+      "suggested_value": null,
+      "reason": "Shutdown valves require process line or equipment association for EPC handover and construction.",
+      "evidence_needed": "P&ID geometry or legend confirming line/equipment association for SSV-1762P-08.",
+      "fix_type": "manual_review"
+    },
+    {
+      "deliverable": "io_list",
+      "row_id": "b085b3c95c6e7adeffdfa4b246a84f0c",
+      "tag_number": "VENT-5000-IN",
+      "component_id": "",
+      "item_type": "",
+      "severity": "high",
+      "field": "line_tag",
+      "issue": "Hardwired AI (vibration measurement) has no connected line tag; geometry evidence only references nearby equipment (motor), not a process line.",
+      "suggested_value": null,
+      "reason": "For hardwired field devices, a process line or equipment association is required for traceability.",
+      "evidence_needed": "P&ID geometry or legend confirming if this device is only associated with equipment (motor) or should have a process line.",
+      "fix_type": "manual_review"
+    }
+  ]
+}

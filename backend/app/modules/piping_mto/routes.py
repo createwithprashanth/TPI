@@ -1,9 +1,10 @@
 from typing import Optional
 
-from fastapi import APIRouter, Body, File, Form, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from app.modules.piping_mto import service
+from app.modules.piping_mto import database as mto_database
 from app.modules.piping_mto.schemas import CreateSymbolRequest, ExportPackageRequest, UpdateSymbolRequest
 
 router = APIRouter()
@@ -46,6 +47,48 @@ async def export_package(payload: ExportPackageRequest):
 @router.post("/review-sessions", tags=TAGS)
 async def review_sessions(payload: dict = Body(...)) -> dict:
     return await service.review_sessions(payload)
+
+
+@router.post("/grid/save", tags=TAGS)
+async def save_mto_grid(payload: ExportPackageRequest) -> dict:
+    return mto_database.save_mto_payload(payload.model_dump())
+
+
+@router.get("/grid", tags=TAGS)
+async def list_mto_grid(
+    project_id: str = Query("default"),
+    search: str = Query(""),
+    review_required: bool | None = Query(None),
+    sort_by: str = Query("item_type"),
+    sort_dir: str = Query("asc"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(500, ge=1, le=5000),
+) -> dict:
+    return mto_database.list_mto_items(
+        project_id=project_id,
+        search=search or None,
+        review_required=review_required,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.patch("/grid/{item_id}", tags=TAGS)
+async def update_mto_grid_item(item_id: str, payload: dict = Body(...)) -> dict:
+    updated = mto_database.update_mto_item(item_id, payload)
+    if not updated:
+        raise HTTPException(status_code=404, detail="MTO item not found.")
+    return updated
+
+
+@router.get("/grid/{item_id}/evidence", tags=TAGS)
+async def get_mto_grid_evidence(item_id: str) -> dict:
+    item = mto_database.get_mto_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="MTO item not found.")
+    return {"item": item, "evidence": mto_database.get_mto_evidence(item_id)}
 
 
 # ── Detection ──────────────────────────────────────────────────────────────────

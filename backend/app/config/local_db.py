@@ -65,6 +65,20 @@ def row_to_dict(row: sqlite3.Row | None) -> dict | None:
         "pinned_columns",
         "saved_views",
         "aliases",
+        "line_candidates",
+        "geometry_evidence",
+        "evidence_snapshot",
+        "metadata_snapshot",
+        "session_snapshot",
+        # calculation_data
+        "calc_input",
+        "calc_result",
+        # spec_sheet_data
+        "applicable_standards",
+        "extended",
+        "process_conditions",
+        # spec_form_templates
+        "field_definitions",
     ):
         if key in out and isinstance(out[key], str):
             try:
@@ -99,7 +113,53 @@ def init_db() -> None:
 
 
 def _apply_schema_upgrades(conn: sqlite3.Connection) -> None:
-    """Add columns introduced after the first local DB release."""
+    """Add columns / tables introduced after the first local DB release."""
+
+    # ── Ensure tables added in later releases exist ───────────────────────────
+    existing_tables = {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    if "calculation_data" not in existing_tables or "spec_sheet_data" not in existing_tables:
+        conn.executescript(_SCHEMA_SQL)
+        # Refresh table list after potential creation
+        existing_tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+
+    if "mto_items" not in existing_tables or "mto_detection_evidence" not in existing_tables:
+        conn.executescript(_MTO_SCHEMA_SQL)
+
+    # ── spec_form_templates (new table) ──────────────────────────────────────
+    if "spec_form_templates" not in existing_tables:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS spec_form_templates (
+                id                TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+                template_name     TEXT NOT NULL UNIQUE,
+                instrument_type   TEXT,
+                description       TEXT,
+                is_default        INTEGER NOT NULL DEFAULT 0,
+                field_definitions TEXT NOT NULL DEFAULT '[]',
+                created_by        TEXT,
+                updated_by        TEXT,
+                created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_template_type ON spec_form_templates(instrument_type);
+        """)
+
+    # ── udf_01 … udf_100 on spec_sheet_data ─────────────────────────────────
+    if "spec_sheet_data" in existing_tables:
+        spec_cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(spec_sheet_data)").fetchall()
+        }
+        for i in range(1, 101):
+            col = f"udf_{i:02d}"
+            if col not in spec_cols:
+                conn.execute(f"ALTER TABLE spec_sheet_data ADD COLUMN {col} TEXT")
+
     table_columns = {
         row["name"]
         for row in conn.execute("PRAGMA table_info(sizing_results)").fetchall()
@@ -121,6 +181,21 @@ def _apply_schema_upgrades(conn: sqlite3.Connection) -> None:
         if column not in table_columns:
             conn.execute(f"ALTER TABLE sizing_results ADD COLUMN {column} {definition}")
 
+    instrument_columns_existing = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(instruments)").fetchall()
+    }
+    instrument_columns = {
+        "line_confidence": "REAL",
+        "line_association_method": "TEXT",
+        "line_association_reason": "TEXT",
+        "line_candidates": "TEXT",
+        "geometry_evidence": "TEXT",
+    }
+    for column, definition in instrument_columns.items():
+        if column not in instrument_columns_existing:
+            conn.execute(f"ALTER TABLE instruments ADD COLUMN {column} {definition}")
+
 
 def _seed_instrument_type_catalog(conn: sqlite3.Connection) -> None:
     rows = [
@@ -134,16 +209,17 @@ def _seed_instrument_type_catalog(conn: sqlite3.Connection) -> None:
         ("MOV", "Motor Operated Valve", "final_element", "DO", "control-valve", ["Motor Operated Valve", "MO Valve", "MOV"], 17),
         ("XV", "On-Off Valve", "final_element", "DO", "control-valve", ["On-Off Valve", "Solenoid Valve", "XV"], 18),
         ("FT", "Flow Transmitter", "field_device", "AI", None, ["Flow Transmitter", "FT"], 20),
-        ("FE", "Flow Element", "field_device", "None", "flow-element", ["Flow Element", "Orifice Plate", "FE"], 21),
+        ("FE", "Flow Element", "passive", "None", "flow-element", ["Flow Element", "Orifice Plate", "FE"], 21),
+        ("TP", "Test Point", "passive", "None", None, ["Test Point", "TP"], 27),
         ("FI", "Flow Indicator", "field_device", "None", None, ["Flow Indicator", "FI"], 22),
-        ("FIC", "Flow Indicator Controller", "controller", "AI", None, ["Flow Indicator Controller", "FIC"], 23),
+        ("FIC", "Flow Indicator Controller", "controller", "Soft Link", None, ["Flow Indicator Controller", "FIC"], 23),
         ("FIT", "Flow Indicating Transmitter", "field_device", "AI", None, ["Flow Indicating Transmitter", "FIT"], 24),
         ("FQI", "Flow Quantity Indicator", "field_device", "AI", None, ["Flow Quantity Indicator", "Totalizer", "FQI"], 25),
-        ("RO", "Restriction Orifice", "field_device", "None", "flow-element", ["Restriction Orifice", "RO"], 26),
+        ("RO", "Restriction Orifice", "passive", "None", "flow-element", ["Restriction Orifice", "RO"], 26),
         ("PT", "Pressure Transmitter", "field_device", "AI", None, ["Pressure Transmitter", "PT"], 30),
         ("PIT", "Pressure Indicating Transmitter", "field_device", "AI", None, ["Pressure Indicating Transmitter", "PIT"], 31),
         ("PI", "Pressure Indicator", "field_device", "None", None, ["Pressure Indicator", "Pressure Gauge", "PI", "PG"], 32),
-        ("PIC", "Pressure Indicator Controller", "controller", "AI", None, ["Pressure Indicator Controller", "PIC"], 33),
+        ("PIC", "Pressure Indicator Controller", "controller", "Soft Link", None, ["Pressure Indicator Controller", "PIC"], 33),
         ("PDT", "Differential Pressure Transmitter", "field_device", "AI", None, ["Differential Pressure Transmitter", "PDT", "DPT"], 34),
         ("PSV", "Pressure Safety Valve", "safety", "None", "relief-valve", ["Pressure Safety Valve", "PSV", "Safety Valve", "Relief Valve"], 35),
         ("PSAH", "Pressure Switch Alarm High", "safety", "DI", None, ["Pressure Switch Alarm High", "PSAH", "PSH"], 36),
@@ -152,18 +228,21 @@ def _seed_instrument_type_catalog(conn: sqlite3.Connection) -> None:
         ("TT", "Temperature Transmitter", "field_device", "AI", None, ["Temperature Transmitter", "TT"], 40),
         ("TIT", "Temperature Indicating Transmitter", "field_device", "AI", None, ["Temperature Indicating Transmitter", "TIT"], 41),
         ("TI", "Temperature Indicator", "field_device", "None", None, ["Temperature Indicator", "TI"], 42),
-        ("TE", "Temperature Element", "field_device", "AI", None, ["Thermocouple", "RTD", "Temperature Element", "TE"], 43),
-        ("TW", "Thermowell", "field_device", "None", None, ["Thermowell", "TW", "Thermopocket"], 44),
+        ("TE", "Temperature Element", "passive", "None", None, ["Thermocouple", "RTD", "Temperature Element", "TE"], 43),
+        ("TW", "Thermowell", "passive", "None", None, ["Thermowell", "TW", "Thermopocket"], 44),
         ("LT", "Level Transmitter", "field_device", "AI", None, ["Level Transmitter", "LT"], 50),
         ("LIT", "Level Indicating Transmitter", "field_device", "AI", None, ["Level Indicating Transmitter", "LIT"], 51),
         ("LI", "Level Indicator", "field_device", "None", None, ["Level Indicator", "Level Gauge", "LI", "LG"], 52),
-        ("LIC", "Level Indicator Controller", "controller", "AI", None, ["Level Indicator Controller", "LIC"], 53),
+        ("LIC", "Level Indicator Controller", "controller", "Soft Link", None, ["Level Indicator Controller", "LIC"], 53),
         ("AT", "Analyzer Transmitter", "analyzer", "AI", None, ["Analyser Transmitter", "Analyzer Transmitter", "AT"], 60),
         ("VT", "Vibration Transmitter", "field_device", "AI", None, ["Vibration Transmitter", "VT"], 70),
         ("ST", "Speed Transmitter", "field_device", "AI", None, ["Speed Transmitter", "Tachometer", "ST"], 71),
         ("ZI", "Position Indicator", "field_device", "DI", None, ["Position Indicator", "ZI"], 80),
         ("ZIH", "Position Indicator High", "field_device", "DI", None, ["Position Indicator High", "ZIH"], 81),
         ("ZIL", "Position Indicator Low", "field_device", "DI", None, ["Position Indicator Low", "ZIL"], 82),
+        ("CVZI", "Control Valve Position Indication", "field_device", "DI", None, ["Control Valve Position Indication", "CVZI"], 83),
+        ("CVZT", "Control Valve Position Transmitter", "field_device", "AI", None, ["Control Valve Position Transmitter", "CVZT"], 84),
+        ("FZT", "Valve Position Transmitter", "field_device", "AI", None, ["Valve Position Transmitter", "FZT"], 85),
         ("HS", "Hand Switch", "field_device", "DI", None, ["Hand Switch", "Push Button", "HS"], 90),
         ("SSV", "Safety Shutdown Valve", "final_element", "DO", "control-valve", ["Safety Shutdown Valve", "SSV"], 100),
         ("XGD", "Gas Detector", "analyzer", "AI", None, ["Gas Detector", "Combustible Gas Detector", "XGD"], 110),
@@ -177,6 +256,26 @@ def _seed_instrument_type_catalog(conn: sqlite3.Connection) -> None:
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         [(code, name, cat, io, flow, json_text(aliases, []), order) for code, name, cat, io, flow, aliases, order in rows],
+    )
+    conn.executemany(
+        """
+        UPDATE instrument_type_catalog
+        SET category=?, typical_io_type=?, flowsizing_type=?, updated_at=CURRENT_TIMESTAMP
+        WHERE code=?
+        """,
+        [
+            ("passive", "None", "flow-element", "FE"),
+            ("passive", "None", "flow-element", "RO"),
+            ("passive", "None", None, "TE"),
+            ("passive", "None", None, "TP"),
+            ("passive", "None", None, "TW"),
+            ("controller", "Soft Link", None, "FIC"),
+            ("controller", "Soft Link", None, "PIC"),
+            ("controller", "Soft Link", None, "LIC"),
+            ("field_device", "DI", None, "CVZI"),
+            ("field_device", "AI", None, "CVZT"),
+            ("field_device", "AI", None, "FZT"),
+        ],
     )
 
 
@@ -341,6 +440,11 @@ CREATE TABLE IF NOT EXISTS instruments (
     area_code TEXT,
     unit_code TEXT,
     line_tag TEXT,
+    line_confidence REAL,
+    line_association_method TEXT,
+    line_association_reason TEXT,
+    line_candidates TEXT,
+    geometry_evidence TEXT,
     system TEXT,
     flowsizing_type TEXT,
     extraction_session_id TEXT REFERENCES extraction_sessions(id) ON DELETE SET NULL,
@@ -484,7 +588,329 @@ CREATE INDEX IF NOT EXISTS idx_instruments_tag ON instruments(project_id, tag_nu
 CREATE INDEX IF NOT EXISTS idx_instruments_loop ON instruments(project_id, loop_number);
 CREATE INDEX IF NOT EXISTS idx_instruments_type ON instruments(project_id, instrument_type);
 CREATE INDEX IF NOT EXISTS idx_instruments_status ON instruments(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_instruments_line ON instruments(project_id, line_tag);
 CREATE INDEX IF NOT EXISTS idx_instruments_batch ON instruments(batch_id);
 CREATE INDEX IF NOT EXISTS idx_instruments_flowsizing ON instruments(project_id, flowsizing_type);
 CREATE INDEX IF NOT EXISTS idx_grid_prefs_user ON user_grid_preferences(user_id);
+"""
+
+_MTO_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS mto_items (
+    id                       TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    project_id               TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    mto_run_id               TEXT,
+    component_key            TEXT NOT NULL,
+    category_code            TEXT,
+    category_name            TEXT,
+    unit                     TEXT NOT NULL DEFAULT '-',
+    item_type                TEXT NOT NULL,
+    piping_class             TEXT,
+    size_inch                TEXT,
+    rating                   TEXT,
+    valve_bore               TEXT,
+    end_connection           TEXT,
+    material_description     TEXT,
+    datasheet_document_no    TEXT,
+    datasheet_reference_no   TEXT,
+    quantity                 INTEGER NOT NULL DEFAULT 0,
+    drawing_count            INTEGER NOT NULL DEFAULT 0,
+    min_detection_score      REAL,
+    avg_detection_score      REAL,
+    min_size_confidence      REAL,
+    review_status            TEXT NOT NULL DEFAULT 'Draft',
+    review_required          INTEGER NOT NULL DEFAULT 0,
+    ai_decision              TEXT,
+    ai_confidence            REAL,
+    ai_reason                TEXT,
+    remarks                  TEXT,
+    metadata_snapshot        TEXT NOT NULL DEFAULT '{}',
+    session_snapshot         TEXT NOT NULL DEFAULT '{}',
+    source                   TEXT NOT NULL DEFAULT 'piping_mto',
+    created_by               TEXT,
+    updated_by               TEXT,
+    created_at               TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at               TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, component_key)
+);
+
+CREATE TABLE IF NOT EXISTS mto_detection_evidence (
+    id                    TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    project_id            TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    mto_item_id           TEXT NOT NULL REFERENCES mto_items(id) ON DELETE CASCADE,
+    mto_run_id            TEXT,
+    component_key         TEXT NOT NULL,
+    component_label       TEXT NOT NULL,
+    drawing               TEXT,
+    page                  INTEGER NOT NULL DEFAULT 1,
+    x1                    INTEGER,
+    y1                    INTEGER,
+    x2                    INTEGER,
+    y2                    INTEGER,
+    detection_score       REAL,
+    size_inch             TEXT,
+    size_source           TEXT,
+    size_source_type      TEXT,
+    size_confidence       REAL,
+    size_ambiguous        INTEGER NOT NULL DEFAULT 0,
+    ai_decision           TEXT,
+    ai_confidence         REAL,
+    ai_reason             TEXT,
+    ai_flags              TEXT NOT NULL DEFAULT '[]',
+    ai_line_number        TEXT,
+    evidence_snapshot     TEXT NOT NULL DEFAULT '{}',
+    accepted              INTEGER NOT NULL DEFAULT 1,
+    review_required       INTEGER NOT NULL DEFAULT 0,
+    created_at            TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_mto_items_project ON mto_items(project_id);
+CREATE INDEX IF NOT EXISTS idx_mto_items_type ON mto_items(project_id, item_type);
+CREATE INDEX IF NOT EXISTS idx_mto_items_review ON mto_items(project_id, review_required, review_status);
+CREATE INDEX IF NOT EXISTS idx_mto_items_run ON mto_items(mto_run_id);
+CREATE INDEX IF NOT EXISTS idx_mto_evidence_item ON mto_detection_evidence(mto_item_id);
+CREATE INDEX IF NOT EXISTS idx_mto_evidence_project ON mto_detection_evidence(project_id);
+CREATE INDEX IF NOT EXISTS idx_mto_evidence_run ON mto_detection_evidence(mto_run_id);
+"""
+
+_SCHEMA_SQL = _SCHEMA_SQL + _MTO_SCHEMA_SQL + """
+
+-- ── calculation_data ─────────────────────────────────────────────────────────
+-- Generic engineering calculation results, one row per instrument + calc type
+-- + case. Sits alongside sizing_results (which is FlowSizing-specific); this
+-- table is the normalised store for ALL calculation types used by datasheets.
+
+CREATE TABLE IF NOT EXISTS calculation_data (
+    id                      TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    project_id              TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    instrument_id           TEXT NOT NULL REFERENCES instruments(id)      ON DELETE CASCADE,
+    tag_number              TEXT NOT NULL,
+
+    -- What kind of calculation this is
+    calc_type               TEXT NOT NULL,
+    -- e.g. valve_cv | orifice_bore | relief_area | level_span |
+    --      thermowell_wf | pump_head | heat_duty | dp_transmitter | generic
+
+    case_name               TEXT NOT NULL DEFAULT 'Normal',
+    -- Normal / Min / Max / Shut-off / etc.
+
+    -- Primary result (the headline number for this calc type)
+    result_value            REAL,
+    result_unit             TEXT,
+    result_label            TEXT,
+    -- e.g. 42.3, 'US gpm / psi^0.5', 'Cv required'
+
+    -- Secondary result (selected/derated value or governing check)
+    selected_value          REAL,
+    selected_unit           TEXT,
+    selected_label          TEXT,
+    -- e.g. 50.0, 'US gpm / psi^0.5', 'Cv selected'
+
+    sizing_margin_pct       REAL,          -- (selected / required - 1) × 100
+    governing_case          TEXT,          -- which case drove the sizing
+
+    -- Full reproducible I/O snapshots (JSON objects)
+    calc_input              TEXT NOT NULL DEFAULT '{}',
+    calc_result             TEXT NOT NULL DEFAULT '{}',
+
+    -- Workflow
+    calc_status             TEXT NOT NULL DEFAULT 'Draft',
+    -- Draft | For-Check | Checked | For-Approval | Approved | Superseded
+
+    revision                TEXT NOT NULL DEFAULT 'A',
+    revision_date           TEXT NOT NULL DEFAULT (date('now')),
+    revision_description    TEXT,
+
+    -- Audit trail
+    calculated_by           TEXT,
+    checked_by              TEXT,
+    approved_by             TEXT,
+    created_by              TEXT,
+    updated_by              TEXT,
+    created_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE(project_id, instrument_id, calc_type, case_name, revision)
+);
+
+CREATE INDEX IF NOT EXISTS idx_calc_project      ON calculation_data(project_id);
+CREATE INDEX IF NOT EXISTS idx_calc_instrument   ON calculation_data(project_id, instrument_id);
+CREATE INDEX IF NOT EXISTS idx_calc_tag          ON calculation_data(project_id, tag_number);
+CREATE INDEX IF NOT EXISTS idx_calc_type         ON calculation_data(project_id, calc_type);
+CREATE INDEX IF NOT EXISTS idx_calc_status       ON calculation_data(project_id, calc_status);
+
+-- ── spec_sheet_data ──────────────────────────────────────────────────────────
+-- ISA-aligned instrument specification sheet store.
+-- One row per instrument + revision. Links to process_data and
+-- calculation_data so the datasheet generator can pull live values.
+-- Extended JSON carries type-specific fields (orifice plate bore, valve Cv,
+-- thermowell insertion, analyser range gas composition, etc.).
+
+CREATE TABLE IF NOT EXISTS spec_sheet_data (
+    id                      TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    project_id              TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    instrument_id           TEXT NOT NULL REFERENCES instruments(id)      ON DELETE CASCADE,
+    tag_number              TEXT NOT NULL,
+
+    -- Linked source rows (nullable — populated once data exists)
+    process_data_id         TEXT REFERENCES process_data(id)      ON DELETE SET NULL,
+    calculation_data_id     TEXT REFERENCES calculation_data(id)   ON DELETE SET NULL,
+
+    -- ── Identification ───────────────────────────────────────────────────────
+    service_description     TEXT,
+    pid_number              TEXT,
+    line_tag                TEXT,
+    area_code               TEXT,
+    unit_code               TEXT,
+    plant_code              TEXT,
+
+    -- ── Instrument Body ──────────────────────────────────────────────────────
+    instrument_type         TEXT,               -- FT, PT, FCV, PSV, ...
+    manufacturer            TEXT,
+    model_number            TEXT,
+    serial_number           TEXT,
+
+    body_material           TEXT,               -- CS, SS316, Hastelloy, ...
+    body_size_inch          TEXT,               -- '2"', '4"', DN50, ...
+    pressure_rating         TEXT,               -- ANSI 300, ANSI 600, ...
+    process_connection      TEXT,               -- Flanged RF, Screwed NPT, ...
+    face_to_face_mm         REAL,
+
+    -- ── Sensing Element / Trim ───────────────────────────────────────────────
+    element_type            TEXT,
+    -- orifice | vortex | coriolis | DP-cell | thermocouple | RTD | capacitance
+    element_material        TEXT,
+    trim_material           TEXT,               -- for valves: seat, plug, stem
+
+    -- ── Electrical / Signal ──────────────────────────────────────────────────
+    power_supply            TEXT,               -- 24 VDC loop, 110 VAC, ...
+    output_signal           TEXT,               -- 4-20 mA, HART, FF H1, ...
+    output_range            TEXT,               -- e.g. '4–20 mA = 0–100 barg'
+    communication_protocol  TEXT,               -- HART | Foundation Fieldbus | Profibus | Modbus
+    enclosure_ip_rating     TEXT,               -- IP65, IP67, ...
+
+    -- ── Calibration / Range ──────────────────────────────────────────────────
+    range_min               REAL,
+    range_max               REAL,
+    range_unit              TEXT,
+    set_point               REAL,
+    set_point_unit          TEXT,
+    alarm_high              REAL,
+    alarm_high_unit         TEXT,
+    alarm_low               REAL,
+    alarm_low_unit          TEXT,
+    trip_high               REAL,
+    trip_low                REAL,
+    deadband                REAL,
+    accuracy_pct            REAL,
+
+    -- ── Process Conditions Summary (convenience copy from process_data) ───────
+    -- Kept denormalised so a standalone spec sheet row is self-contained.
+    process_conditions      TEXT NOT NULL DEFAULT '{}',
+    -- JSON: { fluid, fluid_state, temp_op_c, press_op_barg, flow_normal, flow_unit, ... }
+
+    -- ── Hazardous Area ───────────────────────────────────────────────────────
+    area_classification     TEXT,               -- Zone 1, Division 2, Safe Area
+    gas_group               TEXT,               -- IIA, IIB, IIC
+    temp_class              TEXT,               -- T1–T6
+    protection_method       TEXT,               -- Ex d, Ex ia, Ex e, Ex n
+    certification_body      TEXT,               -- ATEX, IECEx, CSA, FM
+    certificate_number      TEXT,
+
+    -- ── Installation ─────────────────────────────────────────────────────────
+    mounting_type           TEXT,               -- direct, remote, yoke, bracket
+    orientation             TEXT,               -- vertical, horizontal, any
+    inlet_straight_run      TEXT,               -- e.g. '20D upstream'
+    outlet_straight_run     TEXT,               -- e.g. '5D downstream'
+    insulation_required     INTEGER NOT NULL DEFAULT 0,
+    heat_tracing_required   INTEGER NOT NULL DEFAULT 0,
+
+    -- ── Applicable Standards ─────────────────────────────────────────────────
+    applicable_standards    TEXT NOT NULL DEFAULT '[]',
+    -- JSON array: ['ISA 5.1', 'IEC 61511', 'ASME B16.5', ...]
+
+    -- ── Type-Specific Extended Fields ────────────────────────────────────────
+    extended                TEXT NOT NULL DEFAULT '{}',
+    -- JSON object for fields that only apply to certain instrument types:
+    --   valves:       { cv_required, cv_selected, valve_action, fail_position, actuator_type }
+    --   orifice:      { bore_mm, beta_ratio, orifice_type, tap_type }
+    --   thermowell:   { insertion_mm, shank_type, wake_freq_hz, material }
+    --   analyser:     { sample_conditioning, response_time_s, span_gas }
+    --   relief_valve: { set_pressure_barg, back_pressure_barg, orifice_area_cm2, api_orifice }
+
+    -- ── Document / Approval ──────────────────────────────────────────────────
+    status                  TEXT NOT NULL DEFAULT 'Draft',
+    -- Draft | For-Review | For-Approval | Approved | Issued-For-Construction | As-Built
+
+    revision                TEXT NOT NULL DEFAULT 'Rev 0',
+    revision_date           TEXT NOT NULL DEFAULT (date('now')),
+    revision_description    TEXT,
+
+    prepared_by             TEXT,
+    checked_by              TEXT,
+    approved_by             TEXT,
+    issued_by               TEXT,
+    issued_at               TEXT,
+
+    pdf_path                TEXT,
+    pdf_size_bytes          INTEGER,
+
+    -- ── User-Defined Fields (SPI-style UDFs) ─────────────────────────────────
+    -- 100 generic TEXT slots; labels/types/options defined in spec_form_templates
+    udf_01  TEXT, udf_02  TEXT, udf_03  TEXT, udf_04  TEXT, udf_05  TEXT,
+    udf_06  TEXT, udf_07  TEXT, udf_08  TEXT, udf_09  TEXT, udf_10  TEXT,
+    udf_11  TEXT, udf_12  TEXT, udf_13  TEXT, udf_14  TEXT, udf_15  TEXT,
+    udf_16  TEXT, udf_17  TEXT, udf_18  TEXT, udf_19  TEXT, udf_20  TEXT,
+    udf_21  TEXT, udf_22  TEXT, udf_23  TEXT, udf_24  TEXT, udf_25  TEXT,
+    udf_26  TEXT, udf_27  TEXT, udf_28  TEXT, udf_29  TEXT, udf_30  TEXT,
+    udf_31  TEXT, udf_32  TEXT, udf_33  TEXT, udf_34  TEXT, udf_35  TEXT,
+    udf_36  TEXT, udf_37  TEXT, udf_38  TEXT, udf_39  TEXT, udf_40  TEXT,
+    udf_41  TEXT, udf_42  TEXT, udf_43  TEXT, udf_44  TEXT, udf_45  TEXT,
+    udf_46  TEXT, udf_47  TEXT, udf_48  TEXT, udf_49  TEXT, udf_50  TEXT,
+    udf_51  TEXT, udf_52  TEXT, udf_53  TEXT, udf_54  TEXT, udf_55  TEXT,
+    udf_56  TEXT, udf_57  TEXT, udf_58  TEXT, udf_59  TEXT, udf_60  TEXT,
+    udf_61  TEXT, udf_62  TEXT, udf_63  TEXT, udf_64  TEXT, udf_65  TEXT,
+    udf_66  TEXT, udf_67  TEXT, udf_68  TEXT, udf_69  TEXT, udf_70  TEXT,
+    udf_71  TEXT, udf_72  TEXT, udf_73  TEXT, udf_74  TEXT, udf_75  TEXT,
+    udf_76  TEXT, udf_77  TEXT, udf_78  TEXT, udf_79  TEXT, udf_80  TEXT,
+    udf_81  TEXT, udf_82  TEXT, udf_83  TEXT, udf_84  TEXT, udf_85  TEXT,
+    udf_86  TEXT, udf_87  TEXT, udf_88  TEXT, udf_89  TEXT, udf_90  TEXT,
+    udf_91  TEXT, udf_92  TEXT, udf_93  TEXT, udf_94  TEXT, udf_95  TEXT,
+    udf_96  TEXT, udf_97  TEXT, udf_98  TEXT, udf_99  TEXT, udf_100 TEXT,
+
+    -- ── Audit ────────────────────────────────────────────────────────────────
+    created_by              TEXT,
+    updated_by              TEXT,
+    created_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE(project_id, tag_number, revision)
+);
+
+CREATE INDEX IF NOT EXISTS idx_spec_project      ON spec_sheet_data(project_id);
+CREATE INDEX IF NOT EXISTS idx_spec_instrument   ON spec_sheet_data(project_id, instrument_id);
+CREATE INDEX IF NOT EXISTS idx_spec_tag          ON spec_sheet_data(project_id, tag_number);
+CREATE INDEX IF NOT EXISTS idx_spec_status       ON spec_sheet_data(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_spec_type         ON spec_sheet_data(project_id, instrument_type);
+
+-- ── spec_form_templates ───────────────────────────────────────────────────────
+-- Defines the field layout for each instrument type's UDF spec sheet.
+-- field_definitions JSON array:
+--   [{ "udf":"udf_01", "label":"Body Material", "section":"Body",
+--      "type":"select|text|number|textarea|checkbox",
+--      "options":["CS","SS316"], "placeholder":"", "required":false }, ...]
+
+CREATE TABLE IF NOT EXISTS spec_form_templates (
+    id                TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    template_name     TEXT NOT NULL UNIQUE,
+    instrument_type   TEXT,
+    description       TEXT,
+    is_default        INTEGER NOT NULL DEFAULT 0,
+    field_definitions TEXT NOT NULL DEFAULT '[]',
+    created_by        TEXT,
+    updated_by        TEXT,
+    created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_template_type ON spec_form_templates(instrument_type);
 """

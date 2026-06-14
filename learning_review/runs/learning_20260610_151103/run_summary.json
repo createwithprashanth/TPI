@@ -1,0 +1,27 @@
+{
+  "run_id": "learning_20260610_151103",
+  "project_id": "XYRA_GPT41_FIXVERIFY_20260610",
+  "provider": "openai",
+  "model": "gpt-4.1",
+  "db_path": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/xyra_studio.db",
+  "mto_export_dir": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/mto_exports",
+  "elapsed_s": 56.89,
+  "payload_only": false,
+  "summary": {
+    "total_comments": 43,
+    "by_deliverable": {
+      "instrument_index": 22,
+      "io_list": 21
+    },
+    "by_severity": {
+      "critical": 4,
+      "high": 25,
+      "medium": 11,
+      "low": 3
+    },
+    "by_fix_type": {
+      "manual_review": 40,
+      "deterministic_rule": 3
+    }
+  }
+}

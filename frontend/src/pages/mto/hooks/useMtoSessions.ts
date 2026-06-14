@@ -15,8 +15,13 @@ export interface FileResult {
     x2: number;
     y2: number;
     score: number;
+    accepted?: boolean;
     sizeInch?: string;
     sizeSource?: string;
+    sizeSourceType?: string;
+    sizeCandidates?: any[];
+    nearbyText?: string[];
+    sizeAmbiguous?: boolean;
     sizeConfidence?: number;
     aiDecision?: string;
     aiConfidence?: number;
@@ -70,13 +75,16 @@ const boxIou = (a: Match, b: Match) => {
 
 const recalcFileResult = (fr: FileResult, matches: Match[]): FileResult => {
   const counts = new Map<number, number>();
-  for (const match of matches) counts.set(match.page ?? 1, (counts.get(match.page ?? 1) ?? 0) + 1);
+  for (const match of matches) {
+    if (match.accepted === false) continue;
+    counts.set(match.page ?? 1, (counts.get(match.page ?? 1) ?? 0) + 1);
+  }
   const pageCounts = fr.pageCounts.map(pc => ({ ...pc, count: counts.get(pc.page) ?? 0 }));
   for (const [page, count] of counts) {
     if (!pageCounts.some(pc => pc.page === page)) pageCounts.push({ page, count });
   }
   pageCounts.sort((a, b) => a.page - b.page);
-  return { ...fr, matches, count: matches.length, pageCounts };
+  return { ...fr, matches, count: matches.filter(match => match.accepted !== false).length, pageCounts };
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -124,6 +132,28 @@ export function useMtoSessions(pidFiles: File[]) {
         return { ...fr, matches: newMatches, count: Math.max(0, fr.count - 1), pageCounts: newPageCounts };
       });
       return { ...s, fileResults: newFileResults, count: newFileResults.reduce((n, fr) => n + fr.count, 0) };
+    }));
+  };
+
+  const toggleMatchAccepted = (sessionId: string, fileIndex: number, matchIndex: number, accepted?: boolean) => {
+    setMtoSessions(prev => prev.map(s => {
+      if (s.id !== sessionId) return s;
+      const fileResults = s.fileResults.map((fr, fi) => {
+        if (fi !== fileIndex) return fr;
+        const matches = fr.matches.map((match, mi) => (
+          mi === matchIndex ? { ...match, accepted: accepted ?? match.accepted === false } : match
+        ));
+        return recalcFileResult(fr, matches);
+      });
+      return { ...s, fileResults, count: fileResults.reduce((sum, fr) => sum + fr.count, 0) };
+    }));
+  };
+
+  const setSessionAccepted = (sessionId: string, accepted: boolean) => {
+    setMtoSessions(prev => prev.map(s => {
+      if (s.id !== sessionId) return s;
+      const fileResults = s.fileResults.map(fr => recalcFileResult(fr, fr.matches.map(match => ({ ...match, accepted }))));
+      return { ...s, fileResults, count: fileResults.reduce((sum, fr) => sum + fr.count, 0) };
     }));
   };
 
@@ -196,6 +226,8 @@ export function useMtoSessions(pidFiles: File[]) {
     dragHead, setDragHead,
     dragAnchorRef,
     removeMatch,
+    toggleMatchAccepted,
+    setSessionAccepted,
     resolveOverlaps,
     clearAllSessions,
     cancelPending,

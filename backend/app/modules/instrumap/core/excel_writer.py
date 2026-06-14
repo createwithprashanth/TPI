@@ -17,6 +17,8 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
+from .standard_library import instrument_tag_quality
+
 logger = logging.getLogger(__name__)
 
 # Columns populated by LLM — rendered with a light blue tint so engineers can
@@ -100,7 +102,13 @@ def _deliverable_df(master_df: pd.DataFrame) -> pd.DataFrame:
     """Rows suitable for client-facing Instrument Index / IO List workbooks."""
     if master_df.empty:
         return master_df.copy()
-    return master_df[~master_df.apply(_is_type_only_detection, axis=1)].copy()
+    quality = master_df.apply(instrument_tag_quality, axis=1, result_type="expand")
+    quality.columns = ["_tag_quality", "_noise_reason"]
+    keep_mask = ~master_df.apply(_is_type_only_detection, axis=1)
+    keep_mask &= quality["_tag_quality"].eq("accepted")
+    if "Rejected_As_Noise" in master_df.columns:
+        keep_mask &= master_df["Rejected_As_Noise"] != True
+    return master_df[keep_mask].copy()
 
 
 def _write_cover_sheet(wb, project_info: dict, document_title: str) -> None:
@@ -404,11 +412,17 @@ def _write_qa_checks(
     # ── 1. Low-confidence tags ────────────────────────────────────────────────
     if "Review_Required" in master_df.columns:
         for _, row in master_df[master_df["Review_Required"] == True].iterrows():
+            reason = str(row.get("Noise_Reason", "") or "").strip()
+            detail = (
+                reason
+                if bool(row.get("Rejected_As_Noise", False)) and reason
+                else "OCR confidence is low — verify this tag against the original P&ID"
+            )
             issues.append({
                 "Tag Number": row.get("Tag_Number", ""),
-                "Severity":   "Warning",
-                "Check":      "Manual Review Required",
-                "Detail":     "OCR confidence is low — verify this tag against the original P&ID",
+                "Severity":   "Error" if bool(row.get("Rejected_As_Noise", False)) else "Warning",
+                "Check":      "Rejected as Noise" if bool(row.get("Rejected_As_Noise", False)) else "Manual Review Required",
+                "Detail":     detail,
                 "P&ID File":  row.get("P&ID_Filename", ""),
             })
 

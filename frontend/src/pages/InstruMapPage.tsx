@@ -11,6 +11,9 @@ import PIDAnalyserPage from './pid/PIDAnalyserPage';
 import PipingMTOPage from './mto/PipingMTOPage';
 import AiGridPage from './AiGridPage';
 import FlowSizingStudioPage from './FlowSizingStudioPage';
+import DataPumpPage from './DataPumpPage';
+import DataDiffPage from './DataDiffPage';
+import DatasheetPage from './DatasheetPage';
 
 const PrecisionPDFPage = lazy(() => import('./PrecisionPDFPage'));
 
@@ -20,6 +23,9 @@ const TOOL_LABELS: Record<WorkspaceView, string> = {
   precisionpdf: 'PrecisionPDF',
   aigrid: 'AI Grid',
   flowsizing: 'FlowSizing',
+  datapump:   'DataPump',
+  datadiff:   'DataDiff',
+  datasheet:  'Datasheet',
 };
 
 // ── Inner shell ───────────────────────────────────────────────────────────────
@@ -49,7 +55,7 @@ const WorkspaceShell: React.FC = () => {
         showAreaCode={view === 'pid'}
         areaCode={areaCode}
         onAreaCodeChange={setAreaCode}
-        onOpenFiles={view === 'precisionpdf' || view === 'aigrid' ? undefined : openFiles}
+        onOpenFiles={view === 'precisionpdf' || view === 'aigrid' || view === 'datapump' || view === 'datadiff' || view === 'datasheet' ? undefined : openFiles}
         openFilesDisabled={isPreviewLoading}
       />
 
@@ -77,6 +83,18 @@ const WorkspaceShell: React.FC = () => {
         ) : view === 'flowsizing' ? (
           <div className="flex-1 flex flex-col overflow-hidden min-w-0">
             <FlowSizingStudioPage />
+          </div>
+        ) : view === 'datapump' ? (
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <DataPumpPage />
+          </div>
+        ) : view === 'datadiff' ? (
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <DataDiffPage />
+          </div>
+        ) : view === 'datasheet' ? (
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <DatasheetPage />
           </div>
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden min-w-0">

@@ -1,0 +1,26 @@
+{
+  "run_id": "learning_20260610_151741",
+  "project_id": "XYRA_GPT41_REPORTFIX_20260610",
+  "provider": "openai",
+  "model": "gpt-4.1",
+  "db_path": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/xyra_studio.db",
+  "mto_export_dir": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/mto_exports",
+  "elapsed_s": 62.83,
+  "payload_only": false,
+  "summary": {
+    "total_comments": 37,
+    "by_deliverable": {
+      "instrument_index": 21,
+      "io_list": 16
+    },
+    "by_severity": {
+      "critical": 13,
+      "high": 18,
+      "medium": 4,
+      "low": 2
+    },
+    "by_fix_type": {
+      "manual_review": 37
+    }
+  }
+}

@@ -59,6 +59,18 @@ Noise/rejection examples:
 - The shape overlaps generic pipe crossing/tee/elbow and no component-family evidence exists.
 - Component label conflicts with nearby evidence, such as label BALL VALVE but nearby evidence says CHECK VALVE.
 
+GPT-4.1 distilled P&ID knowledge addendum 2026-06:
+- Source: learning_review/knowledge_distilled/xyra_pid_model_teaching_doc.latest.md.
+- This section is additive. Keep the deterministic vision/OCR evidence as primary.
+- Always use project legend hints when supplied. Project legend overrides generic component interpretation.
+- Horizontal and vertical orientations of the same valve/component are equivalent. Do not reject solely due to rotation.
+- Assign valve/component size only from nearest directly attached inch-mark text or a valid line-number size prefix.
+- Do not steal size text from a different nearby component. If two nearby inch sizes are plausible and the attached component branch is unclear, set decision="REVIEW" with SIZE_AMBIGUOUS.
+- Do not treat bare numbers, note numbers, drawing numbers, revision values, grid marks, or table values as size evidence.
+- Reject detections whose nearby evidence is only title block, revision, sheet number, company/specification text, table header, or unrelated note text.
+- If component is likely valid but size is not read, use decision="REVIEW" and review_flags containing SIZE_NOT_READ.
+- If the component family is not confirmed by the selected library/legend/evidence, use REVIEW rather than inventing item type.
+
 Output exactly this JSON object:
 {
   "decision": "ACCEPT|REVIEW|REJECT",
@@ -129,3 +141,9 @@ MESSAGE assistant {"decision":"ACCEPT","confidence":0.89,"normalized_size_inch":
 
 MESSAGE user {"component_label":"BALL VALVE","score":0.58,"detected_size_inch":"150","size_source":"150","nearby_text":["150","REV 0","SHEET 1"],"metadata":{"itemType":"Ball valve"}}
 MESSAGE assistant {"decision":"REJECT","confidence":0.93,"normalized_size_inch":"","item_type":"Ball valve","piping_class":"","rating":"","valve_bore":"","end_connection":"","line_number":"","datasheet_document_no":"","datasheet_reference_no":"","material_description_hint":"","evidence":["150","REV 0","SHEET 1"],"review_flags":["LOW_SCORE","INVALID_SIZE_EVIDENCE","TITLE_BLOCK_OR_TABLE_TEXT"],"reason":"The candidate is low score and nearby text is sheet/revision noise, not installed valve evidence."}
+
+MESSAGE user {"component_label":"BALL VALVE","drawing":"13-00-202-0.pdf","page":1,"score":0.86,"detected_size_inch":"0.75","size_source":"3/4\"","size_source_type":"standalone","size_confidence":0.91,"size_ambiguous":false,"size_candidates":[{"size":"0.75","source":"3/4\"","source_type":"standalone","confidence":0.91},{"size":"2","source":"2\"-PG-24466-251482-X-N","source_type":"line_number","confidence":0.63}],"nearby_text":["3/4\"","2\"-PG-24466-251482-X-N","LC"],"metadata":{"itemType":"Ball valve","pipingClass":"A1A3A-FA","rating":"150#","valveBore":"FB","endConnection":"FLANGED","dataSheetDocumentNo":"50213-DS-00-LA-8004","dataSheetReferenceNo":"BV-001"}}
+MESSAGE assistant {"decision":"ACCEPT","confidence":0.93,"normalized_size_inch":"0.75","item_type":"Ball valve","piping_class":"A1A3A-FA","rating":"150#","valve_bore":"FB","end_connection":"FLANGED","line_number":"2\"-PG-24466-251482-X-N","datasheet_document_no":"50213-DS-00-LA-8004","datasheet_reference_no":"BV-001","material_description_hint":"Ball valve, full bore, 0.75 inch, 150#, flanged end connection.","evidence":["3/4\"","2\"-PG-24466-251482-X-N","BV-001"],"review_flags":[],"reason":"The closest attached standalone inch text identifies the branch valve size; the larger line number is retained only as line context."}
+
+MESSAGE user {"component_label":"BALL VALVE","drawing":"13-00-202-0.pdf","page":1,"score":0.80,"detected_size_inch":"2","size_source":"2\"","size_source_type":"standalone","size_confidence":0.61,"size_ambiguous":true,"size_candidates":[{"size":"2","source":"2\"","source_type":"standalone","confidence":0.61},{"size":"0.75","source":"3/4\"","source_type":"standalone","confidence":0.59}],"nearby_text":["2\"","3/4\"","NOTE 30"],"metadata":{"itemType":"Ball valve","pipingClass":"A1A3A-FA","rating":"150#","valveBore":"FB","endConnection":"FLANGED"}}
+MESSAGE assistant {"decision":"REVIEW","confidence":0.76,"normalized_size_inch":"2","item_type":"Ball valve","piping_class":"A1A3A-FA","rating":"150#","valve_bore":"FB","end_connection":"FLANGED","line_number":"","datasheet_document_no":"","datasheet_reference_no":"","material_description_hint":"Ball valve, full bore, 150#, flanged end connection.","evidence":["2\"","3/4\"","NOTE 30"],"review_flags":["SIZE_AMBIGUOUS"],"reason":"The valve is plausible, but two nearby standalone inch sizes compete for the same component."}

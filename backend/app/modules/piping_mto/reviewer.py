@@ -27,6 +27,15 @@ def _s(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _timeout_seconds() -> int:
+    raw = os.getenv("XYRA_MTO_REVIEW_TIMEOUT_SECONDS", "60").strip()
+    try:
+        return max(10, min(240, int(raw)))
+    except ValueError:
+        logger.warning("Invalid XYRA_MTO_REVIEW_TIMEOUT_SECONDS=%r; using 60", raw)
+        return 60
+
+
 def _resolve_model() -> str | None:
     if _is_available(MTO_REVIEWER_MODEL):
         return MTO_REVIEWER_MODEL
@@ -37,8 +46,10 @@ def _resolve_model() -> str | None:
 
 def _nearby_text(match: dict, metadata: dict) -> list[str]:
     values = [
+        *(match.get("nearbyText") or []),
         match.get("sizeSource"),
         match.get("sizeInch"),
+        match.get("aiLineNumber"),
         metadata.get("pipingClass"),
         metadata.get("rating"),
         metadata.get("valveBore"),
@@ -118,6 +129,19 @@ def _build_prompt(session: dict, file_result: dict, match: dict, metadata: dict)
         "score": float(match.get("score") or 0),
         "detected_size_inch": _s(match.get("sizeInch")),
         "size_source": _s(match.get("sizeSource")),
+        "size_source_type": _s(match.get("sizeSourceType")),
+        "size_confidence": float(match.get("sizeConfidence") or 0),
+        "size_ambiguous": bool(match.get("sizeAmbiguous")),
+        "size_candidates": [
+            {
+                "size": _s(candidate.get("size")),
+                "source": _s(candidate.get("source")),
+                "source_type": _s(candidate.get("sourceType")),
+                "confidence": float(candidate.get("confidence") or 0),
+            }
+            for candidate in (match.get("sizeCandidates") or [])[:5]
+            if _s(candidate.get("source"))
+        ],
         "nearby_text": _nearby_text(match, metadata),
         "metadata": {
             "itemType": _s(metadata.get("itemType")),
@@ -163,7 +187,7 @@ def review_payload(payload: dict) -> dict:
                     continue
                 prompt = _build_prompt(session, file_result, match, metadata)
                 try:
-                    raw = generate(prompt, model=model, timeout=45)
+                    raw = generate(prompt, model=model, timeout=_timeout_seconds(), num_predict=900)
                     review = _normalize_review(raw)
                 except Exception as exc:
                     logger.warning("Piping MTO AI review failed: %s", exc)

@@ -36,6 +36,12 @@ class TestTryParse:
         assert r["Insulation"] == "J"
         assert r["Spec"] == "P"
 
+    def test_strips_glued_instrument_suffix_from_final_spec(self):
+        r = self._p('2"-PG-24468-251482-X-N18')
+        assert r is not None
+        assert r["Line_Number"] == "2-PG-24468-251482-X-N"
+        assert r["Spec"] == "N"
+
     def test_small_bore_half_inch(self):
         r = self._p('0.5"-IA-101')
         assert r is not None
@@ -66,6 +72,14 @@ class TestTryParse:
 
     def test_rejects_random_text(self):
         assert self._p("FLOW INDICATOR") is None
+
+    def test_rejects_annotation_words_as_fluid_code(self):
+        assert self._p('2"-NOTE-253461-Y') is None
+        assert self._p('2"-ANSI-2500') is None
+
+    def test_rejects_instrument_tag_fragments_as_line_numbers(self):
+        assert self._p("24-LG-2005-LT") is None
+        assert self._p("16-FT-1626-B-5642-A") is None
 
     def test_rejects_partial_match(self):
         # Sequence number too short (< 3 digits)

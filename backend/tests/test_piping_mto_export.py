@@ -1,4 +1,5 @@
 import zipfile
+from copy import deepcopy
 
 from openpyxl import load_workbook
 
@@ -63,6 +64,7 @@ def test_write_mto_package_creates_expected_zip_and_workbook(tmp_path):
     assert "Piping Material Take-Off.xlsx" in names
     assert "Detection Register.xlsx" in names
     assert "QA Checks.xlsx" in names
+    assert "MTO Engineering Audit.xlsx" in names
     assert "mto_run.json" in names
 
     wb = load_workbook(tmp_path / "Piping Material Take-Off.xlsx", data_only=True)
@@ -78,5 +80,48 @@ def test_detection_register_preserves_page_numbers(tmp_path):
     write_mto_package(tmp_path, _payload(), "mto_test")
     wb = load_workbook(tmp_path / "Detection Register.xlsx", data_only=True)
     ws = wb["Detection Register"]
-    pages = [ws.cell(row=i, column=5).value for i in range(2, 5)]
+    headers = [ws.cell(row=1, column=i).value for i in range(1, ws.max_column + 1)]
+    page_col = headers.index("Page") + 1
+    pages = [ws.cell(row=i, column=page_col).value for i in range(2, 5)]
     assert pages == [1, 1, 2]
+
+
+def test_deselected_mto_detection_is_registered_but_not_counted(tmp_path):
+    payload = deepcopy(_payload())
+    payload["sessions"][0]["fileResults"][0]["matches"][1]["accepted"] = False
+
+    write_mto_package(tmp_path, payload, "mto_test")
+
+    register_wb = load_workbook(tmp_path / "Detection Register.xlsx", data_only=True)
+    register_ws = register_wb["Detection Register"]
+    headers = [register_ws.cell(row=1, column=i).value for i in range(1, register_ws.max_column + 1)]
+    selected_col = headers.index("Selected") + 1
+    assert [register_ws.cell(row=i, column=selected_col).value for i in range(2, 5)] == ["Yes", "No", "Yes"]
+
+    mto_wb = load_workbook(tmp_path / "Piping Material Take-Off.xlsx", data_only=True)
+    mto_ws = mto_wb["Valves MTO"]
+    values = [cell.value for row in mto_ws.iter_rows() for cell in row]
+    assert 2 in values
+    assert 3 not in values
+
+    audit_wb = load_workbook(tmp_path / "MTO Engineering Audit.xlsx", data_only=True)
+    audit_ws = audit_wb["Detection Audit"]
+    audit_headers = [audit_ws.cell(row=1, column=i).value for i in range(1, audit_ws.max_column + 1)]
+    grade_col = audit_headers.index("Grade") + 1
+    assert [audit_ws.cell(row=i, column=grade_col).value for i in range(2, 5)] == ["Review", "Excluded", "Review"]
+
+
+def test_mto_material_description_falls_back_to_item_type_and_size(tmp_path):
+    payload = deepcopy(_payload())
+    metadata = payload["sessions"][0]["metadata"]
+    metadata["materialDescription"] = ""
+    metadata["sizeInch"] = ""
+    payload["sessions"][0]["fileResults"][0]["matches"][0]["sizeInch"] = "0.75"
+    payload["sessions"][0]["fileResults"][0]["matches"] = payload["sessions"][0]["fileResults"][0]["matches"][:1]
+
+    write_mto_package(tmp_path, payload, "mto_test")
+
+    wb = load_workbook(tmp_path / "Piping Material Take-Off.xlsx", data_only=True)
+    ws = wb["Valves MTO"]
+    values = [cell.value for row in ws.iter_rows() for cell in row]
+    assert "BALL VALVE, 0.75 IN" in values

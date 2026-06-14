@@ -69,6 +69,111 @@ def _natural_key(value: str) -> list[Any]:
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", value)]
 
 
+def _material_description(metadata: dict, match: dict) -> str:
+    explicit = _s(metadata.get("materialDescription")) or _s(match.get("aiMaterialDescriptionHint"))
+    if explicit:
+        return explicit
+
+    item_type = _s(metadata.get("itemType"))
+    size = _s(match.get("sizeInch")) or _s(match.get("aiNormalizedSizeInch")) or _s(metadata.get("sizeInch"))
+    parts = [item_type.upper() if item_type else "PIPING COMPONENT"]
+    if size:
+        parts.append(f"{size} IN")
+    return ", ".join(parts)
+
+
+def _size_candidates_text(match: dict) -> str:
+    candidates = []
+    for candidate in (match.get("sizeCandidates") or [])[:5]:
+        source = _s(candidate.get("source"))
+        size = _s(candidate.get("size"))
+        confidence = candidate.get("confidence")
+        if not source:
+            continue
+        try:
+            conf_text = f"{float(confidence):.2f}"
+        except (TypeError, ValueError):
+            conf_text = ""
+        label = f"{source} -> {size}" if size and size not in source else source
+        candidates.append(f"{label} ({conf_text})" if conf_text else label)
+    return "; ".join(candidates)
+
+
+def _review_remarks(metadata: dict, match: dict) -> str:
+    remarks = []
+    if _s(metadata.get("remarks")):
+        remarks.append(_s(metadata.get("remarks")))
+    flags = [_s(v) for v in (match.get("aiFlags") or []) if _s(v)]
+    if flags:
+        remarks.append("AI: " + ", ".join(flags))
+    if match.get("sizeAmbiguous"):
+        remarks.append("Size ambiguous")
+    try:
+        size_conf = float(match.get("sizeConfidence") or 0)
+    except (TypeError, ValueError):
+        size_conf = 0
+    if _s(match.get("sizeInch")) and size_conf and size_conf < 0.7:
+        remarks.append(f"Low size confidence {size_conf:.2f}")
+    if _s(match.get("sizeSource")):
+        remarks.append(f"Size from {_s(match.get('sizeSource'))}")
+    return "; ".join(dict.fromkeys(remarks))
+
+
+def _detection_reasons(match: dict) -> list[str]:
+    reasons = []
+    if not match.get("accepted", True):
+        reasons.append("Excluded by engineer")
+    if float(match.get("score") or 0) < 0.75:
+        reasons.append("Low symbol match confidence")
+    if not _s(match.get("sizeInch")):
+        reasons.append("No nearby size read")
+    if match.get("sizeAmbiguous"):
+        reasons.append("Competing nearby size evidence")
+    try:
+        size_confidence = float(match.get("sizeConfidence") or 0)
+    except (TypeError, ValueError):
+        size_confidence = 0
+    if _s(match.get("sizeInch")) and size_confidence and size_confidence < 0.7:
+        reasons.append("Weak size association")
+    decision = _s(match.get("aiDecision")).upper()
+    if decision == "REVIEW":
+        reasons.append("AI reviewer requested engineering check")
+    elif decision == "REJECT":
+        reasons.append("AI reviewer rejected detection")
+    return reasons
+
+
+def _detection_grade(match: dict) -> str:
+    if not match.get("accepted", True) or _s(match.get("aiDecision")).upper() == "REJECT":
+        return "Excluded"
+    return "Review" if _detection_reasons(match) else "Ready"
+
+
+def _audit_rows(payload: dict) -> list[dict]:
+    rows = []
+    for session in payload.get("sessions", []):
+        metadata = _meta(session)
+        for file_result in session.get("fileResults", []):
+            for match in file_result.get("matches", []):
+                reasons = _detection_reasons(match)
+                grade = _detection_grade(match)
+                rows.append({
+                    "Grade": grade,
+                    "Component": _s(session.get("label")),
+                    "Category": f"{metadata['categoryCode']}. {metadata['categoryName']}",
+                    "Drawing": _s(file_result.get("fileName")),
+                    "Page": int(match.get("page") or 1),
+                    "Size": _s(match.get("sizeInch")),
+                    "Size Source": _s(match.get("sizeSource")),
+                    "Match Confidence": float(match.get("score") or 0),
+                    "Size Confidence": float(match.get("sizeConfidence") or 0),
+                    "AI Decision": _s(match.get("aiDecision")),
+                    "Reasons": "; ".join(reasons) if reasons else "Ready for MTO",
+                    "Selected": "Yes" if match.get("accepted", True) else "No",
+                })
+    return rows
+
+
 def _iter_detection_rows(payload: dict):
     for session in payload.get("sessions", []):
         metadata = _meta(session)
@@ -76,6 +181,7 @@ def _iter_detection_rows(payload: dict):
             drawing = _s(file_result.get("fileName"))
             for match in file_result.get("matches", []):
                 yield {
+                    "Selected": "Yes" if match.get("accepted", True) else "No",
                     "Symbol": _s(session.get("label")),
                     "Category": f"{metadata['categoryCode']}. {metadata['categoryName']}",
                     "Drawing": drawing,
@@ -87,6 +193,9 @@ def _iter_detection_rows(payload: dict):
                     "Y2": int(match.get("y2") or 0),
                     "Size": _s(match.get("sizeInch")),
                     "Size Source": _s(match.get("sizeSource")),
+                    "Size Source Type": _s(match.get("sizeSourceType")),
+                    "Size Candidates": _size_candidates_text(match),
+                    "Size Ambiguous": "Yes" if match.get("sizeAmbiguous") else "",
                     "Size Confidence": float(match.get("sizeConfidence") or 0),
                     "AI Decision": _s(match.get("aiDecision")),
                     "AI Confidence": float(match.get("aiConfidence") or 0),
@@ -101,6 +210,8 @@ def _aggregate_rows(payload: dict) -> list[dict]:
         metadata = _meta(session)
         for file_result in session.get("fileResults", []):
             for match in file_result.get("matches", []):
+                if not match.get("accepted", True):
+                    continue
                 if _s(match.get("aiDecision")).upper() == "REJECT":
                     continue
                 row_metadata = {
@@ -111,9 +222,9 @@ def _aggregate_rows(payload: dict) -> list[dict]:
                         or metadata["sizeInch"]
                     ),
                     "materialDescription": (
-                        metadata["materialDescription"]
-                        or _s(match.get("aiMaterialDescriptionHint"))
+                        _material_description(metadata, match)
                     ),
+                    "remarks": _review_remarks(metadata, match),
                 }
                 key = (
                     row_metadata["categoryCode"],
@@ -137,12 +248,24 @@ def _aggregate_rows(payload: dict) -> list[dict]:
                         "symbols": set(),
                         "drawings": set(),
                         "minScore": 1.0,
+                        "missingSizeCount": 0,
+                        "lowSizeConfidenceCount": 0,
+                        "ambiguousSizeCount": 0,
+                        "aiReviewCount": 0,
                     }
                 row = groups[key]
                 row["symbols"].add(_s(session.get("label")))
                 row["drawings"].add(_s(file_result.get("fileName")))
                 row["quantity"] += 1
                 row["minScore"] = min(row["minScore"], float(match.get("score") or 0))
+                if not row_metadata["sizeInch"]:
+                    row["missingSizeCount"] += 1
+                if float(match.get("sizeConfidence") or 0) and float(match.get("sizeConfidence") or 0) < 0.7:
+                    row["lowSizeConfidenceCount"] += 1
+                if match.get("sizeAmbiguous"):
+                    row["ambiguousSizeCount"] += 1
+                if _s(match.get("aiDecision")).upper() == "REVIEW":
+                    row["aiReviewCount"] += 1
 
     rows = list(groups.values())
     rows.sort(key=lambda r: (_natural_key(r["categoryCode"]), r["categoryName"], r["itemType"], _natural_key(r["pipingClass"]), _natural_key(r["sizeInch"])))
@@ -157,6 +280,7 @@ def _qa_rows(payload: dict, mto_rows: list[dict]) -> list[dict]:
             _s(match.get("sizeInch"))
             for file_result in session.get("fileResults", [])
             for match in file_result.get("matches", [])
+            if match.get("accepted", True)
             if _s(match.get("sizeInch"))
         ]
         missing = [
@@ -190,6 +314,8 @@ def _qa_rows(payload: dict, mto_rows: list[dict]) -> list[dict]:
         low = []
         for file_result in session.get("fileResults", []):
             for match in file_result.get("matches", []):
+                if not match.get("accepted", True):
+                    continue
                 if float(match.get("score") or 0) < 0.75:
                     low.append(f"{_s(file_result.get('fileName'))} p{int(match.get('page') or 1)}")
         if low:
@@ -202,19 +328,52 @@ def _qa_rows(payload: dict, mto_rows: list[dict]) -> list[dict]:
         missing_size = []
         for file_result in session.get("fileResults", []):
             for match in file_result.get("matches", []):
+                if not match.get("accepted", True):
+                    continue
                 if not _s(match.get("sizeInch")):
                     missing_size.append(f"{_s(file_result.get('fileName'))} p{int(match.get('page') or 1)}")
         if missing_size:
             issues.append({
-                "Severity": "Info",
+                "Severity": "Warning",
                 "Check": "Size Not Read",
                 "Symbol": _s(session.get("label")),
                 "Detail": f"{len(missing_size)} detection(s) have no nearby readable pipe size. Examples: {', '.join(missing_size[:5])}",
+            })
+        ambiguous_size = []
+        low_size = []
+        for file_result in session.get("fileResults", []):
+            for match in file_result.get("matches", []):
+                if not match.get("accepted", True):
+                    continue
+                label = f"{_s(file_result.get('fileName'))} p{int(match.get('page') or 1)}"
+                if match.get("sizeAmbiguous"):
+                    ambiguous_size.append(label)
+                try:
+                    size_confidence = float(match.get("sizeConfidence") or 0)
+                except (TypeError, ValueError):
+                    size_confidence = 0
+                if _s(match.get("sizeInch")) and size_confidence and size_confidence < 0.7:
+                    low_size.append(label)
+        if ambiguous_size:
+            issues.append({
+                "Severity": "Warning",
+                "Check": "Ambiguous Size Evidence",
+                "Symbol": _s(session.get("label")),
+                "Detail": f"{len(ambiguous_size)} detection(s) have competing nearby sizes. Examples: {', '.join(ambiguous_size[:5])}",
+            })
+        if low_size:
+            issues.append({
+                "Severity": "Info",
+                "Check": "Low Size Confidence",
+                "Symbol": _s(session.get("label")),
+                "Detail": f"{len(low_size)} detection(s) have weak size association. Examples: {', '.join(low_size[:5])}",
             })
         ai_rejected = []
         ai_review = []
         for file_result in session.get("fileResults", []):
             for match in file_result.get("matches", []):
+                if not match.get("accepted", True):
+                    continue
                 decision = _s(match.get("aiDecision")).upper()
                 if decision == "REJECT":
                     ai_rejected.append(f"{_s(file_result.get('fileName'))} p{int(match.get('page') or 1)}")
@@ -272,6 +431,7 @@ def _formats(wb):
         "warn": wb.add_format({"font_size": 8, "border": 1, "bg_color": "#FFEB9C", "font_color": "#9C5700", "text_wrap": True}),
         "info": wb.add_format({"font_size": 8, "border": 1, "bg_color": "#DEEAF1", "font_color": "#265680", "text_wrap": True}),
         "pass": wb.add_format({"font_size": 8, "border": 1, "bg_color": "#E2EFDA", "font_color": "#375623", "text_wrap": True}),
+        "excluded": wb.add_format({"font_size": 8, "border": 1, "bg_color": "#E7E6E6", "font_color": "#666666", "text_wrap": True}),
     }
 
 
@@ -352,25 +512,118 @@ def _write_detection_register(path: Path, payload: dict) -> None:
     fmt = _formats(wb)
     ws = wb.add_worksheet("Detection Register")
     headers = [
-        "No.", "Symbol", "Category", "Drawing", "Page", "Size", "Size Source", "Size Confidence",
+        "No.", "Selected", "Symbol", "Category", "Drawing", "Page", "Size", "Size Source", "Source Type",
+        "Size Candidates", "Ambiguous", "Size Confidence",
         "Score", "AI Decision", "AI Confidence", "AI Flags", "AI Reason",
         "X1", "Y1", "X2", "Y2",
     ]
-    widths = [7, 24, 28, 42, 8, 8, 18, 14, 10, 14, 12, 32, 70, 10, 10, 10, 10]
+    widths = [7, 9, 24, 28, 42, 8, 8, 18, 12, 48, 10, 14, 10, 14, 12, 32, 70, 10, 10, 10, 10]
     for i, width in enumerate(widths):
         ws.set_column(i, i, width)
         ws.write(0, i, headers[i], fmt["hdr"])
     for idx, row in enumerate(_iter_detection_rows(payload), start=1):
         values = [
-            idx, row["Symbol"], row["Category"], row["Drawing"], row["Page"],
-            row["Size"], row["Size Source"], row["Size Confidence"] or "", row["Score"], row["AI Decision"],
+            idx, row["Selected"], row["Symbol"], row["Category"], row["Drawing"], row["Page"],
+            row["Size"], row["Size Source"], row["Size Source Type"], row["Size Candidates"],
+            row["Size Ambiguous"], row["Size Confidence"] or "", row["Score"], row["AI Decision"],
             row["AI Confidence"] or "", row["AI Flags"], row["AI Reason"],
             row["X1"], row["Y1"], row["X2"], row["Y2"],
         ]
         for col, value in enumerate(values):
-            ws.write(idx, col, value, fmt["left"] if col in (1, 2, 3, 6, 11, 12) else fmt["cell"])
+            ws.write(idx, col, value, fmt["left"] if col in (2, 3, 4, 7, 9, 15, 16) else fmt["cell"])
     ws.freeze_panes(1, 0)
     ws.autofilter(0, 0, max(1, idx if "idx" in locals() else 1), len(headers) - 1)
+    wb.close()
+
+
+def _write_audit(path: Path, payload: dict, mto_rows: list[dict], qa_rows: list[dict]) -> None:
+    audit_rows = _audit_rows(payload)
+    ready = len([row for row in audit_rows if row["Grade"] == "Ready"])
+    review = len([row for row in audit_rows if row["Grade"] == "Review"])
+    excluded = len([row for row in audit_rows if row["Grade"] == "Excluded"])
+    selected = ready + review
+    audit_score = round((ready / selected) * 100, 1) if selected else 0
+
+    wb = xlsxwriter.Workbook(path)
+    fmt = _formats(wb)
+    ws = wb.add_worksheet("Audit Summary")
+    ws.set_landscape()
+    ws.set_column(0, 0, 26)
+    ws.set_column(1, 1, 20)
+    ws.set_column(2, 5, 18)
+    ws.merge_range(0, 0, 0, 5, "MTO ENGINEERING AUDIT SUMMARY", fmt["title"])
+    summary = [
+        ("Audit Score", f"{audit_score}%"),
+        ("MTO Rows", len(mto_rows)),
+        ("Selected Detections", selected),
+        ("Ready Detections", ready),
+        ("Review Detections", review),
+        ("Engineer Excluded", excluded),
+        ("QA Issues", len([row for row in qa_rows if row.get("Severity") != "Pass"])),
+    ]
+    for idx, (label, value) in enumerate(summary, start=2):
+        ws.write(idx, 0, label, fmt["hdr"])
+        ws.write(idx, 1, value, fmt["cell"])
+
+    ws.write(2, 3, "Readiness Rule", fmt["hdr"])
+    ws.merge_range(
+        3,
+        3,
+        8,
+        5,
+        "Ready = selected detection with acceptable symbol confidence, readable non-ambiguous size evidence, and no AI review/reject decision. Review rows remain counted in the MTO but are clearly flagged for engineering check. Excluded rows are retained only for traceability.",
+        fmt["left"],
+    )
+
+    by_component = defaultdict(lambda: {"Ready": 0, "Review": 0, "Excluded": 0, "Total": 0, "Reasons": set()})
+    for row in audit_rows:
+        item = by_component[row["Component"]]
+        item[row["Grade"]] += 1
+        item["Total"] += 1
+        if row["Reasons"] != "Ready for MTO":
+            item["Reasons"].add(row["Reasons"])
+
+    ws2 = wb.add_worksheet("Component Matrix")
+    headers = ["Component", "Ready", "Review", "Excluded", "Total", "Readiness %", "Top Reasons"]
+    widths = [28, 10, 10, 10, 10, 14, 90]
+    for col, (header, width) in enumerate(zip(headers, widths)):
+        ws2.set_column(col, col, width)
+        ws2.write(0, col, header, fmt["hdr"])
+    for idx, (component, item) in enumerate(sorted(by_component.items()), start=1):
+        selected_count = item["Ready"] + item["Review"]
+        score = round((item["Ready"] / selected_count) * 100, 1) if selected_count else 0
+        values = [
+            component,
+            item["Ready"],
+            item["Review"],
+            item["Excluded"],
+            item["Total"],
+            score,
+            "; ".join(sorted(item["Reasons"]))[:500],
+        ]
+        for col, value in enumerate(values):
+            row_fmt = fmt["pass"] if score >= 90 else fmt["warn"] if item["Review"] else fmt["cell"]
+            ws2.write(idx, col, value, fmt["left"] if col in (0, 6) else row_fmt)
+    ws2.freeze_panes(1, 0)
+    ws2.autofilter(0, 0, max(1, len(by_component)), len(headers) - 1)
+
+    ws3 = wb.add_worksheet("Detection Audit")
+    headers = [
+        "Grade", "Selected", "Component", "Category", "Drawing", "Page", "Size", "Size Source",
+        "Match Confidence", "Size Confidence", "AI Decision", "Reasons",
+    ]
+    widths = [12, 10, 26, 28, 42, 8, 8, 18, 16, 16, 14, 90]
+    for col, (header, width) in enumerate(zip(headers, widths)):
+        ws3.set_column(col, col, width)
+        ws3.write(0, col, header, fmt["hdr"])
+    grade_fmt = {"Ready": fmt["pass"], "Review": fmt["warn"], "Excluded": fmt["excluded"]}
+    for idx, row in enumerate(audit_rows, start=1):
+        values = [row.get(header, "") for header in headers]
+        row_fmt = grade_fmt.get(row["Grade"], fmt["cell"])
+        for col, value in enumerate(values):
+            ws3.write(idx, col, value, fmt["left"] if col in (2, 3, 4, 7, 11) else row_fmt)
+    ws3.freeze_panes(1, 0)
+    ws3.autofilter(0, 0, max(1, len(audit_rows)), len(headers) - 1)
     wb.close()
 
 
@@ -401,25 +654,36 @@ def write_mto_package(output_dir: Path, payload: dict, run_id: str) -> Path:
     mto_path = output_dir / "Piping Material Take-Off.xlsx"
     register_path = output_dir / "Detection Register.xlsx"
     qa_path = output_dir / "QA Checks.xlsx"
+    audit_path = output_dir / "MTO Engineering Audit.xlsx"
     meta_path = output_dir / "mto_run.json"
     zip_path = output_dir / f"Piping_MTO_Results_{run_id}.zip"
 
     _write_main_mto(mto_path, payload, mto_rows)
     _write_detection_register(register_path, payload)
     _write_qa(qa_path, qa)
+    _write_audit(audit_path, payload, mto_rows, qa)
+
+    audit_rows = _audit_rows(payload)
+    selected_audit_rows = [row for row in audit_rows if row["Grade"] != "Excluded"]
+    ready_audit_rows = [row for row in audit_rows if row["Grade"] == "Ready"]
+    audit_score = round((len(ready_audit_rows) / len(selected_audit_rows)) * 100, 1) if selected_audit_rows else 0
 
     meta_path.write_text(json.dumps({
         "run_id": run_id,
         "symbol_count": len(payload.get("sessions", [])),
-        "total_quantity": sum(int(s.get("count") or 0) for s in payload.get("sessions", [])),
+        "total_quantity": sum(row.get("quantity", 0) for row in mto_rows),
         "mto_rows": len(mto_rows),
         "qa_issues": len([r for r in qa if r.get("Severity") != "Pass"]),
+        "audit_score": audit_score,
+        "ready_detections": len(ready_audit_rows),
+        "review_detections": len([row for row in audit_rows if row["Grade"] == "Review"]),
+        "excluded_detections": len([row for row in audit_rows if row["Grade"] == "Excluded"]),
         "threshold": payload.get("threshold"),
         "ai_review": payload.get("aiReview", {}),
     }, indent=2), encoding="utf-8")
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fp in (mto_path, register_path, qa_path, meta_path):
+        for fp in (mto_path, register_path, qa_path, audit_path, meta_path):
             zf.write(fp, fp.name)
 
     return zip_path

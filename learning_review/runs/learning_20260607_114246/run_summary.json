@@ -1,0 +1,28 @@
+{
+  "run_id": "learning_20260607_114246",
+  "project_id": "XYRA_E2E_PID_GRID_TEST_20260607",
+  "provider": "mock",
+  "model": "mock",
+  "db_path": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/xyra_studio.db",
+  "mto_export_dir": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/mto_exports",
+  "elapsed_s": 0.1,
+  "payload_only": false,
+  "summary": {
+    "total_comments": 35,
+    "by_deliverable": {
+      "instrument_index": 9,
+      "io_list": 9,
+      "piping_mto": 17
+    },
+    "by_severity": {
+      "medium": 33,
+      "high": 2
+    },
+    "by_fix_type": {
+      "ui_review_flag": 16,
+      "benchmark": 2,
+      "mto_grouping": 15,
+      "model_prompt": 2
+    }
+  }
+}

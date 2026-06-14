@@ -19,6 +19,9 @@ from app.modules.aigrid.routes import router as aigrid_router, PREFIX as AIGRID_
 from app.modules.flowsizing.routes import router as flowsizing_router, PREFIX as FLOWSIZING_PREFIX
 from app.modules.engineering_team.routes import router as engineering_team_router, PREFIX as ENGINEERING_TEAM_PREFIX
 from app.modules.project_intelligence.routes import router as project_intelligence_router, PREFIX as PROJECT_INTELLIGENCE_PREFIX
+from app.modules.datapump.routes import router as datapump_router, PREFIX as DATAPUMP_PREFIX
+from app.modules.datadiff.routes import router as datadiff_router, PREFIX as DATADIFF_PREFIX
+from app.modules.datasheet.routes import router as datasheet_router, PREFIX as DATASHEET_PREFIX
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,6 +57,9 @@ app.include_router(aigrid_router, prefix=AIGRID_PREFIX)
 app.include_router(flowsizing_router, prefix=FLOWSIZING_PREFIX)
 app.include_router(engineering_team_router, prefix=ENGINEERING_TEAM_PREFIX)
 app.include_router(project_intelligence_router, prefix=PROJECT_INTELLIGENCE_PREFIX)
+app.include_router(datapump_router, prefix=DATAPUMP_PREFIX)
+app.include_router(datadiff_router, prefix=DATADIFF_PREFIX)
+app.include_router(datasheet_router, prefix=DATASHEET_PREFIX)
 
 
 @app.get("/health")

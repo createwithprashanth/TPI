@@ -24,8 +24,13 @@ class MatchBox(BaseModel):
     x2: int
     y2: int
     score: float
+    accepted: bool = True
     sizeInch: str = ""
     sizeSource: str = ""
+    sizeSourceType: str = ""
+    sizeCandidates: list[dict] = Field(default_factory=list)
+    nearbyText: list[str] = Field(default_factory=list)
+    sizeAmbiguous: bool = False
     sizeConfidence: float = 0
 
 
@@ -87,8 +92,13 @@ class ExportMatch(BaseModel):
     x2: int
     y2: int
     score: float
+    accepted: bool = True
     sizeInch: str = ""
     sizeSource: str = ""
+    sizeSourceType: str = ""
+    sizeCandidates: list[dict] = Field(default_factory=list)
+    nearbyText: list[str] = Field(default_factory=list)
+    sizeAmbiguous: bool = False
     sizeConfidence: float = 0
     aiDecision: str = ""
     aiConfidence: float = 0
@@ -131,5 +141,7 @@ class ExportProjectInfo(BaseModel):
 
 class ExportPackageRequest(BaseModel):
     project: ExportProjectInfo = Field(default_factory=ExportProjectInfo)
+    project_id: str = ""
+    mto_run_id: str = ""
     sessions: list[ExportSession]
     threshold: float = 0.70

@@ -215,11 +215,18 @@ async def detect_from_library(
 def build_export_package(payload: dict) -> Path:
     from app.modules.piping_mto.excel_writer import write_mto_package
     from app.modules.piping_mto.reviewer import review_payload
+    from app.modules.piping_mto.database import save_mto_payload
 
     run_id = f"mto_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     output_dir = MTO_EXPORT_DIR / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
-    return write_mto_package(output_dir, review_payload(payload), run_id)
+    reviewed = review_payload(payload)
+    reviewed["mto_run_id"] = run_id
+    try:
+        save_mto_payload(reviewed)
+    except Exception as exc:
+        logger.warning("MTO grid save skipped during export: %s", exc)
+    return write_mto_package(output_dir, reviewed, run_id)
 
 
 async def review_sessions(payload: dict) -> dict:

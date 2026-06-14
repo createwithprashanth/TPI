@@ -1,13 +1,18 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, RotateCcw, ScanLine, Pencil, FileSpreadsheet, FileDown, FileText, Image, Trash2, PackageCheck, Filter, Play, Layers, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { X, RotateCcw, ScanLine, Pencil, FileSpreadsheet, FileDown, FileText, Image, Trash2, PackageCheck, Filter, Play, Layers, AlertTriangle, ShieldCheck, Database, Save, RefreshCw } from 'lucide-react';
 import {
   emptyMtoMetadata,
+  fetchMtoGrid,
   fetchLibrary,
   inferMtoMetadata,
+  mtoProjectId,
   saveLibrarySymbol,
+  saveMtoGrid,
+  updateMtoGridItem,
   updateLibrarySymbol,
   deleteLibrarySymbol,
+  type MtoGridItem,
   type LibrarySymbol,
   type MtoMetadata,
 } from '../../services/mto';
@@ -20,6 +25,37 @@ import { useMtoDetection } from './hooks/useMtoDetection';
 import { useMtoExports } from './hooks/useMtoExports';
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
+
+const detectionReasons = (match: {
+  accepted?: boolean;
+  score?: number;
+  sizeInch?: string;
+  sizeConfidence?: number;
+  sizeAmbiguous?: boolean;
+  aiDecision?: string;
+}) => {
+  const reasons: string[] = [];
+  if (match.accepted === false) reasons.push('Excluded');
+  if ((match.score ?? 0) < 0.75) reasons.push('Low match');
+  if (!match.sizeInch) reasons.push('No size');
+  if (match.sizeAmbiguous) reasons.push('Ambiguous size');
+  if (match.sizeInch && (match.sizeConfidence ?? 0) > 0 && (match.sizeConfidence ?? 0) < 0.7) reasons.push('Weak size');
+  if (match.aiDecision === 'REVIEW') reasons.push('AI review');
+  if (match.aiDecision === 'REJECT') reasons.push('AI reject');
+  return reasons;
+};
+
+const detectionGrade = (match: {
+  accepted?: boolean;
+  score?: number;
+  sizeInch?: string;
+  sizeConfidence?: number;
+  sizeAmbiguous?: boolean;
+  aiDecision?: string;
+}) => {
+  if (match.accepted === false || match.aiDecision === 'REJECT') return 'excluded';
+  return detectionReasons(match).length ? 'review' : 'ready';
+};
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -45,6 +81,8 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     dragHead, setDragHead,
     dragAnchorRef,
     removeMatch,
+    toggleMatchAccepted,
+    setSessionAccepted,
     resolveOverlaps,
     clearAllSessions,
     cancelPending,
@@ -83,7 +121,16 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
   const [recaptureTarget, setRecaptureTarget] = useState<LibrarySymbol | null>(null);
   const [pendingMetadata, setPendingMetadata] = useState<MtoMetadata>(emptyMtoMetadata());
   const [showMtoDetails, setShowMtoDetails] = useState(false);
+  const [showDetectionReview, setShowDetectionReview] = useState(true);
+  const [detectionReviewFilter, setDetectionReviewFilter] = useState<'all' | 'review' | 'excluded'>('review');
   const [componentFilter, setComponentFilter] = useState('');
+  const [mtoGridRows, setMtoGridRows] = useState<MtoGridItem[]>([]);
+  const [mtoGridSearch, setMtoGridSearch] = useState('');
+  const [mtoGridSaving, setMtoGridSaving] = useState(false);
+  const [mtoGridLoading, setMtoGridLoading] = useState(false);
+  const [mtoGridMessage, setMtoGridMessage] = useState('');
+  const [mtoGridSort, setMtoGridSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'item_type', dir: 'asc' });
+  const currentMtoProjectId = useMemo(() => mtoProjectId(project), [project]);
 
   const mtoRunningCountRef = useRef(0);
   const filteredLibrarySymbols = useMemo(() => {
@@ -107,7 +154,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
   const reviewStats = useMemo(() => {
     const lowConfidence = mtoSessions.reduce(
       (sum, session) => sum + session.fileResults.reduce(
-        (n, fr) => n + fr.matches.filter(m => m.score < 0.75).length,
+        (n, fr) => n + fr.matches.filter(m => m.accepted !== false && m.score < 0.75).length,
         0,
       ),
       0,
@@ -115,21 +162,21 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     const zeroCount = mtoSessions.filter(session => session.count === 0).length;
     const missingSize = mtoSessions.reduce(
       (sum, session) => sum + session.fileResults.reduce(
-        (n, fr) => n + fr.matches.filter(m => !m.sizeInch).length,
+        (n, fr) => n + fr.matches.filter(m => m.accepted !== false && !m.sizeInch).length,
         0,
       ),
       0,
     );
     const aiReview = mtoSessions.reduce(
       (sum, session) => sum + session.fileResults.reduce(
-        (n, fr) => n + fr.matches.filter(m => m.aiDecision === 'REVIEW').length,
+        (n, fr) => n + fr.matches.filter(m => m.accepted !== false && m.aiDecision === 'REVIEW').length,
         0,
       ),
       0,
     );
     const aiRejected = mtoSessions.reduce(
       (sum, session) => sum + session.fileResults.reduce(
-        (n, fr) => n + fr.matches.filter(m => m.aiDecision === 'REJECT').length,
+        (n, fr) => n + fr.matches.filter(m => m.accepted !== false && m.aiDecision === 'REJECT').length,
         0,
       ),
       0,
@@ -141,7 +188,9 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     let overlaps = 0;
     for (let fileIndex = 0; fileIndex < pidFiles.length; fileIndex += 1) {
       const matches = mtoSessions.flatMap(session =>
-        (session.fileResults[fileIndex]?.matches ?? []).map(match => ({ sessionId: session.id, match })),
+        (session.fileResults[fileIndex]?.matches ?? [])
+          .filter(match => match.accepted !== false)
+          .map(match => ({ sessionId: session.id, match })),
       );
       for (let i = 0; i < matches.length; i += 1) {
         for (let j = i + 1; j < matches.length; j += 1) {
@@ -169,10 +218,109 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
     };
   }, [mtoSessions, pidFiles.length]);
 
+  const visibleDetections = useMemo(() => {
+    return mtoSessions.flatMap(session => {
+      const fr = session.fileResults[currentPidIndex];
+      return (fr?.matches ?? [])
+        .map((match, matchIndex) => ({ session, fileIndex: currentPidIndex, match, matchIndex }))
+        .filter(item => (item.match.page ?? 1) === currentPage);
+    });
+  }, [mtoSessions, currentPidIndex, currentPage]);
+
+  const mtoAudit = useMemo(() => {
+    const detections = mtoSessions.flatMap(session =>
+      session.fileResults.flatMap((fr, fileIndex) =>
+        fr.matches.map((match, matchIndex) => ({ session, fileIndex, match, matchIndex })),
+      ),
+    );
+    const ready = detections.filter(item => detectionGrade(item.match) === 'ready').length;
+    const review = detections.filter(item => detectionGrade(item.match) === 'review').length;
+    const excluded = detections.filter(item => detectionGrade(item.match) === 'excluded').length;
+    const selected = ready + review;
+    const auditScore = selected ? Math.round((ready / selected) * 100) : 0;
+    return { detections, ready, review, excluded, selected, total: detections.length, auditScore };
+  }, [mtoSessions]);
+
+  const filteredVisibleDetections = useMemo(() => {
+    return visibleDetections
+      .filter(item => {
+        const grade = detectionGrade(item.match);
+        if (detectionReviewFilter === 'review') return grade === 'review';
+        if (detectionReviewFilter === 'excluded') return grade === 'excluded';
+        return true;
+      })
+      .sort((a, b) => {
+        const gradeOrder = { review: 0, excluded: 1, ready: 2 };
+        const ga = detectionGrade(a.match);
+        const gb = detectionGrade(b.match);
+        if (gradeOrder[ga] !== gradeOrder[gb]) return gradeOrder[ga] - gradeOrder[gb];
+        return (a.match.score ?? 0) - (b.match.score ?? 0);
+      });
+  }, [visibleDetections, detectionReviewFilter]);
+
+  const loadMtoGrid = async () => {
+    setMtoGridLoading(true);
+    try {
+      const res = await fetchMtoGrid({
+        projectId: currentMtoProjectId,
+        search: mtoGridSearch,
+        sortBy: mtoGridSort.key,
+        sortDir: mtoGridSort.dir,
+      });
+      setMtoGridRows(res.data);
+    } catch (exc) {
+      setMtoError(exc instanceof Error ? exc.message : 'Could not load saved MTO grid.');
+    } finally {
+      setMtoGridLoading(false);
+    }
+  };
+
+  const saveCurrentMtoToGrid = async () => {
+    if (!mtoSessions.length || mtoGridSaving) return;
+    setMtoGridSaving(true);
+    setMtoGridMessage('');
+    try {
+      const res = await saveMtoGrid({
+        project,
+        threshold: mtoThreshold,
+        sessions: mtoSessions.map(s => ({
+          id: s.id,
+          label: s.label,
+          count: s.count,
+          metadata: s.metadata,
+          fileResults: s.fileResults,
+        })),
+      });
+      setMtoGridMessage(`Saved ${res.rows_saved} rows / ${res.detections_saved} detections`);
+      await loadMtoGrid();
+    } catch (exc) {
+      setMtoError(exc instanceof Error ? exc.message : 'Could not save MTO grid.');
+    } finally {
+      setMtoGridSaving(false);
+    }
+  };
+
+  const updateMtoGridCell = async (row: MtoGridItem, key: keyof MtoGridItem, value: any) => {
+    const before = mtoGridRows;
+    setMtoGridRows(prev => prev.map(item => item.id === row.id ? { ...item, [key]: value } : item));
+    try {
+      const updated = await updateMtoGridItem(row.id, { [key]: value } as Partial<MtoGridItem>);
+      setMtoGridRows(prev => prev.map(item => item.id === row.id ? updated : item));
+    } catch (exc) {
+      setMtoGridRows(before);
+      setMtoError(exc instanceof Error ? exc.message : 'Could not update MTO row.');
+    }
+  };
+
   // Load library on mount
   useEffect(() => {
     fetchLibrary().then(setLibrarySymbols).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    void loadMtoGrid();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMtoProjectId, mtoGridSort.key, mtoGridSort.dir]);
 
   // Reset edit mode when files change
   useEffect(() => {
@@ -467,12 +615,14 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                 <rect
                   key={`${session.id}-${i}`}
                   x={m.x1} y={m.y1} width={m.x2 - m.x1} height={m.y2 - m.y1}
-                  fill={mtoEditMode ? `${session.color}18` : 'none'}
-                  stroke={session.color} strokeWidth={10}
-                  strokeOpacity={m.score >= 0.85 ? 1.0 : m.score >= 0.75 ? 0.65 : 0.4}
-                  onClick={mtoEditMode ? (e) => { e.stopPropagation(); removeMatch(session.id, currentPidIndex, originalIndex); } : undefined}
+                  fill={m.accepted === false ? 'rgba(0,0,0,0.18)' : (mtoEditMode ? `${session.color}18` : 'none')}
+                  stroke={m.accepted === false ? '#6b7280' : session.color}
+                  strokeWidth={10}
+                  strokeDasharray={m.accepted === false ? '32 24' : undefined}
+                  strokeOpacity={m.accepted === false ? 0.55 : m.score >= 0.85 ? 1.0 : m.score >= 0.75 ? 0.65 : 0.4}
+                  onClick={mtoEditMode ? (e) => { e.stopPropagation(); toggleMatchAccepted(session.id, currentPidIndex, originalIndex); } : undefined}
                 >
-                  <title>{session.label} — page {m.page ?? 1}{m.sizeInch ? ` — size ${m.sizeInch}"${m.sizeConfidence ? ` (${Math.round(m.sizeConfidence * 100)}% size confidence)` : ''}` : ' — size not read'} — confidence {m.score.toFixed(3)}{mtoEditMode ? ' · click to remove' : ''}</title>
+                  <title>{session.label} — {m.accepted === false ? 'excluded' : 'selected'} — page {m.page ?? 1}{m.sizeInch ? ` — size ${m.sizeInch}"${m.sizeConfidence ? ` (${Math.round(m.sizeConfidence * 100)}% size confidence)` : ''}` : ' — size not read'} — confidence {m.score.toFixed(3)}{mtoEditMode ? ' · click to select/deselect' : ''}</title>
                 </rect>
               ));
             })}
@@ -789,6 +939,154 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                         </div>
                       )}
                     </div>
+                    <div className="mt-2 rounded-lg border border-white/[0.08] bg-black/35 overflow-hidden">
+                      <div className="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-white/[0.06]">
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-gray-600 font-semibold uppercase tracking-wider">MTO Audit</p>
+                          <p className="text-[11px] text-gray-400 truncate">Engineering readiness before issue</p>
+                        </div>
+                        <div className={`h-10 w-10 rounded-full border flex items-center justify-center text-xs font-bold tabular-nums ${
+                          mtoAudit.auditScore >= 90 ? 'border-emerald-400/35 text-emerald-200 bg-emerald-500/10'
+                          : mtoAudit.auditScore >= 70 ? 'border-amber-400/35 text-amber-200 bg-amber-500/10'
+                          : 'border-red-400/35 text-red-200 bg-red-500/10'
+                        }`}>
+                          {mtoAudit.auditScore}%
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-4 divide-x divide-white/[0.06]">
+                        {[
+                          ['Ready', mtoAudit.ready, 'text-emerald-300'],
+                          ['Review', mtoAudit.review, 'text-amber-300'],
+                          ['Excluded', mtoAudit.excluded, 'text-gray-500'],
+                          ['Total', mtoAudit.total, 'text-white'],
+                        ].map(([label, value, color]) => (
+                          <div key={label} className="px-2 py-2">
+                            <p className="text-[9px] text-gray-600 uppercase truncate">{label}</p>
+                            <p className={`text-sm font-bold tabular-nums ${color}`}>{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="px-4 pt-1 pb-2">
+                    <div className="rounded-lg border border-white/[0.08] bg-black/35 overflow-hidden">
+                      <div className="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-white/[0.06]">
+                        <button
+                          onClick={() => setShowDetectionReview(v => !v)}
+                          className="flex items-center gap-2 min-w-0 text-left"
+                        >
+                          <Image className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+                          <span className="text-[11px] font-semibold text-gray-300 truncate">Review Queue</span>
+                          <span className="text-[10px] text-gray-600 tabular-nums">{filteredVisibleDetections.length}/{visibleDetections.length}</span>
+                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => visibleDetections.forEach(({ session, fileIndex, matchIndex }) => toggleMatchAccepted(session.id, fileIndex, matchIndex, true))}
+                            className="h-6 px-2 rounded border border-white/[0.08] text-[10px] text-gray-500 hover:text-emerald-300 hover:border-emerald-400/35 transition-colors"
+                          >
+                            all
+                          </button>
+                          <button
+                            onClick={() => visibleDetections.forEach(({ session, fileIndex, matchIndex }) => toggleMatchAccepted(session.id, fileIndex, matchIndex, false))}
+                            className="h-6 px-2 rounded border border-white/[0.08] text-[10px] text-gray-500 hover:text-amber-300 hover:border-amber-400/35 transition-colors"
+                          >
+                            none
+                          </button>
+                        </div>
+                      </div>
+                      {showDetectionReview && (
+                        <div className="px-2 py-1.5 border-b border-white/[0.06] flex items-center gap-1">
+                          {[
+                            ['review', 'review'],
+                            ['all', 'all'],
+                            ['excluded', 'out'],
+                          ].map(([key, label]) => (
+                            <button
+                              key={key}
+                              onClick={() => setDetectionReviewFilter(key as 'all' | 'review' | 'excluded')}
+                              className={`h-6 px-2 rounded border text-[10px] transition-colors ${
+                                detectionReviewFilter === key
+                                  ? 'border-white/25 bg-white text-gray-950'
+                                  : 'border-white/[0.08] text-gray-600 hover:text-gray-300 hover:border-white/20'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {showDetectionReview && (
+                        <div className="max-h-56 overflow-y-auto p-2 space-y-1.5 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.35)_transparent]">
+                          {filteredVisibleDetections.length === 0 ? (
+                            <p className="text-[10px] text-gray-700 text-center py-3">No detections on this page</p>
+                          ) : filteredVisibleDetections.map(({ session, fileIndex, match, matchIndex }) => {
+                            const crop = cropBoxToBase64(
+                              {
+                                x1: Math.max(0, match.x1 - 18),
+                                y1: Math.max(0, match.y1 - 18),
+                                x2: match.x2 + 18,
+                                y2: match.y2 + 18,
+                              },
+                              { maxDim: 96, trimWhitespace: false },
+                            );
+                            const selected = match.accepted !== false;
+                            const reasons = detectionReasons(match);
+                            const grade = detectionGrade(match);
+                            return (
+                              <div
+                                key={`${session.id}-${fileIndex}-${matchIndex}`}
+                                className={`flex items-center gap-2 rounded border px-2 py-1.5 ${
+                                  grade === 'ready' ? 'border-emerald-400/15 bg-emerald-500/[0.035]'
+                                  : grade === 'review' ? 'border-amber-400/20 bg-amber-500/[0.055]'
+                                  : 'border-gray-700/50 bg-gray-900/35 opacity-65'
+                                }`}
+                              >
+                                <button
+                                  onClick={() => toggleMatchAccepted(session.id, fileIndex, matchIndex)}
+                                  className={`h-4 w-4 rounded border shrink-0 ${selected ? 'border-emerald-300 bg-emerald-300' : 'border-gray-600 bg-transparent'}`}
+                                  title={selected ? 'Selected for MTO' : 'Excluded from MTO'}
+                                />
+                                <div className="w-12 h-10 rounded bg-white overflow-hidden border border-white/[0.08] shrink-0 flex items-center justify-center">
+                                  {crop ? <img src={`data:image/png;base64,${crop}`} alt="" className="max-w-full max-h-full object-contain" /> : <span className="text-[9px] text-gray-500">crop</span>}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: selected ? session.color : '#6b7280' }} />
+                                    <span className="text-[11px] text-gray-300 truncate">{session.label}</span>
+                                  </div>
+                                  <p className="text-[10px] text-gray-600 truncate">
+                                    p{match.page ?? 1} · score {match.score.toFixed(2)}
+                                    {match.sizeInch ? ` · ${match.sizeInch}"` : ' · size ?'}
+                                  </p>
+                                  <div className="mt-0.5 flex flex-wrap gap-1">
+                                    {(reasons.length ? reasons : ['Ready']).slice(0, 3).map(reason => (
+                                      <span
+                                        key={reason}
+                                        className={`rounded px-1 py-0.5 text-[9px] leading-none ${
+                                          grade === 'ready' ? 'bg-emerald-400/10 text-emerald-300'
+                                          : grade === 'review' ? 'bg-amber-400/10 text-amber-300'
+                                          : 'bg-gray-700/40 text-gray-500'
+                                        }`}
+                                      >
+                                        {reason}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => removeMatch(session.id, fileIndex, matchIndex)}
+                                  className="h-6 w-6 inline-flex items-center justify-center rounded text-gray-700 hover:text-red-300 hover:bg-red-500/10 transition-colors shrink-0"
+                                  title="Delete this detection"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="px-4 pt-1 pb-2 space-y-2">
@@ -811,6 +1109,8 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                             return null;
                           })()}
                           <span className={`text-xs font-bold tabular-nums w-6 text-right ${session.count === 0 ? 'text-amber-400' : 'text-white'}`}>{session.count === 0 ? '!' : session.count}</span>
+                          <button onClick={() => setSessionAccepted(session.id, true)} title="Select all detections for this component" className="text-[9px] text-gray-600 hover:text-emerald-300 transition-colors">all</button>
+                          <button onClick={() => setSessionAccepted(session.id, false)} title="Exclude all detections for this component" className="text-[9px] text-gray-600 hover:text-amber-300 transition-colors">none</button>
                           <button onClick={() => setShowMatchZone(v => v === session.id ? null : session.id)} title={showMatchZone === session.id ? 'Hide item extent' : 'Show item extent'} className={`transition-colors ${showMatchZone === session.id ? 'text-yellow-400' : 'text-gray-600 hover:text-yellow-400'}`}><ScanLine className="w-3 h-3" /></button>
                           <button onClick={() => rerunSession(session)} disabled={mtoLoading} title="Re-prepare this item" className="text-gray-600 hover:text-emerald-400 disabled:opacity-30 transition-colors"><RotateCcw className="w-3 h-3" /></button>
                           <button onClick={() => setMtoSessions(prev => prev.filter(s => s.id !== session.id))} title="Remove" className="text-gray-600 hover:text-red-400 transition-colors"><X className="w-3 h-3" /></button>
@@ -882,6 +1182,112 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                         {sub && <span className="text-[10px] text-gray-700">{sub}</span>}
                       </button>
                     ))}
+                    <div className="mt-2 rounded-lg border border-white/[0.08] bg-black/35 overflow-hidden">
+                      <div className="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-white/[0.06]">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Database className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+                          <span className="text-[11px] font-semibold text-gray-300 truncate">MTO Grid</span>
+                          <span className="text-[10px] text-gray-600 tabular-nums">{mtoGridRows.length}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={saveCurrentMtoToGrid}
+                            disabled={!mtoSessions.length || mtoGridSaving}
+                            title="Save current MTO to SQLite grid"
+                            className="h-6 w-6 inline-flex items-center justify-center rounded border border-white/[0.08] text-gray-500 hover:text-emerald-300 hover:border-emerald-400/35 disabled:opacity-35 transition-colors"
+                          >
+                            <Save className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={loadMtoGrid}
+                            disabled={mtoGridLoading}
+                            title="Refresh MTO grid"
+                            className="h-6 w-6 inline-flex items-center justify-center rounded border border-white/[0.08] text-gray-500 hover:text-gray-200 hover:border-white/20 disabled:opacity-35 transition-colors"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${mtoGridLoading ? 'animate-spin' : ''}`} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="p-2 border-b border-white/[0.06]">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            value={mtoGridSearch}
+                            onChange={e => setMtoGridSearch(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') void loadMtoGrid(); }}
+                            placeholder="Filter grid"
+                            className="min-w-0 flex-1 rounded border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[11px] text-gray-200 outline-none focus:border-emerald-400/35 placeholder:text-gray-700"
+                          />
+                          <button
+                            onClick={loadMtoGrid}
+                            className="h-7 px-2 rounded border border-white/[0.08] text-[10px] text-gray-400 hover:text-white hover:border-white/20 transition-colors"
+                          >
+                            Go
+                          </button>
+                        </div>
+                        {mtoGridMessage && <p className="mt-1.5 text-[10px] text-emerald-300">{mtoGridMessage}</p>}
+                      </div>
+                      <div className="max-h-56 overflow-auto [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.35)_transparent]">
+                        <table className="w-full text-[10px]">
+                          <thead className="sticky top-0 bg-gray-950 z-10">
+                            <tr className="text-gray-600">
+                              {[
+                                ['item_type', 'Item'],
+                                ['size_inch', 'Size'],
+                                ['quantity', 'Qty'],
+                                ['review_status', 'Status'],
+                              ].map(([key, label]) => (
+                                <th key={key} className="text-left font-semibold px-2 py-1.5 border-b border-white/[0.06]">
+                                  <button
+                                    onClick={() => setMtoGridSort(prev => ({ key, dir: prev.key === key && prev.dir === 'asc' ? 'desc' : 'asc' }))}
+                                    className="hover:text-gray-300 transition-colors"
+                                  >
+                                    {label}
+                                  </button>
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {mtoGridRows.length === 0 ? (
+                              <tr><td colSpan={4} className="px-2 py-3 text-center text-gray-700">No saved MTO rows</td></tr>
+                            ) : mtoGridRows.map(row => (
+                              <tr key={row.id} className="border-b border-white/[0.04] hover:bg-white/[0.03]">
+                                <td className="px-2 py-1.5 min-w-[110px]">
+                                  <input
+                                    value={row.item_type || ''}
+                                    onChange={e => setMtoGridRows(prev => prev.map(item => item.id === row.id ? { ...item, item_type: e.target.value } : item))}
+                                    onBlur={e => updateMtoGridCell(row, 'item_type', e.target.value)}
+                                    className="w-full bg-transparent text-gray-300 outline-none focus:text-white"
+                                  />
+                                  <div className="text-[9px] text-gray-700 truncate">{row.piping_class || '-'}</div>
+                                </td>
+                                <td className="px-2 py-1.5 w-14">
+                                  <input
+                                    value={row.size_inch || ''}
+                                    onChange={e => setMtoGridRows(prev => prev.map(item => item.id === row.id ? { ...item, size_inch: e.target.value } : item))}
+                                    onBlur={e => updateMtoGridCell(row, 'size_inch', e.target.value)}
+                                    className="w-full bg-transparent text-gray-300 outline-none focus:text-white"
+                                  />
+                                </td>
+                                <td className="px-2 py-1.5 w-12 text-gray-200 tabular-nums">{row.quantity}</td>
+                                <td className="px-2 py-1.5 w-24">
+                                  <select
+                                    value={row.review_status || 'Draft'}
+                                    onChange={e => updateMtoGridCell(row, 'review_status', e.target.value)}
+                                    className={`w-full bg-transparent outline-none ${row.review_required ? 'text-amber-300' : 'text-emerald-300'}`}
+                                  >
+                                    <option value="Draft">Draft</option>
+                                    <option value="For Review">For Review</option>
+                                    <option value="Checked">Checked</option>
+                                    <option value="Issued">Issued</option>
+                                  </select>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                     <button
                       onClick={clearAllSessions}
                       className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-left hover:bg-red-500/10 transition-colors group mt-1"

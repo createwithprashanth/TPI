@@ -122,6 +122,8 @@ def _load_review_rows(project_id: str, limit: int) -> list[ReviewRow]:
                 review_required=item.get("review_required"),
                 flowsizing_type=item.get("flowsizing_type"),
                 source=item.get("source"),
+                geometry_evidence=item.get("geometry_evidence"),
+                notes=item.get("notes"),
             )
         )
     return rows

@@ -32,6 +32,211 @@ _NOISE_TAG_RE = re.compile(
     re.IGNORECASE,
 )
 
+_NOISE_WORD_TOKENS = {
+    "ADCO",
+    "ADNOC",
+    "AFTER",
+    "ALARM",
+    "ALL",
+    "AREA",
+    "ASME",
+    "ASIC",
+    "BALL",
+    "BAND",
+    "BLEED",
+    "CALL",
+    "EPC",
+    "FIRE",
+    "FLAME",
+    "FLOW",
+    "FROM",
+    "GATE",
+    "LIMIT",
+    "GAS",
+    "NEED",
+    "PANEL",
+    "PLUG",
+    "SPARE",
+    "VALVE",
+    "WELL",
+    "WHICH",
+    "WILL",
+}
+
+_NON_INSTRUMENT_PREFIXES = {
+    "ADCO",
+    "ADNOC",
+    "AFTER",
+    "ALARM",
+    "ALL",
+    "AREA",
+    "ASME",
+    "ASIC",
+    "BALL",
+    "BAND",
+    "BLEED",
+    "EPC",
+    "FOR",
+    "FROM",
+    "GAS",
+    "GATE",
+    "HAVE",
+    "IN",
+    "LIFT",
+    "LIMIT",
+    "LOCAL",
+    "LP",
+    "PLUG",
+    "PLUGS",
+    "SH",
+    "SIL",
+    "SPARE",
+    "PANEL",
+    "THE",
+    "VALVE",
+    "WELL",
+    "WILL",
+    "XFAB",
+    "XGAB",
+    "XMCP",
+}
+
+_SOFT_DISPLAY_CONTROLLER_TYPES = {
+    "CC",
+    "FIC",
+    "FI",
+    "LIC",
+    "LI",
+    "LC",
+    "PIC",
+    "PI",
+    "TIC",
+    "TI",
+}
+
+_POSITION_FEEDBACK_TYPES = {
+    "CVZI": "DI",
+    "CVZT": "AI",
+    "FZT": "AI",
+}
+
+_LINE_OPTIONAL_TYPES = {
+    "GAS",
+    "HS",
+    "HSD",
+    "HSS",
+    "XA",
+    "XFD",
+    "XGD",
+    "XHMD",
+    "XTGD",
+}
+
+_HARDWIRED_IO_TYPES = {"AI", "AO", "DI", "DO"}
+
+_INVALID_LINE_TAG_RE = re.compile(
+    r"^(?:"
+    r"review[_ -]?required(?:=true|=false)?|"
+    r"true|false|none|null|nan|"
+    r"manual[_ -]?review"
+    r")$",
+    re.IGNORECASE,
+)
+
+_LINE_WITH_SUFFIX_RE = re.compile(
+    r"^(?P<head>\d+(?:\.\d+)?-[A-Z]{1,4}-.+?-[A-Z])(?P<suffix>\d{1,3})$",
+    re.IGNORECASE,
+)
+
+_PROJECT_PREFIXED_INSTRUMENT_RE = re.compile(
+    r"^\d{1,4}-[A-Z]{1,5}-[A-Z0-9]{3,8}[A-Z]?$",
+    re.IGNORECASE,
+)
+
+
+def _clean_text(value) -> str:
+    text = str(value or "").strip()
+    return "" if text.lower() == "nan" else text
+
+
+def _clean_connected_line(row) -> str:
+    line = _clean_text(row.get("Connected_Line"))
+    if not line:
+        return ""
+
+    if _INVALID_LINE_TAG_RE.match(line):
+        return ""
+
+    # OCR/LLM mapping can occasionally glue the instrument suffix onto a
+    # nearby line number, for example 2-PG-24468-251482-X-N18 for PIT-...-18.
+    suffix = _clean_text(row.get("Suffix"))
+    match = _LINE_WITH_SUFFIX_RE.match(line)
+    if match and suffix and match.group("suffix") == suffix:
+        return match.group("head")
+
+    return line
+
+
+def _is_type_only_fragment(row) -> bool:
+    tag = _clean_text(row.get("Tag_Number")).upper()
+    typ = _clean_text(row.get("Type")).upper()
+    loop = _clean_text(row.get("Loop"))
+    suffix = _clean_text(row.get("Suffix"))
+    if not tag or not typ:
+        return False
+    return tag == typ and not loop and not suffix
+
+
+def _is_project_prefixed_instrument_tag(tag: str, typ: str, row) -> bool:
+    """Accept client tags like 13-TP-4000A while rejecting 253-FL fragments."""
+    if not _PROJECT_PREFIXED_INSTRUMENT_RE.match(tag):
+        return False
+    parts = tag.split("-")
+    if len(parts) < 3:
+        return False
+    type_part = parts[1].upper()
+    if typ and type_part != typ:
+        return False
+    loop = _clean_text(row.get("Loop"))
+    return bool(loop and len(loop) >= 3)
+
+
+def instrument_tag_quality(row) -> tuple[str, str]:
+    """
+    Classify extracted tag quality without deleting anything.
+
+    Returns (quality, reason), where quality is:
+      - accepted: can appear in client deliverables
+      - suppressed: useful evidence, but not a real indexed instrument yet
+      - rejected_noise: obvious OCR/admin/language fragment
+    """
+    tag = _clean_text(row.get("Tag_Number")).upper()
+    typ = _clean_text(row.get("Type") or row.get("Instrument_Type")).upper()
+
+    if not tag:
+        return "rejected_noise", "Blank tag number"
+
+    if _NOISE_TAG_RE.match(tag):
+        return "rejected_noise", "Drawing/admin fragment, not an instrument tag"
+
+    if _is_type_only_fragment(row):
+        return "suppressed", "Type-only detection without loop number"
+
+    tokens = [part for part in re.split(r"[-_/\\s]+", tag) if part]
+    if any(token in _NOISE_WORD_TOKENS for token in tokens):
+        return "rejected_noise", "English/text fragment captured as tag"
+
+    if typ in _NON_INSTRUMENT_PREFIXES:
+        return "rejected_noise", f"Non-ISA/non-instrument prefix: {typ}"
+
+    if re.match(r"^\d", tag) and not _is_project_prefixed_instrument_tag(tag, typ, row):
+        return "rejected_noise", "Incomplete tag: missing ISA type prefix"
+
+    if typ and len(typ) == 1 and "-" not in tag:
+        return "suppressed", "Single-letter type without loop number"
+
+    return "accepted", ""
+
 
 def apply_output_sanity_rules(master_df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -53,30 +258,26 @@ def apply_output_sanity_rules(master_df: pd.DataFrame) -> pd.DataFrame:
         ("Signal_Type", ""),
         ("Power_Supply", ""),
         ("Instrument_Description", ""),
+        ("Rejected_As_Noise", False),
+        ("Noise_Reason", ""),
+        ("Tag_Quality", "accepted"),
     ):
         if col not in df.columns:
             df[col] = default
+    df["Connected_Line"] = df["Connected_Line"].astype("object").fillna("")
 
     # F&GS area detectors/alarms are not connected to process pipe numbers.
     fgs_mask = df["System"].astype(str).str.strip().eq("F&GS")
     df.loc[fgs_mask, "Connected_Line"] = ""
 
-    def _is_type_only_fragment(row) -> bool:
-        tag = str(row.get("Tag_Number", "") or "").strip().upper()
-        typ = str(row.get("Type", "") or "").strip().upper()
-        loop = str(row.get("Loop", "") or "").strip()
-        suffix = str(row.get("Suffix", "") or "").strip()
-        loop_blank = loop == "" or loop.lower() == "nan"
-        suffix_blank = suffix == "" or suffix.lower() == "nan"
-        if not tag or not typ:
-            return False
-        return tag == typ and loop_blank and suffix_blank
+    df["Connected_Line"] = df.apply(_clean_connected_line, axis=1)
 
-    noise_mask = df.apply(
-        lambda row: bool(_NOISE_TAG_RE.match(str(row.get("Tag_Number", "") or "").strip()))
-        or _is_type_only_fragment(row),
-        axis=1,
-    )
+    quality = df.apply(instrument_tag_quality, axis=1, result_type="expand")
+    quality.columns = ["Tag_Quality", "Noise_Reason"]
+    df["Tag_Quality"] = quality["Tag_Quality"]
+    df["Noise_Reason"] = quality["Noise_Reason"]
+
+    noise_mask = df["Tag_Quality"].isin({"suppressed", "rejected_noise"})
     if noise_mask.any():
         df.loc[noise_mask, "Review_Required"] = True
         df.loc[noise_mask, "Connected_Line"] = ""
@@ -86,6 +287,69 @@ def apply_output_sanity_rules(master_df: pd.DataFrame) -> pd.DataFrame:
         df.loc[noise_mask, "Power_Supply"] = ""
         empty_desc = df["Instrument_Description"].astype(str).str.strip().eq("")
         df.loc[noise_mask & empty_desc, "Instrument_Description"] = "Review Required"
+        df.loc[df["Tag_Quality"].eq("rejected_noise"), "Rejected_As_Noise"] = True
+
+    # Passive primary/mechanical devices are not IO list rows.
+    passive_type_mask = df["Type"].astype(str).str.strip().str.upper().isin({"FE", "RO", "TE", "TP", "TW"})
+    if passive_type_mask.any():
+        df.loc[passive_type_mask, "IO_Type"] = "None"
+        df.loc[passive_type_mask, "Signal_Type"] = ""
+        df.loc[passive_type_mask, "Power_Supply"] = ""
+
+    # Standalone indicators and DCS controllers are software/display functions
+    # unless a transmitter/final-element tag exists separately. They should not
+    # create hardwired IO rows by themselves.
+    soft_type_mask = df["Type"].astype(str).str.strip().str.upper().isin(_SOFT_DISPLAY_CONTROLLER_TYPES)
+    if soft_type_mask.any():
+        df.loc[soft_type_mask, "IO_Type"] = "Soft Link"
+        df.loc[soft_type_mask, "Signal_Type"] = ""
+        df.loc[soft_type_mask, "Power_Supply"] = ""
+
+    # Valve position feedback/indication is a real signal even when the model
+    # did not know the project-specific CVZ/FZ convention.
+    position_types = df["Type"].astype(str).str.strip().str.upper()
+    for instr_type, io_type in _POSITION_FEEDBACK_TYPES.items():
+        mask = position_types.eq(instr_type)
+        if mask.any():
+            df.loc[mask, "IO_Type"] = io_type
+
+    def _normalise_io(row) -> tuple[str, str]:
+        io_type = _clean_text(row.get("IO_Type"))
+        signal = _clean_text(row.get("Signal_Type"))
+        power = _clean_text(row.get("Power_Supply"))
+        if io_type == "AO":
+            return signal or "4-20mA", "24VDC"
+        if io_type == "DO":
+            return signal or "24VDC", "24VDC"
+        if io_type == "DI":
+            return signal or "24VDC (Dry Contact)", "24VDC"
+        if io_type == "AI":
+            return signal or "4-20mA + HART", power or "24VDC (Loop Powered)"
+        if io_type == "Soft Link":
+            return "", ""
+        if io_type == "None":
+            return "", ""
+        return signal, power
+
+    if {"IO_Type", "Signal_Type", "Power_Supply"}.issubset(df.columns):
+        normalised = df.apply(_normalise_io, axis=1, result_type="expand")
+        normalised.columns = ["Signal_Type", "Power_Supply"]
+        df["Signal_Type"] = normalised["Signal_Type"]
+        df["Power_Supply"] = normalised["Power_Supply"]
+
+    service_conf = df.get("Service_Confidence", pd.Series("", index=df.index)).astype(str).str.strip().str.lower()
+    weak_service_mask = service_conf.isin({"low", "review"})
+    if weak_service_mask.any():
+        df.loc[weak_service_mask, "Review_Required"] = True
+
+    line_expected_mask = (
+        df["IO_Type"].astype(str).str.strip().str.upper().isin(_HARDWIRED_IO_TYPES)
+        & df["Connected_Line"].astype(str).str.strip().eq("")
+        & ~df["Type"].astype(str).str.strip().str.upper().isin(_LINE_OPTIONAL_TYPES)
+        & ~df["System"].astype(str).str.strip().eq("F&GS")
+    )
+    if line_expected_mask.any():
+        df.loc[line_expected_mask, "Review_Required"] = True
 
     return df
 
@@ -179,6 +443,7 @@ def compute_programmatic_fields(master_df: pd.DataFrame) -> pd.DataFrame:
 
     # F&GS area monitors are not connected to process pipes — clear any line assigned
     if 'Connected_Line' in df.columns:
+        df['Connected_Line'] = df['Connected_Line'].astype('object').fillna('')
         fgs_mask = df['System'].astype(str) == 'F&GS'
         df.loc[fgs_mask, 'Connected_Line'] = ''
 
@@ -488,7 +753,7 @@ class InstrumentLogicEngine:
             elif "Control Valve" in desc and "Transmitter" not in desc:
                 specs['IO_Type'] = "AO"
                 specs['Signal_Type'] = "4-20mA"
-                specs['Power_Supply'] = "Loop Powered"
+                specs['Power_Supply'] = "24VDC"
                 specs['System'] = "DCS"
             elif code in {"SSV", "SSSV", "SSOV"}:
                 specs['IO_Type'] = "DO"
@@ -612,7 +877,7 @@ class InstrumentLogicEngine:
         elif "Control Valve" in desc or (first_char in ['F','L','P','T'] and 'V' in rest_chars):
             specs['IO_Type'] = "AO"
             specs['Signal_Type'] = "4-20mA"
-            specs['Power_Supply'] = "Loop Powered"
+            specs['Power_Supply'] = "24VDC"
             if "Control Valve" not in desc: specs['Instrument_Description'] += " (Control Valve)"
 
         elif "Switch" in desc:

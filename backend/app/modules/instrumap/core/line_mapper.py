@@ -18,6 +18,7 @@ Two strategies are tried in order per instrument:
 """
 import math
 import logging
+import json
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -317,6 +318,134 @@ def _find_line_for_run(
     return best_line
 
 
+def _line_label_points(lines_df: pd.DataFrame, dpi: int) -> List[Tuple[float, float, str]]:
+    labels: List[Tuple[float, float, str]] = []
+    for _, lr in lines_df.iterrows():
+        try:
+            coords = str(lr.get("Coordinates", "")).split(",")
+            lx_pt = _px_to_pt(float(coords[0]), dpi)
+            ly_pt = _px_to_pt(float(coords[1]), dpi)
+            line_num = str(lr.get("Line_Number", "")).strip()
+            if line_num:
+                labels.append((lx_pt, ly_pt, line_num))
+        except Exception:
+            continue
+    return labels
+
+
+def _segment_length(segment: Tuple[float, float, float, float]) -> float:
+    return _dist((segment[0], segment[1]), (segment[2], segment[3]))
+
+
+def _dominant_axis(indices: List[int], segments: List[Tuple]) -> str:
+    """Return horizontal, vertical, or mixed for the traced pipe run."""
+    horizontal = 0.0
+    vertical = 0.0
+    for idx in indices:
+        x0, y0, x1, y1 = segments[idx]
+        length = _segment_length((x0, y0, x1, y1))
+        if length <= 0:
+            continue
+        if abs(x1 - x0) >= abs(y1 - y0):
+            horizontal += length
+        else:
+            vertical += length
+    if horizontal == 0 and vertical == 0:
+        return "unknown"
+    if horizontal >= vertical * 1.8:
+        return "horizontal"
+    if vertical >= horizontal * 1.8:
+        return "vertical"
+    return "mixed"
+
+
+def _connection_topology(
+    stub_indices: List[int],
+    run_indices: List[int],
+    segments: List[Tuple],
+    cx: float,
+    cy: float,
+    dpi: int,
+) -> dict:
+    """
+    Summarise how the instrument connects to the traced pipe graph.
+
+    Coordinates are in PDF points. Distances returned in pixels to match the
+    rest of Line_Candidates.
+    """
+    if not stub_indices:
+        return {}
+
+    vectors: list[tuple[float, float, float]] = []
+    for idx in stub_indices:
+        x0, y0, x1, y1 = segments[idx]
+        d0 = _dist((cx, cy), (x0, y0))
+        d1 = _dist((cx, cy), (x1, y1))
+        ex, ey = (x0, y0) if d0 >= d1 else (x1, y1)
+        dx = ex - cx
+        dy = ey - cy
+        length = math.hypot(dx, dy)
+        if length > 0:
+            vectors.append((dx, dy, length))
+
+    if not vectors:
+        return {}
+
+    dx = sum(v[0] for v in vectors) / len(vectors)
+    dy = sum(v[1] for v in vectors) / len(vectors)
+    side = "right" if abs(dx) >= abs(dy) and dx >= 0 else (
+        "left" if abs(dx) >= abs(dy) else "down" if dy >= 0 else "up"
+    )
+    avg_len_pt = sum(v[2] for v in vectors) / len(vectors)
+    return {
+        "connection_side": side,
+        "pipe_axis": _dominant_axis(run_indices, segments),
+        "stub_count": len(stub_indices),
+        "run_segment_count": len(run_indices),
+        "stub_length_px": round(avg_len_pt * dpi / 72.0, 1),
+    }
+
+
+def _graph_candidates_for_run(
+    run_indices: List[int],
+    segments: List[Tuple],
+    lines_df: pd.DataFrame,
+    dpi: int,
+    proximity_pt: float = _LINE_LABEL_PROXIMITY_PT,
+    topology: dict | None = None,
+) -> List[dict]:
+    """Return ranked line candidates from pipe-graph evidence."""
+    if lines_df.empty or not run_indices:
+        return []
+
+    by_line: dict[str, dict] = {}
+    for lx, ly, line_num in _line_label_points(lines_df, dpi):
+        best_dist = float("inf")
+        for seg_idx in run_indices:
+            x0, y0, x1, y1 = segments[seg_idx]
+            d = _point_to_segment_dist(lx, ly, x0, y0, x1, y1)
+            if d < best_dist:
+                best_dist = d
+        if best_dist >= proximity_pt:
+            continue
+        confidence = max(0.62, min(0.93, 0.93 - (best_dist / proximity_pt) * 0.22))
+        current = by_line.get(line_num)
+        candidate = {
+            "line_number": line_num,
+            "method": "pipe_graph",
+            "confidence": round(confidence, 3),
+            "distance_px": round(best_dist * dpi / 72.0, 1),
+            "evidence": f"line label is {best_dist * dpi / 72.0:.0f}px from traced pipe graph",
+            "segment_count": len(run_indices),
+        }
+        if topology:
+            candidate.update(topology)
+        if current is None or candidate["confidence"] > current["confidence"]:
+            by_line[line_num] = candidate
+
+    return sorted(by_line.values(), key=lambda item: (-item["confidence"], item["distance_px"]))[:5]
+
+
 def _directional_fallback(
     cx_px: float,
     cy_px: float,
@@ -362,6 +491,80 @@ def _directional_fallback(
 
     candidates.sort(key=lambda x: (x[0], x[1]))
     return candidates[0][2]
+
+
+def _directional_candidates(
+    cx_px: float,
+    cy_px: float,
+    lines_df: pd.DataFrame,
+    max_distance_px: float = _FALLBACK_MAX_DIST_PX,
+    axis_band_px: float = _FALLBACK_AXIS_BAND_PX,
+) -> List[dict]:
+    candidates = []
+    for _, lr in lines_df.iterrows():
+        try:
+            coords = str(lr.get("Coordinates", "")).split(",")
+            lx = float(coords[0])
+            ly = float(coords[1])
+            line_num = str(lr.get("Line_Number", "")).strip()
+        except Exception:
+            continue
+        if not line_num:
+            continue
+
+        dx = lx - cx_px
+        dy = ly - cy_px
+        dist = math.sqrt(dx * dx + dy * dy)
+        if dist < 5.0 or dist > max_distance_px:
+            continue
+
+        off_axis = min(abs(dx), abs(dy))
+        if off_axis > axis_band_px:
+            continue
+        confidence = max(0.45, min(0.72, 0.72 - (off_axis / axis_band_px) * 0.16 - (dist / max_distance_px) * 0.11))
+        candidates.append({
+            "line_number": line_num,
+            "method": "axis_aligned_text",
+            "confidence": round(confidence, 3),
+            "distance_px": round(dist, 1),
+            "evidence": f"line label is axis-aligned with instrument; off-axis {off_axis:.0f}px",
+        })
+
+    candidates.sort(key=lambda item: (-item["confidence"], item["distance_px"]))
+    return candidates[:5]
+
+
+def _merge_candidates(*groups: List[dict]) -> List[dict]:
+    by_line: dict[str, dict] = {}
+    for group in groups:
+        for candidate in group:
+            line_number = str(candidate.get("line_number") or "").strip()
+            if not line_number:
+                continue
+            current = by_line.get(line_number)
+            if current is None or float(candidate.get("confidence") or 0) > float(current.get("confidence") or 0):
+                by_line[line_number] = candidate
+    return sorted(by_line.values(), key=lambda item: (-float(item.get("confidence") or 0), float(item.get("distance_px") or 999999)))[:5]
+
+
+def _apply_best_candidate(instruments_df: pd.DataFrame, idx, candidates: List[dict], reason_prefix: str = "") -> bool:
+    if not candidates:
+        return False
+    best = candidates[0]
+    line_number = str(best.get("line_number") or "").strip()
+    if not line_number:
+        return False
+    method = str(best.get("method") or "unknown")
+    confidence = float(best.get("confidence") or 0.0)
+    reason = str(best.get("evidence") or "")
+    if reason_prefix:
+        reason = f"{reason_prefix}: {reason}" if reason else reason_prefix
+    instruments_df.at[idx, "Connected_Line"] = line_number
+    instruments_df.at[idx, "Line_Confidence"] = round(confidence, 3)
+    instruments_df.at[idx, "Line_Association_Method"] = method
+    instruments_df.at[idx, "Line_Association_Reason"] = reason
+    instruments_df.at[idx, "Line_Candidates"] = json.dumps(candidates, separators=(",", ":"))
+    return True
 
 
 # ── Soft-tag filter ───────────────────────────────────────────────────────────
@@ -445,6 +648,14 @@ def map_instruments_to_lines(
     """
     instruments_df = instruments_df.copy()
     instruments_df["Connected_Line"] = ""
+    for column, default in (
+        ("Line_Confidence", 0.0),
+        ("Line_Association_Method", ""),
+        ("Line_Association_Reason", ""),
+        ("Line_Candidates", "[]"),
+    ):
+        if column not in instruments_df.columns:
+            instruments_df[column] = default
 
     if not _PYMUPDF_AVAILABLE:
         logger.warning("LineMapper: PyMuPDF not available — skipping line mapping")
@@ -528,7 +739,7 @@ def map_instruments_to_lines(
             except Exception:
                 continue
 
-            matched_line: Optional[str] = None
+            candidates: List[dict] = []
 
             # Graph traversal (only possible when we have segments)
             if segments:
@@ -557,25 +768,33 @@ def map_instruments_to_lines(
                             (cx_pt, cy_pt),
                         ) <= _MAX_STUB_SEARCH_RADIUS_PT
                     ]
-                    matched_line = _find_line_for_run(run_indices, segments, page_lines, dpi)
-                    if matched_line:
+                    topology = _connection_topology(stub_indices, run_indices, segments, cx_pt, cy_pt, dpi)
+                    graph_candidates = _graph_candidates_for_run(
+                        run_indices,
+                        segments,
+                        page_lines,
+                        dpi,
+                        topology=topology,
+                    )
+                    candidates = _merge_candidates(candidates, graph_candidates)
+                    if graph_candidates:
                         graph_matched += 1
                         logger.debug(
-                            f"  [{row.get('Tag_Number')}] graph → {matched_line} "
+                            f"  [{row.get('Tag_Number')}] graph → {graph_candidates[0]['line_number']} "
                             f"(stubs={len(stub_indices)}, run={len(run_indices)})"
                         )
 
             # Directional fallback when graph finds nothing
-            if not matched_line and not page_lines.empty:
-                matched_line = _directional_fallback(cx_px, cy_px, page_lines)
-                if matched_line:
+            if not candidates and not page_lines.empty:
+                fallback_candidates = _directional_candidates(cx_px, cy_px, page_lines)
+                candidates = _merge_candidates(candidates, fallback_candidates)
+                if fallback_candidates:
                     fallback_matched += 1
                     logger.debug(
-                        f"  [{row.get('Tag_Number')}] fallback → {matched_line}"
+                        f"  [{row.get('Tag_Number')}] fallback → {fallback_candidates[0]['line_number']}"
                     )
 
-            if matched_line:
-                instruments_df.at[idx, "Connected_Line"] = matched_line
+            _apply_best_candidate(instruments_df, idx, candidates)
 
     doc.close()
 
@@ -648,7 +867,24 @@ def map_instruments_to_lines(
                         best_line = line_num
 
                 if best_line:
-                    instruments_df.at[idx, "Connected_Line"] = best_line
+                    candidate = {
+                        "line_number": best_line,
+                        "method": "loop_propagation",
+                        "confidence": 0.68,
+                        "distance_px": round(best_dist, 1),
+                        "evidence": "same loop instance inherited from a graph-mapped instrument",
+                    }
+                    prior_candidates = []
+                    try:
+                        prior_candidates = json.loads(str(instruments_df.at[idx, "Line_Candidates"] or "[]"))
+                    except Exception:
+                        prior_candidates = []
+                    _apply_best_candidate(
+                        instruments_df,
+                        idx,
+                        _merge_candidates([candidate], prior_candidates),
+                        reason_prefix="loop propagation",
+                    )
                     graph_matched += 1
 
     total_field = sum(

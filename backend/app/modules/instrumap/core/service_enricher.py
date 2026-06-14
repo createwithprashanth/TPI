@@ -7,11 +7,14 @@ on LLM availability for basic deliverables.
 """
 from __future__ import annotations
 
+import json
 import re
 import math
 from typing import Dict
 
 import pandas as pd
+
+from app.modules.instrumap.core.geometry_evidence import attach_geometry_evidence
 
 
 _FLUID_LABELS = {
@@ -26,9 +29,11 @@ _FLUID_LABELS = {
     "NG": "Natural gas",
     "NN": "Nitrogen",
     "PA": "Plant air",
+    "PG": "Produced gas",
     "PO": "Process oil",
     "PW": "Produced water",
     "SW": "Sea water",
+    "VG": "Vent gas",
 }
 
 _VARIABLES = {
@@ -229,12 +234,101 @@ def _fluid_label(line_no: str, lines: Dict[str, dict]) -> str:
     return ""
 
 
+def _line_size(line_no: str, lines: Dict[str, dict]) -> str:
+    record = lines.get(line_no, {})
+    for key in ("Size", "Line_Size", "Nominal_Size", "Size_Inch"):
+        value = _clean(record.get(key))
+        if value:
+            return value.replace('"', "").strip()
+
+    parts = line_no.split("-")
+    if parts and re.match(r"^\d+(?:\.\d+)?$", parts[0].strip()):
+        return parts[0].strip()
+    return ""
+
+
 def _line_context(row: pd.Series, lines: Dict[str, dict]) -> str:
     line_no = _clean(row.get("Connected_Line"))
     if not line_no:
         return ""
+    return _line_context_for_line(line_no, lines)
+
+
+def _line_context_for_line(line_no: str, lines: Dict[str, dict]) -> str:
     fluid = _fluid_label(line_no, lines)
-    return f"{fluid} line" if fluid else "process line"
+    size = _line_size(line_no, lines)
+    size_text = f"{size} in " if size else ""
+    return f"{size_text}{fluid} line" if fluid else f"{size_text}process line"
+
+
+def _line_phrase(line_ctx: str) -> str:
+    return f"on {line_ctx}" if line_ctx else ""
+
+
+def _geometry_evidence(row: pd.Series) -> dict:
+    raw = _clean(row.get("Geometry_Evidence"))
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def _geometry_summary(row: pd.Series) -> str:
+    evidence = _geometry_evidence(row)
+    if not evidence:
+        return ""
+    summary = _clean(evidence.get("summary"))
+    if not summary:
+        return ""
+    try:
+        return f"{summary} ({float(evidence.get('overall_confidence') or 0):.0%})"
+    except Exception:
+        return summary
+
+
+def _loop_line_context(row: pd.Series, lines: Dict[str, dict]) -> tuple[str, dict | None]:
+    evidence = _geometry_evidence(row)
+    loop_ctx = evidence.get("loop_context") if isinstance(evidence, dict) else None
+    if not isinstance(loop_ctx, dict):
+        return "", None
+    line_no = _clean(loop_ctx.get("line"))
+    if not line_no:
+        return "", loop_ctx
+    return _line_context_for_line(line_no, lines), loop_ctx
+
+
+def _basis_with_loop_context(loop_ctx: dict | None, geometry_summary: str) -> str:
+    if not loop_ctx:
+        return "tag type only"
+    conflict = "; conflicting loop lines require review" if loop_ctx.get("conflict") else ""
+    source = _clean(loop_ctx.get("source_tag"))
+    line_no = _clean(loop_ctx.get("line"))
+    confidence = loop_ctx.get("confidence")
+    try:
+        confidence_text = f"{float(confidence or 0):.0%}"
+    except Exception:
+        confidence_text = ""
+    evidence = f"; evidence: {geometry_summary}" if geometry_summary else ""
+    return (
+        f"same-loop context from {source} on {line_no}"
+        f"{f' ({confidence_text})' if confidence_text else ''}{conflict}{evidence}"
+    )
+
+
+def _context_for_service(row: pd.Series, lines: Dict[str, dict]) -> tuple[str, str, dict | None]:
+    line_ctx = _line_context(row, lines)
+    if line_ctx:
+        return line_ctx, "", None
+    loop_ctx_text, loop_ctx = _loop_line_context(row, lines)
+    if loop_ctx and loop_ctx.get("conflict"):
+        return "", "loop_conflict", loop_ctx
+    return loop_ctx_text, "loop", loop_ctx
+
+
+def _join_service(*parts: str) -> str:
+    return re.sub(r"\s+", " ", " ".join(part for part in parts if part)).strip()
 
 
 def _variable_for_type(instr_type: str, desc: str) -> str:
@@ -340,12 +434,22 @@ def _service_for_row(
     variable = _variable_for_type(instr_type, desc)
     line_no = _clean(row.get("Connected_Line"))
     line_ctx = _line_context(row, lines)
+    inherited_ctx, inherited_source, loop_ctx = _context_for_service(row, lines)
+    service_ctx = line_ctx or inherited_ctx
     valve_ctx = _nearest_valve_context(row, valves)
     valve_subject = _valve_subject(valve_ctx, variable)
     equipment_ctx = _nearest_equipment_context(row, equipment)
     equipment_subject = _equipment_subject(equipment_ctx, variable)
-    subject = line_ctx or "Process"
-    line_basis = f"connected line {line_no}" if line_no else "tag type only"
+    subject = service_ctx or "Process"
+    geometry_summary = _geometry_summary(row)
+    line_basis = (
+        f"connected line {line_no}; evidence: {geometry_summary}"
+        if line_no and geometry_summary
+        else f"connected line {line_no}" if line_no else "tag type only"
+    )
+    service_basis = line_basis
+    if inherited_source in {"loop", "loop_conflict"} and loop_ctx:
+        service_basis = _basis_with_loop_context(loop_ctx, geometry_summary)
 
     if system == "F&GS":
         if "Flame" in desc:
@@ -378,50 +482,120 @@ def _service_for_row(
         return _result("Emergency shutdown hand switch", "High", "HSD shutdown hand switch")
     if instr_type in {"HS", "HSS"}:
         return _result("Operator hand switch", "High", f"{instr_type} hand switch")
+    if instr_type == "HIC":
+        return _result("Manual indicating controller", "Medium", "HIC hand/indicating controller tag")
+    if instr_type in {"LAL", "LAH", "LALL", "LAHH"}:
+        qualifier = _alarm_qualifier(instr_type, desc)
+        suffix = f" {qualifier}" if qualifier else ""
+        if inherited_source == "loop_conflict":
+            return _result(f"Level{suffix} alarm line requires review", "Review", service_basis)
+        return _result(
+            _join_service(f"Level{suffix} alarm", _line_phrase(service_ctx)),
+            "Medium" if service_ctx else "Medium",
+            service_basis if service_ctx else f"{instr_type} level alarm tag",
+        )
+    if instr_type in {"PDHG", "PDG"}:
+        if inherited_source == "loop_conflict":
+            return _result("Differential pressure indication line requires review", "Review", service_basis)
+        return _result(
+            _join_service("Local differential pressure indication", _line_phrase(service_ctx)),
+            "Medium",
+            service_basis if service_ctx else f"{instr_type} differential pressure gauge/indicator tag",
+        )
+    if instr_type in {"PSDH", "PSDL", "PDSH", "PDSL"}:
+        qualifier = "high" if instr_type.endswith("H") else "low"
+        if inherited_source == "loop_conflict":
+            return _result(f"Differential pressure {qualifier} switch line requires review", "Review", service_basis)
+        return _result(
+            _join_service(f"Differential pressure {qualifier} switch", _line_phrase(service_ctx)),
+            "Medium" if service_ctx else "Medium",
+            service_basis if service_ctx else f"{instr_type} differential pressure switch tag",
+        )
+    if instr_type in {"PSAL", "PSAH", "PSALL", "PSAHH", "PSDL", "PSDH"}:
+        qualifier = _alarm_qualifier(instr_type, desc)
+        suffix = f" {qualifier}" if qualifier else ""
+        if inherited_source == "loop_conflict":
+            return _result(f"Pressure{suffix} switch line requires review", "Review", service_basis)
+        return _result(
+            _join_service(f"Pressure{suffix} switch", _line_phrase(service_ctx)),
+            "Medium",
+            service_basis if service_ctx else f"{instr_type} pressure switch tag",
+        )
+    if instr_type in {"ZIH", "ZIL", "ZIHH", "ZILL"}:
+        qualifier = _alarm_qualifier(instr_type, desc)
+        suffix = f" {qualifier}" if qualifier else ""
+        if inherited_source == "loop_conflict":
+            return _result(f"Valve position{suffix} indication line requires review", "Review", service_basis)
+        return _result(
+            _join_service(f"Valve position{suffix} indication", _line_phrase(service_ctx)),
+            "Medium",
+            service_basis if service_ctx else f"{instr_type} valve position indication tag",
+        )
+    if instr_type == "XA":
+        if inherited_source == "loop_conflict":
+            return _result("Process alarm line requires review", "Review", service_basis)
+        if service_ctx:
+            return _result(f"Process alarm for {service_ctx}", "Medium", service_basis)
+        return _result("Miscellaneous process alarm", "Medium", "XA miscellaneous/process alarm tag")
 
-    if instr_type in {"TE", "TW", "TP", "FE", "AE"}:
+    if instr_type in {"TE", "TW", "TP", "FE", "AE", "RO", "FO"}:
         passive = {
             "TE": "Temperature element",
             "TW": "Thermowell",
             "TP": "Test point",
             "FE": "Flow element",
             "AE": "Analyzer element",
+            "RO": "Restriction orifice",
+            "FO": "Flow orifice",
         }.get(instr_type, desc or "Passive instrument")
-        if line_ctx:
-            return _result(f"{subject} {passive.lower()}", "Medium", line_basis)
+        if service_ctx:
+            return _result(f"{subject} {passive.lower()}", "Medium", service_basis)
+        if inherited_source == "loop_conflict":
+            return _result(f"{passive} line requires review", "Review", service_basis)
+        if instr_type == "TP":
+            return _result(passive, "Medium", "test point tag type")
         return _result(passive, "Low", "passive tag type only")
 
     if "Transmitter" in desc:
         if valve_subject and variable in {"pressure", "temperature", "flow", "differential pressure"}:
             return _result(
-                f"{variable.capitalize()} {valve_subject}",
+                _join_service(f"{variable.capitalize()} measurement", _line_phrase(line_ctx), valve_subject),
                 "High",
                 f"same line/loop valve context {valve_ctx['tag']} ({valve_ctx['position']})",
             )
         if equipment_subject:
             return _result(
-                f"{equipment_subject.capitalize()} {variable}",
+                _join_service(f"{variable.capitalize()} measurement", _line_phrase(line_ctx), f"at {equipment_subject}"),
                 "High",
                 f"nearest equipment {equipment_ctx['tag']} ({equipment_ctx['position']})",
             )
-        confidence = "Medium" if line_ctx else "Low"
-        return _result(f"{subject} {variable}", confidence, line_basis)
+        if inherited_source == "loop_conflict":
+            return _result(f"{variable.capitalize()} measurement line requires review", "Review", service_basis)
+        confidence = "Medium" if service_ctx else "Low"
+        return _result(
+            _join_service(f"{variable.capitalize()} measurement", _line_phrase(service_ctx))
+            or f"{subject} {variable}",
+            confidence,
+            service_basis,
+        )
 
     if "Indicator" in desc or "Gauge" in desc:
         if valve_subject and variable in {"pressure", "temperature", "flow", "differential pressure"}:
             return _result(
-                f"{variable.capitalize()} indication {valve_subject}",
+                _join_service(f"{variable.capitalize()} indication", _line_phrase(line_ctx), valve_subject),
                 "High",
                 f"same line/loop valve context {valve_ctx['tag']} ({valve_ctx['position']})",
             )
         if equipment_subject:
             return _result(
-                f"{equipment_subject.capitalize()} {variable} indication",
+                _join_service(f"{variable.capitalize()} indication", _line_phrase(line_ctx), f"at {equipment_subject}"),
                 "High",
                 f"nearest equipment {equipment_ctx['tag']} ({equipment_ctx['position']})",
             )
-        if line_ctx:
-            return _result(f"{subject} {variable} indication", "Medium", line_basis)
+        if service_ctx:
+            return _result(_join_service(f"{variable.capitalize()} indication", _line_phrase(service_ctx)), "Medium", service_basis)
+        if inherited_source == "loop_conflict":
+            return _result(f"{variable.capitalize()} indication line requires review", "Review", service_basis)
         return _result(f"Local {variable} indication", "Low", "indicator tag type only")
 
     if "Switch" in desc:
@@ -429,18 +603,25 @@ def _service_for_row(
         suffix = f" {qualifier}" if qualifier else ""
         if valve_subject and variable in {"pressure", "temperature", "flow", "differential pressure"}:
             return _result(
-                f"{variable.capitalize()}{suffix} switch {valve_subject}",
+                _join_service(f"{variable.capitalize()}{suffix} switch", _line_phrase(line_ctx), valve_subject),
                 "High",
                 f"same line/loop valve context {valve_ctx['tag']} ({valve_ctx['position']})",
             )
         if equipment_subject:
             return _result(
-                f"{equipment_subject.capitalize()} {variable}{suffix} switch",
+                _join_service(f"{variable.capitalize()}{suffix} switch", _line_phrase(line_ctx), f"at {equipment_subject}"),
                 "High",
                 f"nearest equipment {equipment_ctx['tag']} ({equipment_ctx['position']})",
             )
-        confidence = "Medium" if line_ctx else "Low"
-        return _result(f"{subject} {variable}{suffix} switch", confidence, line_basis)
+        if inherited_source == "loop_conflict":
+            return _result(f"{variable.capitalize()}{suffix} switch line requires review", "Review", service_basis)
+        confidence = "Medium" if service_ctx else "Low"
+        return _result(
+            _join_service(f"{variable.capitalize()}{suffix} switch", _line_phrase(service_ctx))
+            or f"{subject} {variable}{suffix} switch",
+            confidence,
+            service_basis,
+        )
 
     if "Alarm" in desc:
         qualifier = _alarm_qualifier(instr_type, desc)
@@ -449,22 +630,26 @@ def _service_for_row(
             return _result(f"Process{suffix} alarm", "Low", line_basis)
         if valve_subject and variable in {"pressure", "temperature", "flow", "differential pressure"}:
             return _result(
-                f"{variable.capitalize()}{suffix} alarm {valve_subject}",
+                _join_service(f"{variable.capitalize()}{suffix} alarm", _line_phrase(line_ctx), valve_subject),
                 "High",
                 f"same line/loop valve context {valve_ctx['tag']} ({valve_ctx['position']})",
             )
         if equipment_subject:
             return _result(
-                f"{equipment_subject.capitalize()} {variable}{suffix} alarm",
+                _join_service(f"{variable.capitalize()}{suffix} alarm", _line_phrase(line_ctx), f"at {equipment_subject}"),
                 "High",
                 f"nearest equipment {equipment_ctx['tag']} ({equipment_ctx['position']})",
             )
-        confidence = "Medium" if line_ctx else "Low"
-        return _result(f"{subject} {variable}{suffix} alarm", confidence, line_basis)
+        if inherited_source == "loop_conflict":
+            return _result(f"{variable.capitalize()}{suffix} alarm line requires review", "Review", service_basis)
+        confidence = "Medium" if service_ctx else "Low"
+        return _result(f"{subject} {variable}{suffix} alarm", confidence, service_basis)
 
     if "Controller" in desc:
-        confidence = "Medium" if line_ctx else "Low"
-        return _result(f"{subject} {variable} control", confidence, line_basis)
+        if inherited_source == "loop_conflict":
+            return _result(f"Process {variable} control line requires review", "Review", service_basis)
+        confidence = "Medium" if service_ctx else "Low"
+        return _result(f"{subject} {variable} control", confidence, service_basis)
 
     if "Valve" in desc:
         if line_ctx:
@@ -472,6 +657,14 @@ def _service_for_row(
         return _result("Valve control", "Low", "valve tag type only")
 
     if "Relay" in desc or "Converter" in desc:
+        if service_ctx:
+            return _result(
+                _join_service(f"{variable.capitalize()} signal conversion", f"for {service_ctx}"),
+                "Medium",
+                service_basis,
+            )
+        if inherited_source == "loop_conflict":
+            return _result(f"{variable.capitalize()} signal conversion line requires review", "Review", service_basis)
         return _result(f"{variable.capitalize()} signal conversion", "Low", "relay/converter tag type only")
 
     return _result(desc or "Instrument service", "Low", "description fallback")
@@ -487,6 +680,7 @@ def enrich_instrument_services(
         return instruments_df
 
     df = instruments_df.copy()
+    df = attach_geometry_evidence(df, lines_df, equipment_df)
     lines = _line_lookup(lines_df)
     valves = _valve_records(df)
     equipment = _equipment_records(equipment_df)

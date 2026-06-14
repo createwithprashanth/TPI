@@ -1,0 +1,15 @@
+{
+  "deliverable": "piping_mto",
+  "project_id": "XYRA_E2E_PID_GRID_TEST_20260607",
+  "context": {
+    "source": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/mto_exports/mto_20260601_165003_650c6fe0/mto_run.json",
+    "run_dir": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/mto_exports/mto_20260601_165003_650c6fe0",
+    "project_id": "XYRA_E2E_PID_GRID_TEST_20260607"
+  },
+  "instructions": [
+    "Review as senior EPC piping MTO checker.",
+    "Find wrong component type, missing/wrong size, likely false positives, duplicate grouping, missing rating/class/end connection, and weak material description.",
+    "For size, prefer explicit inch-mark evidence near the component and line-number size only when appropriate."
+  ],
+  "rows": []
+}

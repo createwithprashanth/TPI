@@ -13,6 +13,11 @@ export interface InstrumentRow {
   area_code?: string;
   unit_code?: string;
   line_tag?: string;
+  line_confidence?: number;
+  line_association_method?: string;
+  line_association_reason?: string;
+  line_candidates?: Array<Record<string, unknown>>;
+  geometry_evidence?: Record<string, unknown>;
   pid_number?: string;
   location?: string;
   elevation_m?: number;

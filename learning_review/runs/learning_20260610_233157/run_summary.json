@@ -1,0 +1,26 @@
+{
+  "run_id": "learning_20260610_233157",
+  "project_id": "XYRA_TESTPID_DB_20260610",
+  "provider": "openai",
+  "model": "gpt-4.1",
+  "db_path": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/xyra_studio.db",
+  "mto_export_dir": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/mto_exports",
+  "elapsed_s": 72.96,
+  "payload_only": false,
+  "summary": {
+    "total_comments": 46,
+    "by_deliverable": {
+      "instrument_index": 24,
+      "io_list": 22
+    },
+    "by_severity": {
+      "critical": 16,
+      "high": 21,
+      "medium": 9
+    },
+    "by_fix_type": {
+      "manual_review": 44,
+      "model_prompt": 2
+    }
+  }
+}

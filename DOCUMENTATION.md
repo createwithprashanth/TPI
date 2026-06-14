@@ -613,6 +613,43 @@ Application logs:
 
 Support principle: the system should produce enough local evidence for a one-person support operation. Prefer clear logs, downloadable run metadata, and non-fatal fallbacks over silent failure.
 
+## Instrument-to-Line Association
+
+XYRA Studio includes a geometric line-association engine for instrumentation extraction. It is designed as an evidence system, not a blind nearest-text guess.
+
+Pipeline:
+
+1. Extract pipe line number text using the existing line-number OCR parser.
+2. Extract straight vector pipe segments from PyMuPDF drawings, including CAD hairline rectangles.
+3. Build a pipe graph by snapping segment endpoints.
+4. For each physical instrument, detect pipe/stub segments touching or crossing the instrument boundary.
+5. Walk the pipe graph from the stub and rank nearby line-number labels.
+6. Fall back to axis-aligned text proximity only when graph evidence is unavailable.
+7. Propagate line candidates within the same loop instance when a directly mapped loop mate exists.
+8. Store the final line plus auditable evidence in SQLite and AI Grid.
+
+Stored fields:
+
+| Field | Meaning |
+|---|---|
+| `line_tag` | Final selected connected line/equipment tag shown to the engineer. |
+| `line_confidence` | Confidence score from 0.0 to 1.0. |
+| `line_association_method` | Evidence method such as `pipe_graph`, `axis_aligned_text`, or `loop_propagation`. |
+| `line_association_reason` | Human-readable explanation for support/review. |
+| `line_candidates` | Ranked JSON candidates preserved for future AI review and teaching. |
+
+Confidence intent:
+
+- `pipe_graph`: strongest evidence because the instrument is physically connected to a traced pipe network.
+- `loop_propagation`: medium evidence inherited from a loop mate already connected to a line.
+- `axis_aligned_text`: fallback evidence, useful but normally reviewable in dense drawings.
+
+Known limits:
+
+- Scanned or raster-only PDFs may not expose vector pipe segments, so the engine falls back to text geometry.
+- Continuation bubbles, off-page connectors, and dense crossings still require review if graph evidence is ambiguous.
+- This is not yet a full process network simulator. It produces line candidates and confidence that can evolve into a full pipe graph/line map module.
+
 ## Testing
 
 Current test areas:
@@ -622,6 +659,7 @@ Current test areas:
 | `backend/tests/test_piping_mto.py` | MTO detection logic. |
 | `backend/tests/test_piping_mto_export.py` | MTO export package. |
 | `backend/tests/test_line_extractor.py` | Pipe line number extraction. |
+| `backend/tests/test_line_mapper_evidence.py` | Pipe graph / line association evidence ranking. |
 | `backend/tests/test_llm_line_mapper.py` | LLM line mapping behavior. |
 | `backend/tests/test_llm_service.py` | LLM service/fallback behavior. |
 | `backend/tests/test_project_context.py` | Project context extraction. |

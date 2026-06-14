@@ -1,0 +1,16 @@
+{
+  "run_id": "learning_20260607_114027",
+  "project_id": "XYRA_E2E_PID_GRID_TEST_20260607",
+  "provider": "mock",
+  "model": "mock",
+  "db_path": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/xyra_studio.db",
+  "mto_export_dir": "/Users/prashanththipparthi/Desktop/XYRA Studio/backend/data/mto_exports",
+  "elapsed_s": 0.01,
+  "payload_only": false,
+  "summary": {
+    "total_comments": 0,
+    "by_deliverable": {},
+    "by_severity": {},
+    "by_fix_type": {}
+  }
+}

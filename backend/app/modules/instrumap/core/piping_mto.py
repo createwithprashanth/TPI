@@ -314,24 +314,45 @@ def _size_candidate_score(match: list, phrase: dict) -> float | None:
     return max(0.0, score)
 
 
-def _nearest_size_for_match(match: list, words: list[dict]) -> tuple[str, str, float]:
-    """Find the closest pipe-size text beside a detected component."""
+def _rank_size_candidates_for_match(match: list, words: list[dict]) -> list[dict]:
+    """Return ranked nearby pipe-size candidates for a detected component."""
     phrases = _candidate_size_phrases(words)
     if not phrases:
-        return "", "", 0.0
+        return []
 
     candidates = []
     for phrase in phrases:
         score = _size_candidate_score(match, phrase)
         if score is None:
             continue
-        candidates.append((score, phrase))
+        confidence = max(0.35, min(0.99, 1.0 - score / 220.0))
+        candidates.append({
+            "size": phrase["size"],
+            "source": phrase["source"],
+            "sourceType": phrase.get("sourceType", ""),
+            "score": round(float(score), 2),
+            "confidence": round(float(confidence), 3),
+            "x0": round(float(phrase["x0"]), 1),
+            "y0": round(float(phrase["y0"]), 1),
+            "x1": round(float(phrase["x1"]), 1),
+            "y1": round(float(phrase["y1"]), 1),
+        })
+    candidates.sort(key=lambda item: item["score"])
+    return candidates
 
+
+def _nearest_size_for_match(match: list, words: list[dict]) -> tuple[str, str, float]:
+    """Find the closest pipe-size text beside a detected component."""
+    candidates = _rank_size_candidates_for_match(match, words)
     if not candidates:
         return "", "", 0.0
-    phrase = sorted(candidates, key=lambda item: item[0])[0][1]
-    confidence = max(0.35, min(0.99, 1.0 - sorted(candidates, key=lambda item: item[0])[0][0] / 220.0))
-    return phrase["size"], phrase["source"], round(confidence, 3)
+    best = candidates[0]
+    confidence = best["confidence"]
+    if len(candidates) > 1:
+        second = candidates[1]
+        if second["size"] != best["size"] and second["score"] - best["score"] <= 22:
+            confidence = min(confidence, 0.64)
+    return best["size"], best["source"], round(confidence, 3)
 
 
 def _rotate_fine(img: np.ndarray, angle: float) -> np.ndarray:
@@ -762,11 +783,20 @@ def _enrich_matches_with_sizes(matches: list, doc: "fitz.Document", page_num: in
     result = []
     for match in matches:
         item = {"x1": int(match[0]), "y1": int(match[1]), "x2": int(match[2]), "y2": int(match[3]), "score": round(match[4], 3)}
+        candidates = _rank_size_candidates_for_match(match, words)
         size, source, confidence = _nearest_size_for_match(match, words)
         if size:
             item["sizeInch"] = size
             item["sizeSource"] = source
             item["sizeConfidence"] = confidence
+            item["sizeSourceType"] = candidates[0].get("sourceType", "") if candidates else ""
+        if candidates:
+            item["sizeCandidates"] = candidates[:5]
+            item["nearbyText"] = [candidate["source"] for candidate in candidates[:5]]
+            if len(candidates) > 1:
+                alternatives = [candidate for candidate in candidates[1:] if candidate["size"] != size]
+                if alternatives and alternatives[0]["score"] - candidates[0]["score"] <= 22:
+                    item["sizeAmbiguous"] = True
         result.append(item)
     return result
 

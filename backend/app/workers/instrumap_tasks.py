@@ -35,6 +35,7 @@ from app.modules.project_context.extractor import (
     legacy_project_info,
     load_project_context,
     merge_project_context,
+    refresh_current_document_context,
     save_project_context,
 )
 
@@ -178,6 +179,7 @@ def process_pid_task(
             "project_legend_notes": project_legend_notes or "",
         }
         project_context = merge_project_context(existing_context, detected_context, user_context)
+        project_context = refresh_current_document_context(project_context, detected_context)
         project_info = legacy_project_info(project_context)
         save_project_context(context_path, project_context)
 

@@ -70,7 +70,7 @@ export function useMtoDetection({
           fileResults[fi] = {
             fileName: pidFile.name,
             count: result.total_count,
-            matches: result.pages.flatMap(p => p.matches.map(m => ({ ...m, page: p.page }))),
+            matches: result.pages.flatMap(p => p.matches.map(m => ({ ...m, page: p.page, accepted: true }))),
             pageCounts: result.pages.map(p => ({ page: p.page, count: p.count })),
             imageWidth: result.image_width,
             imageHeight: result.image_height,
@@ -126,7 +126,7 @@ export function useMtoDetection({
         fileResults[fi] = {
           fileName: pidFile.name,
           count: result.total_count,
-          matches: result.pages.flatMap(p => p.matches.map(m => ({ ...m, page: p.page }))),
+          matches: result.pages.flatMap(p => p.matches.map(m => ({ ...m, page: p.page, accepted: true }))),
           pageCounts: result.pages.map(p => ({ page: p.page, count: p.count })),
           imageWidth: result.image_width,
           imageHeight: result.image_height,
