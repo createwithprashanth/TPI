@@ -20,6 +20,11 @@ _initialized = False
 
 
 def db_path() -> Path:
+    if settings.XYRA_DB_BACKEND != "sqlite":
+        raise RuntimeError(
+            f"XYRA_DB_BACKEND={settings.XYRA_DB_BACKEND!r} is not enabled in this build. "
+            "Set XYRA_DB_BACKEND=sqlite or implement the enterprise storage adapter."
+        )
     path = Path(settings.local_db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
@@ -79,6 +84,10 @@ def row_to_dict(row: sqlite3.Row | None) -> dict | None:
         "process_conditions",
         # spec_form_templates
         "field_definitions",
+        "keywords",
+        "metadata",
+        "citations",
+        "citation_snapshot",
     ):
         if key in out and isinstance(out[key], str):
             try:
@@ -131,7 +140,33 @@ def _apply_schema_upgrades(conn: sqlite3.Connection) -> None:
     if "mto_items" not in existing_tables or "mto_detection_evidence" not in existing_tables:
         conn.executescript(_MTO_SCHEMA_SQL)
 
+    if (
+        "project_knowledge_documents" not in existing_tables
+        or "project_knowledge_chunks" not in existing_tables
+        or "project_knowledge_saved_evidence" not in existing_tables
+    ):
+        conn.executescript(_PROJECT_KNOWLEDGE_SCHEMA_SQL)
+
     # ── spec_form_templates (new table) ──────────────────────────────────────
+    if "ce_matrix" not in existing_tables:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS ce_matrix (
+                id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+                project_id    TEXT NOT NULL,
+                initiator_tag TEXT NOT NULL,
+                effect_tag    TEXT NOT NULL,
+                action        TEXT NOT NULL DEFAULT 'X',
+                voting        TEXT,
+                notes         TEXT,
+                created_by    TEXT,
+                updated_by    TEXT,
+                created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(project_id, initiator_tag, effect_tag)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ce_project ON ce_matrix(project_id);
+        """)
+
     if "spec_form_templates" not in existing_tables:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS spec_form_templates (
@@ -148,6 +183,18 @@ def _apply_schema_upgrades(conn: sqlite3.Connection) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_template_type ON spec_form_templates(instrument_type);
         """)
+
+    # ── Missing project_id indexes on tables added without them ──────────────
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_extraction_sessions_project
+            ON extraction_sessions(project_id);
+        CREATE INDEX IF NOT EXISTS idx_field_history_project
+            ON instrument_field_history(project_id);
+        CREATE INDEX IF NOT EXISTS idx_datasheets_project
+            ON datasheets(project_id);
+        CREATE INDEX IF NOT EXISTS idx_pk_chat_project
+            ON project_knowledge_chat(project_id);
+    """)
 
     # ── udf_01 … udf_100 on spec_sheet_data ─────────────────────────────────
     if "spec_sheet_data" in existing_tables:
@@ -672,7 +719,75 @@ CREATE INDEX IF NOT EXISTS idx_mto_evidence_project ON mto_detection_evidence(pr
 CREATE INDEX IF NOT EXISTS idx_mto_evidence_run ON mto_detection_evidence(mto_run_id);
 """
 
-_SCHEMA_SQL = _SCHEMA_SQL + _MTO_SCHEMA_SQL + """
+_PROJECT_KNOWLEDGE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS project_knowledge_documents (
+    id                 TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    project_id         TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    folder_path        TEXT,
+    file_path          TEXT NOT NULL,
+    file_name          TEXT NOT NULL,
+    file_hash          TEXT NOT NULL,
+    file_size_bytes    INTEGER,
+    extension          TEXT,
+    document_type      TEXT NOT NULL DEFAULT 'Project document',
+    title              TEXT,
+    revision           TEXT,
+    status             TEXT NOT NULL DEFAULT 'indexed',
+    error_message      TEXT,
+    chunk_count        INTEGER NOT NULL DEFAULT 0,
+    metadata           TEXT NOT NULL DEFAULT '{}',
+    indexed_at         TEXT,
+    created_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, file_path)
+);
+
+CREATE TABLE IF NOT EXISTS project_knowledge_chunks (
+    id             TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    project_id     TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    document_id    TEXT NOT NULL REFERENCES project_knowledge_documents(id) ON DELETE CASCADE,
+    chunk_index    INTEGER NOT NULL DEFAULT 0,
+    page_number    INTEGER,
+    section_title  TEXT,
+    content        TEXT NOT NULL,
+    token_count    INTEGER NOT NULL DEFAULT 0,
+    keywords       TEXT NOT NULL DEFAULT '[]',
+    embedding      BLOB,
+    created_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(document_id, chunk_index)
+);
+
+CREATE TABLE IF NOT EXISTS project_knowledge_chat (
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    project_id  TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    question    TEXT NOT NULL,
+    answer      TEXT NOT NULL,
+    citations   TEXT NOT NULL DEFAULT '[]',
+    model       TEXT,
+    status      TEXT,
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS project_knowledge_saved_evidence (
+    id                 TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    project_id         TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    chunk_id           TEXT REFERENCES project_knowledge_chunks(id) ON DELETE SET NULL,
+    document_id        TEXT REFERENCES project_knowledge_documents(id) ON DELETE SET NULL,
+    question           TEXT,
+    note               TEXT,
+    citation_snapshot  TEXT NOT NULL DEFAULT '{}',
+    created_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, chunk_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pk_docs_project ON project_knowledge_documents(project_id);
+CREATE INDEX IF NOT EXISTS idx_pk_docs_type ON project_knowledge_documents(project_id, document_type);
+CREATE INDEX IF NOT EXISTS idx_pk_chunks_project ON project_knowledge_chunks(project_id);
+CREATE INDEX IF NOT EXISTS idx_pk_chunks_doc ON project_knowledge_chunks(document_id);
+CREATE INDEX IF NOT EXISTS idx_pk_saved_project ON project_knowledge_saved_evidence(project_id, created_at);
+"""
+
+_SCHEMA_SQL = _SCHEMA_SQL + _MTO_SCHEMA_SQL + _PROJECT_KNOWLEDGE_SCHEMA_SQL + """
 
 -- ── calculation_data ─────────────────────────────────────────────────────────
 -- Generic engineering calculation results, one row per instrument + calc type

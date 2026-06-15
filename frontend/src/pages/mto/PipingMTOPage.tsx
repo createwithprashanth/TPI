@@ -22,7 +22,7 @@ import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useProject } from '../../contexts/ProjectContext';
 import { useMtoSessions } from './hooks/useMtoSessions';
 import { useMtoDetection } from './hooks/useMtoDetection';
-import { useMtoExports } from './hooks/useMtoExports';
+import { buildCheckprintRefs, useMtoExports } from './hooks/useMtoExports';
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -226,6 +226,8 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
         .filter(item => (item.match.page ?? 1) === currentPage);
     });
   }, [mtoSessions, currentPidIndex, currentPage]);
+
+  const checkprintRefs = useMemo(() => buildCheckprintRefs(mtoSessions), [mtoSessions]);
 
   const mtoAudit = useMemo(() => {
     const detections = mtoSessions.flatMap(session =>
@@ -611,20 +613,58 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
               return (fr?.matches ?? [])
                 .map((m, originalIndex) => ({ m, originalIndex }))
                 .filter(({ m }) => (m.page ?? 1) === currentPage)
-                .map(({ m, originalIndex }, i) => (
-                <rect
-                  key={`${session.id}-${i}`}
-                  x={m.x1} y={m.y1} width={m.x2 - m.x1} height={m.y2 - m.y1}
-                  fill={m.accepted === false ? 'rgba(0,0,0,0.18)' : (mtoEditMode ? `${session.color}18` : 'none')}
-                  stroke={m.accepted === false ? '#6b7280' : session.color}
-                  strokeWidth={10}
-                  strokeDasharray={m.accepted === false ? '32 24' : undefined}
-                  strokeOpacity={m.accepted === false ? 0.55 : m.score >= 0.85 ? 1.0 : m.score >= 0.75 ? 0.65 : 0.4}
-                  onClick={mtoEditMode ? (e) => { e.stopPropagation(); toggleMatchAccepted(session.id, currentPidIndex, originalIndex); } : undefined}
-                >
-                  <title>{session.label} — {m.accepted === false ? 'excluded' : 'selected'} — page {m.page ?? 1}{m.sizeInch ? ` — size ${m.sizeInch}"${m.sizeConfidence ? ` (${Math.round(m.sizeConfidence * 100)}% size confidence)` : ''}` : ' — size not read'} — confidence {m.score.toFixed(3)}{mtoEditMode ? ' · click to select/deselect' : ''}</title>
-                </rect>
-              ));
+                .map(({ m, originalIndex }, i) => {
+                  const ref = checkprintRefs.get(`${session.id}|${currentPidIndex}|${originalIndex}`) || '';
+                  const selected = m.accepted !== false;
+                  const labelWidth = Math.max(72, ref.length * 24 + 34);
+                  const labelHeight = 42;
+                  const labelX = Math.max(4, Math.min(m.x1 + (m.x2 - m.x1) / 2 - labelWidth / 2, fr.imageWidth - labelWidth - 4));
+                  const labelY = Math.max(4, m.y1 - labelHeight - 12);
+                  return (
+                    <g
+                      key={`${session.id}-${i}`}
+                      onClick={mtoEditMode ? (e) => { e.stopPropagation(); toggleMatchAccepted(session.id, currentPidIndex, originalIndex); } : undefined}
+                    >
+                      <rect
+                        x={m.x1} y={m.y1} width={m.x2 - m.x1} height={m.y2 - m.y1}
+                        fill={selected ? (mtoEditMode ? `${session.color}18` : 'none') : 'rgba(0,0,0,0.18)'}
+                        stroke={selected ? session.color : '#6b7280'}
+                        strokeWidth={10}
+                        strokeDasharray={selected ? undefined : '32 24'}
+                        strokeOpacity={selected ? m.score >= 0.85 ? 1.0 : m.score >= 0.75 ? 0.65 : 0.4 : 0.55}
+                      >
+                        <title>{ref ? `${ref} · ` : ''}{session.label} — {selected ? 'selected' : 'excluded'} — page {m.page ?? 1}{m.sizeInch ? ` — size ${m.sizeInch}"${m.sizeConfidence ? ` (${Math.round(m.sizeConfidence * 100)}% size confidence)` : ''}` : ' — size not read'} — confidence {m.score.toFixed(3)}{mtoEditMode ? ' · click to select/deselect' : ''}</title>
+                      </rect>
+                      {selected && ref && (
+                        <>
+                          <rect
+                            x={labelX}
+                            y={labelY}
+                            width={labelWidth}
+                            height={labelHeight}
+                            rx={4}
+                            fill={session.color}
+                            stroke="white"
+                            strokeWidth={4}
+                            opacity={0.96}
+                            className="pointer-events-none"
+                          />
+                          <text
+                            x={labelX + labelWidth / 2}
+                            y={labelY + labelHeight / 2 + 7}
+                            textAnchor="middle"
+                            fill="white"
+                            fontSize={26}
+                            fontWeight={800}
+                            className="pointer-events-none select-none"
+                          >
+                            {ref}
+                          </text>
+                        </>
+                      )}
+                    </g>
+                  );
+                });
             })}
             {/* Match zone: dashed bounding box */}
             {mtoSessions.map(session => {
@@ -1033,6 +1073,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                             const selected = match.accepted !== false;
                             const reasons = detectionReasons(match);
                             const grade = detectionGrade(match);
+                            const ref = checkprintRefs.get(`${session.id}|${fileIndex}|${matchIndex}`) || '';
                             return (
                               <div
                                 key={`${session.id}-${fileIndex}-${matchIndex}`}
@@ -1053,6 +1094,7 @@ const PipingMTOPage: React.FC<PipingMTOPageProps> = ({ onOpenFiles, onDropFiles 
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-1.5 min-w-0">
                                     <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: selected ? session.color : '#6b7280' }} />
+                                    {ref && <span className="shrink-0 rounded bg-white text-gray-950 px-1 py-0.5 text-[9px] font-bold leading-none">{ref}</span>}
                                     <span className="text-[11px] text-gray-300 truncate">{session.label}</span>
                                   </div>
                                   <p className="text-[10px] text-gray-600 truncate">

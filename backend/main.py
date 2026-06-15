@@ -22,6 +22,8 @@ from app.modules.project_intelligence.routes import router as project_intelligen
 from app.modules.datapump.routes import router as datapump_router, PREFIX as DATAPUMP_PREFIX
 from app.modules.datadiff.routes import router as datadiff_router, PREFIX as DATADIFF_PREFIX
 from app.modules.datasheet.routes import router as datasheet_router, PREFIX as DATASHEET_PREFIX
+from app.modules.cause_effect.routes import router as ce_router, PREFIX as CE_PREFIX
+from app.modules.project_knowledge.routes import router as project_knowledge_router, PREFIX as PROJECT_KNOWLEDGE_PREFIX
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,6 +62,8 @@ app.include_router(project_intelligence_router, prefix=PROJECT_INTELLIGENCE_PREF
 app.include_router(datapump_router, prefix=DATAPUMP_PREFIX)
 app.include_router(datadiff_router, prefix=DATADIFF_PREFIX)
 app.include_router(datasheet_router, prefix=DATASHEET_PREFIX)
+app.include_router(ce_router,        prefix=CE_PREFIX)
+app.include_router(project_knowledge_router, prefix=PROJECT_KNOWLEDGE_PREFIX)
 
 
 @app.get("/health")

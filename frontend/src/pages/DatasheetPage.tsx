@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   FileText, Search, ChevronRight, Loader2, AlertCircle,
   CheckCircle2, Clock, FileEdit, Circle, RefreshCw, Settings2,
@@ -65,7 +65,12 @@ const StatusIcon: React.FC<{ status: string | null }> = ({ status }) => {
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
-const DatasheetPage: React.FC = () => {
+interface DatasheetPageProps {
+  jumpTo?: { instrumentId: string; projectId: string } | null;
+  onJumpConsumed?: () => void;
+}
+
+const DatasheetPage: React.FC<DatasheetPageProps> = ({ jumpTo, onJumpConsumed }) => {
   const [projects,   setProjects]   = useState<Project[]>([]);
   const [projectId,  setProjectId]  = useState('');
   const [search,     setSearch]     = useState('');
@@ -109,6 +114,26 @@ const DatasheetPage: React.FC = () => {
   }, [projectId, search, dsFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  const pendingJumpId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!jumpTo) return;
+    pendingJumpId.current = jumpTo.instrumentId;
+    setProjectId(jumpTo.projectId);
+    setSearch('');
+    setDsFilter('');
+    onJumpConsumed?.();
+  }, [jumpTo]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!pendingJumpId.current || !rows.length) return;
+    const found = rows.find(r => r.id === pendingJumpId.current);
+    if (found) {
+      setSelected(found);
+      pendingJumpId.current = null;
+    }
+  }, [rows]);
 
   const sectionLabel = 'text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-600';
 

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileUp, BoxSelect, FileText, ChevronDown, ChevronUp, TableProperties, Gauge, Database, GitCompare, Layers3 } from 'lucide-react';
+import { FileUp, BoxSelect, FileText, ChevronDown, ChevronUp, TableProperties, Gauge, Database, GitCompare, Layers3, LibraryBig, GitBranch, Layers } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import type { ProjectInfo } from '../../services/pid';
 
-export type WorkspaceView = 'pid' | 'piping' | 'precisionpdf' | 'aigrid' | 'flowsizing' | 'datapump' | 'datadiff' | 'datasheet';
+export type WorkspaceView = 'pid' | 'piping' | 'precisionpdf' | 'knowledge' | 'aigrid' | 'flowsizing' | 'datapump' | 'datadiff' | 'datasheet' | 'cne';
 
 interface NavItemProps {
   icon: React.ElementType;
@@ -27,16 +27,25 @@ const NavItem: React.FC<NavItemProps> = ({ icon: Icon, label, active, onClick })
   </button>
 );
 
-// Registry — add new products here only
-const NAV_ITEMS: { view: WorkspaceView; icon: React.ElementType; label: string }[] = [
-  { view: 'pid',          icon: FileUp,      label: 'Instrumentation' },
-  { view: 'piping',       icon: BoxSelect,   label: 'Piping MTO' },
-  { view: 'precisionpdf', icon: FileText,    label: 'PrecisionPDF' },
-  { view: 'aigrid',       icon: TableProperties, label: 'AI Grid' },
-  { view: 'flowsizing',   icon: Gauge,     label: 'FlowSizing' },
-  { view: 'datapump',    icon: Database,     label: 'DataPump' },
-  { view: 'datadiff',    icon: GitCompare,   label: 'DataDiff' },
-  { view: 'datasheet',   icon: Layers3,      label: 'Datasheet' },
+type NavEntry =
+  | { kind: 'group'; label: string }
+  | { kind: 'item'; view: WorkspaceView; icon: React.ElementType; label: string };
+
+const NAV_ENTRIES: NavEntry[] = [
+  { kind: 'group', label: 'Instrumentation' },
+  { kind: 'item', view: 'pid',          icon: FileUp,          label: 'Instrumentation' },
+  { kind: 'item', view: 'aigrid',       icon: TableProperties, label: 'AI Grid' },
+  { kind: 'item', view: 'datasheet',    icon: Layers3,         label: 'Datasheet' },
+  { kind: 'item', view: 'flowsizing',   icon: Gauge,           label: 'FlowSizing' },
+  { kind: 'item', view: 'cne',          icon: GitBranch,       label: 'C&E Matrix' },
+  { kind: 'group', label: 'Piping' },
+  { kind: 'item', view: 'piping',       icon: Layers,          label: 'Piping MTO' },
+  { kind: 'group', label: 'Reference' },
+  { kind: 'item', view: 'knowledge',    icon: LibraryBig,      label: 'Project Knowledge' },
+  { kind: 'item', view: 'precisionpdf', icon: FileText,        label: 'PrecisionPDF' },
+  { kind: 'group', label: 'Data Ops' },
+  { kind: 'item', view: 'datapump',     icon: Database,        label: 'DataPump' },
+  { kind: 'item', view: 'datadiff',     icon: GitCompare,      label: 'DataDiff' },
 ];
 
 interface WorkspaceSidebarProps {
@@ -59,10 +68,25 @@ const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-2 space-y-0.5 px-2">
-        {NAV_ITEMS.map(({ view: v, icon, label }) => (
-          <NavItem key={v} icon={icon} label={label} active={view === v} onClick={() => onViewChange(v)} />
-        ))}
+      <nav className="flex-1 py-2 px-2 overflow-y-auto">
+        {NAV_ENTRIES.map((entry, i) =>
+          entry.kind === 'group' ? (
+            <div
+              key={`g-${i}`}
+              className={`px-1 pb-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-gray-700 ${i > 0 ? 'mt-3' : 'mt-1'}`}
+            >
+              {entry.label}
+            </div>
+          ) : (
+            <NavItem
+              key={entry.view}
+              icon={entry.icon}
+              label={entry.label}
+              active={view === entry.view}
+              onClick={() => onViewChange(entry.view)}
+            />
+          )
+        )}
       </nav>
 
       {/* Project details */}

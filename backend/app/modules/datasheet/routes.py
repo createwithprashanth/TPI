@@ -2,11 +2,13 @@
 Datasheet Generator API routes.
 """
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Any
 
 from app.modules.instruments.service import list_projects
 from app.modules.datasheet import service as ds
+from app.modules.datasheet.pdf_report import build_datasheet_pdf
 
 PREFIX = "/api/v1/datasheet"
 router = APIRouter()
@@ -63,6 +65,45 @@ def get_bundle(instrument_id: str):
     if not bundle:
         raise HTTPException(status_code=404, detail="Instrument not found")
     return bundle
+
+
+@router.get("/instruments/{instrument_id}/pdf")
+def get_pdf(
+    instrument_id: str,
+    template_id: str | None = Query(None),
+    project_name: str = Query(''),
+):
+    bundle = ds.get_instrument_bundle(instrument_id)
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+
+    # Resolve template fields: prefer explicit template_id, else match by instrument type
+    instr_type = (bundle["instrument"].get("instrument_type") or "").upper()
+    if template_id:
+        templates = ds.list_templates(instrument_type=None)
+        tmpl = next((t for t in templates if t["id"] == template_id), None)
+    else:
+        templates = ds.list_templates(instrument_type=instr_type)
+        tmpl = templates[0] if templates else None
+
+    template_fields = tmpl["field_definitions"] if tmpl else []
+
+    pdf_bytes = build_datasheet_pdf(
+        instrument=bundle["instrument"],
+        spec_sheets=bundle["spec_sheets"],
+        process_data=bundle["process_data"],
+        calculations=bundle["calculations"],
+        template_fields=template_fields,
+        project_name=project_name,
+    )
+
+    tag = bundle["instrument"].get("tag_number", "datasheet")
+    filename = f"Datasheet_{tag}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 # ── Process data ──────────────────────────────────────────────────────────────

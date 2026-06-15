@@ -13,6 +13,135 @@ interface UseExportsOptions {
   totalCount: number;
 }
 
+type Match = MtoSession['fileResults'][number]['matches'][number];
+
+const naturalKey = (value: string) =>
+  String(value || '').split(/(\d+)/).map(part => (/^\d+$/.test(part) ? Number(part) : part.toLowerCase()));
+
+const compareNatural = (a: string, b: string) => {
+  const ak = naturalKey(a);
+  const bk = naturalKey(b);
+  for (let i = 0; i < Math.max(ak.length, bk.length); i += 1) {
+    if (ak[i] === undefined) return -1;
+    if (bk[i] === undefined) return 1;
+    if (ak[i] === bk[i]) continue;
+    return ak[i] < bk[i] ? -1 : 1;
+  }
+  return 0;
+};
+
+const mtoRowKey = (session: MtoSession, match: Match) => {
+  const meta = (session.metadata || {}) as NonNullable<MtoSession['metadata']>;
+  return [
+    meta.categoryCode || 'Z',
+    meta.categoryName || 'UNCLASSIFIED MTO ITEMS',
+    meta.unit || '-',
+    meta.itemType || session.label,
+    meta.pipingClass || '',
+    match.sizeInch || match.aiNormalizedSizeInch || meta.sizeInch || '',
+    meta.rating || '',
+    meta.valveBore || '',
+    meta.endConnection || '',
+    meta.materialDescription || match.aiMaterialDescriptionHint || '',
+    meta.dataSheetDocumentNo || '',
+    meta.dataSheetReferenceNo || '',
+    meta.remarks || '',
+  ].map(value => String(value).trim().toUpperCase()).join('|');
+};
+
+export const buildCheckprintRefs = (sessions: MtoSession[]) => {
+  const rowMeta = new Map<string, { categoryCode: string; categoryName: string; itemType: string; pipingClass: string; sizeInch: string }>();
+  const detectionRefs = new Map<string, string>();
+
+  for (const session of sessions) {
+    const meta = (session.metadata || {}) as NonNullable<MtoSession['metadata']>;
+    for (const [fileIndex, fr] of session.fileResults.entries()) {
+      for (const [matchIndex, match] of fr.matches.entries()) {
+        if (match.accepted === false || match.aiDecision === 'REJECT') continue;
+        const key = mtoRowKey(session, match);
+        rowMeta.set(key, {
+          categoryCode: meta.categoryCode || 'Z',
+          categoryName: meta.categoryName || 'UNCLASSIFIED MTO ITEMS',
+          itemType: meta.itemType || session.label,
+          pipingClass: meta.pipingClass || '',
+          sizeInch: match.sizeInch || match.aiNormalizedSizeInch || meta.sizeInch || '',
+        });
+        detectionRefs.set(`${session.id}|${fileIndex}|${matchIndex}`, key);
+      }
+    }
+  }
+
+  const rows = Array.from(rowMeta.entries()).sort(([, a], [, b]) => (
+    compareNatural(a.categoryCode, b.categoryCode)
+    || a.categoryName.localeCompare(b.categoryName)
+    || a.itemType.localeCompare(b.itemType)
+    || compareNatural(a.pipingClass, b.pipingClass)
+    || compareNatural(a.sizeInch, b.sizeInch)
+  ));
+  const counters = new Map<string, number>();
+  const refsByRow = new Map<string, string>();
+  for (const [key, meta] of rows) {
+    const n = (counters.get(meta.categoryCode) || 0) + 1;
+    counters.set(meta.categoryCode, n);
+    refsByRow.set(key, `${meta.categoryCode}.${n}`);
+  }
+
+  const refs = new Map<string, string>();
+  for (const [detectionKey, rowKey] of detectionRefs) {
+    refs.set(detectionKey, refsByRow.get(rowKey) || '');
+  }
+  return refs;
+};
+
+const hexToRgb = (hex: string) => {
+  const clean = hex.replace('#', '');
+  return {
+    r: parseInt(clean.slice(0, 2), 16) || 0,
+    g: parseInt(clean.slice(2, 4), 16) || 0,
+    b: parseInt(clean.slice(4, 6), 16) || 0,
+  };
+};
+
+const drawCheckprintCallout = (
+  ctx: CanvasRenderingContext2D,
+  box: { x1: number; y1: number; x2: number; y2: number },
+  ref: string,
+  color: string,
+  scaleX: number,
+  scaleY: number,
+  canvasWidth: number,
+) => {
+  const x = box.x1 * scaleX;
+  const y = box.y1 * scaleY;
+  const w = (box.x2 - box.x1) * scaleX;
+  const h = (box.y2 - box.y1) * scaleY;
+  const { r, g, b } = hexToRgb(color);
+  const lineWidth = Math.max(6, Math.round(canvasWidth / 600));
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.strokeRect(x, y, w, h);
+
+  const fontSize = Math.max(18, Math.round(canvasWidth / 95));
+  ctx.font = `700 ${fontSize}px Arial, sans-serif`;
+  const padX = Math.round(fontSize * 0.55);
+  const labelW = Math.ceil(ctx.measureText(ref).width + padX * 2);
+  const labelH = Math.ceil(fontSize * 1.45);
+  const labelX = Math.max(4, Math.min(x + w / 2 - labelW / 2, canvasWidth - labelW - 4));
+  const labelY = Math.max(4, y - labelH - lineWidth);
+
+  ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.96)`;
+  ctx.fillRect(labelX, labelY, labelW, labelH);
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+  ctx.lineWidth = Math.max(2, Math.round(lineWidth / 3));
+  ctx.strokeRect(labelX, labelY, labelW, labelH);
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(ref, labelX + labelW / 2, labelY + labelH / 2 + 1);
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'alphabetic';
+};
+
 export function useMtoExports({
   mtoSessions,
   pidFiles,
@@ -25,6 +154,7 @@ export function useMtoExports({
   const [mtoExportingPackage, setMtoExportingPackage] = useState(false);
   const [mtoImageDownloading, setMtoImageDownloading] = useState(false);
   const exportingRef = useRef(false);
+  const checkprintRefs = buildCheckprintRefs(mtoSessions);
 
   const exportClientMtoPackage = async (threshold: number) => {
     if (!mtoSessions.length || mtoExportingPackage) return;
@@ -183,9 +313,11 @@ export function useMtoExports({
         if (!fr?.matches.length) continue;
         const scaleX = fr.imageWidth ? canvas.width / fr.imageWidth : 1;
         const scaleY = fr.imageHeight ? canvas.height / fr.imageHeight : 1;
-        ctx.strokeStyle = session.color;
-        ctx.lineWidth = Math.max(6, Math.round(canvas.width / 600));
-        for (const m of fr.matches.filter(m => m.accepted !== false && (m.page ?? 1) === 1)) ctx.strokeRect(m.x1 * scaleX, m.y1 * scaleY, (m.x2 - m.x1) * scaleX, (m.y2 - m.y1) * scaleY);
+        for (const [matchIndex, m] of fr.matches.entries()) {
+          if (m.accepted === false || (m.page ?? 1) !== 1) continue;
+          const ref = checkprintRefs.get(`${session.id}|${fi}|${matchIndex}`) || '';
+          drawCheckprintCallout(ctx, m, ref, session.color, scaleX, scaleY, canvas.width);
+        }
       }
       const pad = 24, swatchW = 40, swatchH = 28, lineH = 44, fontSize = 28;
       ctx.font = `bold ${fontSize}px sans-serif`; let ly = pad;
@@ -294,8 +426,11 @@ export function useMtoExports({
           const fr = session.fileResults[fi]; if (!fr?.matches.length) continue;
           const sx = fr.imageWidth ? canvas.width / fr.imageWidth : 1;
           const sy = fr.imageHeight ? canvas.height / fr.imageHeight : 1;
-          ctx.strokeStyle = session.color; ctx.lineWidth = Math.max(6, Math.round(canvas.width / 600));
-          for (const m of fr.matches.filter(m => m.accepted !== false && (m.page ?? 1) === 1)) ctx.strokeRect(m.x1 * sx, m.y1 * sy, (m.x2 - m.x1) * sx, (m.y2 - m.y1) * sy);
+          for (const [matchIndex, m] of fr.matches.entries()) {
+            if (m.accepted === false || (m.page ?? 1) !== 1) continue;
+            const ref = checkprintRefs.get(`${session.id}|${fi}|${matchIndex}`) || '';
+            drawCheckprintCallout(ctx, m, ref, session.color, sx, sy, canvas.width);
+          }
         }
         pdf.addPage();
         const TITLE_H = 10;

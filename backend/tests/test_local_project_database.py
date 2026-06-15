@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from app.config import local_db
 from app.config.settings import settings
@@ -19,6 +20,21 @@ def _use_temp_db(tmp_path):
 def _restore_db(previous_path):
     settings.XYRA_DB_PATH = previous_path
     local_db._initialized = False
+
+
+def test_non_sqlite_backend_is_explicitly_guarded(tmp_path):
+    previous_path = settings.XYRA_DB_PATH
+    previous_backend = settings.XYRA_DB_BACKEND
+    settings.XYRA_DB_PATH = str(tmp_path / "xyra_test.db")
+    settings.XYRA_DB_BACKEND = "mssql"
+    local_db._initialized = False
+    try:
+        with pytest.raises(RuntimeError, match="not enabled"):
+            local_db.init_db()
+    finally:
+        settings.XYRA_DB_BACKEND = previous_backend
+        settings.XYRA_DB_PATH = previous_path
+        local_db._initialized = False
 
 
 def test_instrument_crud_and_lookups(tmp_path):

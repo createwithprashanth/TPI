@@ -93,3 +93,30 @@ MESSAGE assistant {"suggestions":[{"id":"3","field":"review_required","suggested
 
 MESSAGE user {"project_id":"P-100","question":"","rows":[{"id":"4","tag_number":"PIT-1762P-18","instrument_type":"PIT","service":"","line_tag":"2-PG-24464-251482-X-N","geometry_evidence":{"line":{"tag":"2-PG-24464-251482-X-N","confidence":0.91,"method":"pipe_graph","size":"2","size_unit":"in","fluid_code":"PG","connection_side":"right","pipe_axis":"horizontal"},"valve":{"tag":"FCV-1762P-12","position":"upstream","confidence":0.88},"summary":"line 2-PG-24464-251482-X-N horizontal via right stub; upstream valve FCV-1762P-12","overall_confidence":0.91},"review_required":false}]}
 MESSAGE assistant {"suggestions":[{"id":"4","field":"service","suggested_value":"Pressure measurement on 2 in Produced gas line upstream of FCV-1762P-12","confidence":0.82,"reason":"Pipe-graph evidence connects the PIT to a 2 in PG line and valve context places it upstream of FCV-1762P-12."}]}
+
+MESSAGE user {"project_id":"P-100","question":"","rows":[{"id":"5","tag_number":"101-LIT-001","instrument_type":"LIT","service":"","line_tag":"","review_required":false}]}
+MESSAGE assistant {"suggestions":[{"id":"5","field":"service","suggested_value":"Level measurement on process vessel","confidence":0.55,"reason":"LIT is a level transmitter that normally connects to a vessel nozzle; exact vessel and fluid must be confirmed."},{"id":"5","field":"review_required","suggested_value":true,"confidence":0.85,"reason":"Level instrument has no line or vessel tag — process context must be confirmed before issue."}]}
+
+MESSAGE user {"project_id":"P-100","question":"","rows":[{"id":"6","tag_number":"101-FIC-001","instrument_type":"FIC","service":"","line_tag":"","review_required":false}]}
+MESSAGE assistant {"suggestions":[]}
+
+MESSAGE user {"project_id":"P-100","question":"","rows":[{"id":"7","tag_number":"101-PAHH-001","instrument_type":"PAHH","service":"","line_tag":"2-PG-24464-251482-X-N","review_required":false}]}
+MESSAGE assistant {"suggestions":[{"id":"7","field":"service","suggested_value":"Pressure high high alarm - SIS/ESD setpoint","confidence":0.72,"reason":"PAHH is a DCS/SIS software alarm setpoint; it carries a functional description not a process line service."},{"id":"7","field":"review_required","suggested_value":true,"confidence":0.76,"reason":"SIS alarm service must be confirmed against the Safety Requirement Specification."}]}
+
+MESSAGE user {"project_id":"P-100","question":"","rows":[{"id":"8","tag_number":"101-FE-001","instrument_type":"FE","service":"","line_tag":"4-PO-33450-251441-J-N","review_required":false}]}
+MESSAGE assistant {"suggestions":[{"id":"8","field":"service","suggested_value":"Flow element on process line","confidence":0.58,"reason":"FE is a passive inline element; exact fluid and duty must be confirmed from the process line."},{"id":"8","field":"review_required","suggested_value":true,"confidence":0.72,"reason":"Passive flow element service should be verified against the line list before issue."}]}
+
+MESSAGE user {"project_id":"P-100","question":"","rows":[{"id":"9","tag_number":"101-PSV-001","instrument_type":"PSV","service":"","line_tag":"","review_required":false}]}
+MESSAGE assistant {"suggestions":[{"id":"9","field":"service","suggested_value":"Pressure relief - confirm protected equipment and set pressure","confidence":0.52,"reason":"PSV is a mechanical relief device; inlet line, set pressure, and protected equipment must be confirmed."},{"id":"9","field":"review_required","suggested_value":true,"confidence":0.90,"reason":"Safety relief valve requires process context and set pressure from the process engineer before issue."}]}
+
+MESSAGE user {"project_id":"P-100","question":"","rows":[{"id":"10","tag_number":"101-TIT-001","instrument_type":"TIT","service":"Temperature measurement on process line","line_tag":"4-PO-33450-251441-J-N","review_required":false,"status":"Draft"}]}
+MESSAGE assistant {"suggestions":[]}
+
+MESSAGE user {"project_id":"P-100","question":"","rows":[{"id":"11","tag_number":"101-RO-001","instrument_type":"RO","service":"","line_tag":"","review_required":false}]}
+MESSAGE assistant {"suggestions":[{"id":"11","field":"review_required","suggested_value":true,"confidence":0.88,"reason":"Restriction orifice has no line tag; process line and sizing basis must be confirmed before issue."}]}
+
+MESSAGE user {"project_id":"P-100","question":"","rows":[{"id":"12","tag_number":"101-SDV-001","instrument_type":"SDV","service":"","line_tag":"6-PO-33453-251441-J-P","review_required":false}]}
+MESSAGE assistant {"suggestions":[{"id":"12","field":"service","suggested_value":"Shutdown valve - confirm process duty and fail position","confidence":0.58,"reason":"SDV is a safety shutdown valve on a process line; fail position and process duty must be confirmed from the P&ID."},{"id":"12","field":"review_required","suggested_value":true,"confidence":0.80,"reason":"Safety valve service and fail position require P&ID and SIL confirmation before issue."}]}
+
+MESSAGE user {"project_id":"P-100","question":"","rows":[{"id":"13","tag_number":"101-TW-001","instrument_type":"TW","service":"","line_tag":"2-PO-33458-251441-J-N","review_required":false}]}
+MESSAGE assistant {"suggestions":[{"id":"13","field":"service","suggested_value":"Thermowell on process line","confidence":0.65,"reason":"TW is a passive thermowell that inserts into the process line; fluid and duty derived from line context."}]}

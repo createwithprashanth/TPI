@@ -787,3 +787,75 @@ MESSAGE assistant {"description": "Electrical Indicator", "io_type": "Soft Link"
 
 MESSAGE user Classify P&ID tag CC-101 (type CC). Return ONLY JSON.
 MESSAGE assistant {"description": "Combustion Controller", "io_type": "Soft Link", "system": "DCS", "confidence": 0.8}
+
+MESSAGE user Classify P&ID tag XHMD-101 (type XHMD). Return ONLY JSON.
+MESSAGE assistant {"description": "Heat / Smoke Detector", "io_type": "DI", "system": "F&GS", "confidence": 0.9}
+
+MESSAGE user Classify P&ID tag XLEL-102 (type XLEL). Return ONLY JSON.
+MESSAGE assistant {"description": "LEL Gas Detector", "io_type": "AI", "system": "F&GS", "confidence": 0.95}
+
+MESSAGE user Classify P&ID tag XH2S-103 (type XH2S). Return ONLY JSON.
+MESSAGE assistant {"description": "Hydrogen Sulphide Detector", "io_type": "AI", "system": "F&GS", "confidence": 0.95}
+
+MESSAGE user Classify P&ID tag XUFD-104 (type XUFD). Return ONLY JSON.
+MESSAGE assistant {"description": "UV Flame Detector", "io_type": "DI", "system": "F&GS", "confidence": 0.95}
+
+MESSAGE user Classify P&ID tag XDT-201 (type XDT). Return ONLY JSON.
+MESSAGE assistant {"description": "Axial Displacement Transmitter", "io_type": "AI", "system": "DCS", "confidence": 0.9}
+
+MESSAGE user Classify P&ID tag XDSHH-202 (type XDSHH). Return ONLY JSON.
+MESSAGE assistant {"description": "Axial Displacement Switch High High", "io_type": "DI", "system": "SIS/ESD", "confidence": 0.92}
+
+MESSAGE user Classify P&ID tag FZT-301 (type FZT). Return ONLY JSON.
+MESSAGE assistant {"description": "Flow/Position Transmitter (vendor-specific)", "io_type": "AI", "system": "DCS", "confidence": 0.7}
+
+MESSAGE user Classify P&ID tag DT-401 (type DT). Return ONLY JSON.
+MESSAGE assistant {"description": "Density Transmitter", "io_type": "AI", "system": "DCS", "confidence": 0.92}
+
+MESSAGE user Classify P&ID tag EI-501 (type EI). Return ONLY JSON.
+MESSAGE assistant {"description": "Electrical Indicator (current/power)", "io_type": "Soft Link", "system": "DCS", "confidence": 0.88}
+
+MESSAGE user Classify P&ID tag ASDV-601 (type ASDV). Return ONLY JSON.
+MESSAGE assistant {"description": "Actuated Shutdown Valve", "io_type": "DO", "system": "SIS/ESD", "confidence": 0.95}
+
+MESSAGE user Classify P&ID tag EIV-602 (type EIV). Return ONLY JSON.
+MESSAGE assistant {"description": "Emergency Isolation Valve", "io_type": "DO", "system": "SIS/ESD", "confidence": 0.95}
+
+MESSAGE user Classify P&ID tag MSOV-603 (type MSOV). Return ONLY JSON.
+MESSAGE assistant {"description": "Master Subsurface Safety Valve", "io_type": "DO", "system": "SIS/ESD", "confidence": 0.95}
+
+MESSAGE user Classify P&ID tag ZY-701 (type ZY). Return ONLY JSON.
+MESSAGE assistant {"description": "Actuator Driver / Relay", "io_type": "DO", "system": "DCS", "confidence": 0.88}
+
+MESSAGE user Classify P&ID tag HY-702 (type HY). Return ONLY JSON.
+MESSAGE assistant {"description": "Hand / Manual Relay", "io_type": "DO", "system": "DCS", "confidence": 0.85}
+
+MESSAGE user Classify P&ID tag PDHH-801 (type PDHH). Return ONLY JSON.
+MESSAGE assistant {"description": "Pressure Differential High High Alarm", "io_type": "Soft Link", "system": "SIS/ESD", "confidence": 0.92}
+
+MESSAGE user Classify P&ID tag PDSHH-802 (type PDSHH). Return ONLY JSON.
+MESSAGE assistant {"description": "Pressure Differential Switch High High", "io_type": "DI", "system": "SIS/ESD", "confidence": 0.92}
+
+MESSAGE user Classify P&ID tag SVHC-901 (type SVHC). Return ONLY JSON.
+MESSAGE assistant {"description": "Safety Valve Hydraulic Close Solenoid", "io_type": "DO", "system": "SIS/ESD", "confidence": 0.92}
+
+MESSAGE user Classify P&ID tag SVZA-902 (type SVZA). Return ONLY JSON.
+MESSAGE assistant {"description": "Safety Valve Position Alarm", "io_type": "DI", "system": "SIS/ESD", "confidence": 0.9}
+
+MESSAGE user Classify P&ID tag HOV-1001 (type HOV). Return ONLY JSON.
+MESSAGE assistant {"description": "Hand Operated Valve (manual)", "io_type": "", "system": "", "confidence": 0.9}
+
+MESSAGE user Classify P&ID tag TCP-1101 (type TCP). Return ONLY JSON.
+MESSAGE assistant {"description": "Test Connection Point", "io_type": "", "system": "", "confidence": 0.92}
+
+MESSAGE user Classify P&ID tag AIR-201 (type AIR). Return ONLY JSON.
+MESSAGE assistant {"description": "Analysis Indicating Recorder", "io_type": "Soft Link", "system": "DCS", "confidence": 0.72}
+
+MESSAGE user Classify P&ID tag ADCO-1963-ADCO (type ADCO). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag AREA-5610-5710 (type AREA). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}
+
+MESSAGE user Classify P&ID tag BALL-316 (type BALL). Return ONLY JSON.
+MESSAGE assistant {"description": "", "io_type": "", "system": "", "confidence": 0.0}

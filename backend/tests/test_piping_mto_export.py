@@ -73,6 +73,8 @@ def test_write_mto_package_creates_expected_zip_and_workbook(tmp_path):
     assert "PIPING MATERIAL TAKE-OFF (VALVES MTO)" in values
     assert "H. BALL VALVE" in values
     assert "Ball valve" in values
+    assert "Checkprint\nRef." in values
+    assert "H.1" in values
     assert 3 in values
 
 
@@ -81,7 +83,9 @@ def test_detection_register_preserves_page_numbers(tmp_path):
     wb = load_workbook(tmp_path / "Detection Register.xlsx", data_only=True)
     ws = wb["Detection Register"]
     headers = [ws.cell(row=1, column=i).value for i in range(1, ws.max_column + 1)]
+    ref_col = headers.index("Checkprint Ref") + 1
     page_col = headers.index("Page") + 1
+    assert [ws.cell(row=i, column=ref_col).value for i in range(2, 5)] == ["H.1", "H.1", "H.1"]
     pages = [ws.cell(row=i, column=page_col).value for i in range(2, 5)]
     assert pages == [1, 1, 2]
 

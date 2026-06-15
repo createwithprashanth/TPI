@@ -4,8 +4,9 @@ import React, {
 import {
   Loader2, Check, ChevronDown, ChevronRight, Search, X,
   AlertCircle, RefreshCw, Columns3, Database, FileText, Activity,
-  ExternalLink, Layers,
+  ExternalLink, Layers, Download,
 } from 'lucide-react';
+import ExcelJS from 'exceljs';
 import type { FormTemplate, TemplateField } from './DatasheetEditorPage';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -466,6 +467,9 @@ const DatasheetGridView: React.FC<Props> = ({ projectId, onOpenEditor }) => {
   const [savedCells,   setSavedCells]   = useState<Set<string>>(new Set());
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState<string | null>(null);
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [bulkStatus,   setBulkStatus]   = useState('For-Review');
+  const [bulkApplying, setBulkApplying] = useState(false);
   // FIX #10: track whether user manually cleared the type filter
   const userClearedType = useRef(false);
 
@@ -604,6 +608,45 @@ const DatasheetGridView: React.FC<Props> = ({ projectId, onOpenEditor }) => {
     }
   }, [projectId, rows, procCase]);
 
+  const applyBulkStatus = async () => {
+    if (!selectedRows.size || !bulkStatus) return;
+    setBulkApplying(true);
+    const dsStatusCol = SPEC_COLS.find(c => c.key === 'ds_status')!;
+    const targets = rows.filter(r => selectedRows.has(r.id));
+    await Promise.allSettled(targets.map(row => saveCell(row.id, dsStatusCol, bulkStatus)));
+    setSelectedRows(new Set());
+    setBulkApplying(false);
+  };
+
+  const exportToExcel = async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Instrument Index');
+    ws.columns = [
+      { header: 'Tag Number',   key: 'tag_number',      width: 20 },
+      { header: 'Type',         key: 'instrument_type', width: 10 },
+      { header: 'Service',      key: 'service',         width: 32 },
+      { header: 'Line Tag',     key: 'line_tag',        width: 18 },
+      { header: 'IO Type',      key: 'io_type',         width: 12 },
+      { header: 'Loop No.',     key: 'loop_number',     width: 12 },
+      { header: 'Area Code',    key: 'area_code',       width: 12 },
+      { header: 'DS Status',    key: 'ds_status',       width: 22 },
+      { header: 'Revision',     key: 'ds_revision',     width: 10 },
+      { header: 'Prepared By',  key: 'ds_prepared_by',  width: 16 },
+    ];
+    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A1A2E' } };
+    ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    rows.forEach(row => ws.addRow(row));
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Instrument_Index_${projectId ?? 'export'}_${new Date().toISOString().slice(0,10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditCell(null); };
     window.addEventListener('keydown', h);
@@ -696,6 +739,17 @@ const DatasheetGridView: React.FC<Props> = ({ projectId, onOpenEditor }) => {
             : <RefreshCw className="w-3 h-3" />}
         </button>
 
+        <button
+          onClick={() => void exportToExcel()}
+          disabled={!rows.length}
+          title="Export instrument index to Excel"
+          className="h-7 flex items-center gap-1.5 rounded-md border border-white/[0.08]
+            bg-white/[0.03] px-2.5 text-[11px] text-gray-500 hover:text-gray-200
+            disabled:opacity-30 transition-colors">
+          <Download className="w-3 h-3" />
+          Export
+        </button>
+
         <div className="ml-auto">
           <ColumnPicker
             instrCols={INSTR_COLS} specCols={SPEC_COLS}
@@ -705,6 +759,41 @@ const DatasheetGridView: React.FC<Props> = ({ projectId, onOpenEditor }) => {
           />
         </div>
       </div>
+
+      {/* Bulk action toolbar */}
+      {selectedRows.size > 0 && (
+        <div className="shrink-0 flex items-center gap-3 border-b border-amber-400/15
+          bg-amber-400/[0.06] px-4 py-1.5">
+          <span className="text-[11px] font-semibold text-amber-200">
+            {selectedRows.size} row{selectedRows.size === 1 ? '' : 's'} selected
+          </span>
+          <div className="w-px h-4 bg-white/[0.08]" />
+          <span className="text-[11px] text-gray-500">Set status:</span>
+          <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)}
+            className="h-6 rounded border border-white/[0.08] bg-black px-1.5
+              text-[11px] text-gray-300 outline-none focus:border-white/[0.2]">
+            {['Draft','For-Review','For-Approval','Approved','Issued-For-Construction'].map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => void applyBulkStatus()}
+            disabled={bulkApplying}
+            className="h-6 flex items-center gap-1 rounded bg-amber-400/20 border
+              border-amber-400/30 px-2.5 text-[11px] font-semibold text-amber-200
+              hover:bg-amber-400/30 disabled:opacity-50">
+            {bulkApplying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+            Apply
+          </button>
+          <button
+            onClick={() => setSelectedRows(new Set())}
+            className="h-6 flex items-center gap-1 rounded border border-white/[0.08]
+              px-2 text-[11px] text-gray-500 hover:text-gray-300">
+            <X className="w-3 h-3" />
+            Clear
+          </button>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -746,11 +835,21 @@ const DatasheetGridView: React.FC<Props> = ({ projectId, onOpenEditor }) => {
         ) : (
           // FIX #1: select-none removed from table
           <table className="border-collapse text-xs"
-            style={{ minWidth: 140 + visibleCols.reduce((s, c) => s + (c.width ?? 160), 0) }}>
+            style={{ minWidth: 32 + 140 + visibleCols.reduce((s, c) => s + (c.width ?? 160), 0) }}>
             <thead>
               {/* Row 1: source group bands */}
               <tr>
-                <th className="sticky left-0 z-30 bg-[#0b0b10] border-b border-r-2 border-white/[0.08]"
+                <th className="sticky left-0 z-30 bg-[#0b0b10] border-b border-white/[0.08]"
+                  style={{ width: 32, minWidth: 32 }}>
+                  <input
+                    type="checkbox"
+                    title="Select all"
+                    checked={rows.length > 0 && selectedRows.size === rows.length}
+                    onChange={e => setSelectedRows(e.target.checked ? new Set(rows.map(r => r.id)) : new Set())}
+                    className="mx-auto block accent-amber-400 cursor-pointer"
+                  />
+                </th>
+                <th className="sticky left-8 z-30 bg-[#0b0b10] border-b border-r-2 border-white/[0.08]"
                   style={{ minWidth: 140 }} />
                 {sourceSpans.map((sp, i) => {
                   const isPd = sp.source === 'process_data';
@@ -771,7 +870,9 @@ const DatasheetGridView: React.FC<Props> = ({ projectId, onOpenEditor }) => {
               {/* Row 2: column labels */}
               {/* FIX #5: removed broken colSpans sub-label logic; headers are clean single-line */}
               <tr>
-                <th className="sticky left-0 z-30 bg-[#0d0d11] border-b border-r-2
+                <th className="sticky left-0 z-30 bg-[#0d0d11] border-b border-white/[0.08]"
+                  style={{ top: 26, width: 32, minWidth: 32 }} />
+                <th className="sticky left-8 z-30 bg-[#0d0d11] border-b border-r-2
                   border-white/[0.08] px-3 py-2 text-left whitespace-nowrap"
                   style={{ top: 26, minWidth: 140 }}>
                   <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-600">
@@ -813,9 +914,26 @@ const DatasheetGridView: React.FC<Props> = ({ projectId, onOpenEditor }) => {
                   <tr key={row.id}
                     className={`group border-b border-white/[0.03] ${stripe ? 'bg-white/[0.006]' : ''}`}>
 
+                    {/* Checkbox cell */}
+                    <td className={`sticky left-0 z-10 border-white/[0.04] ${tagBg}`}
+                      style={{ width: 32, minWidth: 32, height: 32 }}>
+                      <div className="flex items-center justify-center h-full">
+                        <input
+                          type="checkbox"
+                          checked={selectedRows.has(row.id)}
+                          onChange={e => setSelectedRows(prev => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(row.id); else next.delete(row.id);
+                            return next;
+                          })}
+                          className="accent-amber-400 cursor-pointer"
+                        />
+                      </div>
+                    </td>
+
                     {/* FIX #2: sticky tag cell matches alternating stripe */}
                     {/* FIX #8: clicking ExternalLink icon opens full editor */}
-                    <td className={`sticky left-0 z-10 border-r-2 border-white/[0.08] px-2 py-0 ${tagBg}`}
+                    <td className={`sticky left-8 z-10 border-r-2 border-white/[0.08] px-2 py-0 ${tagBg}`}
                       style={{ height: 32, minWidth: 140 }}>
                       <div className="flex items-center h-full gap-1">
                         <RevDot status={row.ds_status as string | null} />

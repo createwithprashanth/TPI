@@ -445,6 +445,26 @@ const AiGridPage: React.FC = () => {
     setAppliedSuggestionKeys(appliedKeys);
   };
 
+  const applyHighConfidenceSuggestions = () => {
+    const HIGH_CONF = 0.85;
+    const stagedFields = new Set<string>();
+    const appliedKeys = new Set(appliedSuggestionKeys);
+    engineeringSuggestions
+      .filter(s => s.confidence >= HIGH_CONF)
+      .forEach(suggestion => {
+        const fieldKey = `${suggestion.id}:${String(suggestion.field)}`;
+        const key = suggestionKey(suggestion);
+        if (!appliedSuggestionKeys.has(key) && !stagedFields.has(fieldKey)) {
+          updateLocal(suggestion.id, suggestion.field, suggestion.suggested_value as string | boolean);
+          stagedFields.add(fieldKey);
+          appliedKeys.add(key);
+        }
+      });
+    setAppliedSuggestionKeys(appliedKeys);
+  };
+
+  const highConfCount = engineeringSuggestions.filter(s => s.confidence >= 0.85).length;
+
   const handleSort = (key: ColumnKey) => {
     if (sortBy === key) {
       setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
@@ -1187,6 +1207,20 @@ const AiGridPage: React.FC = () => {
                 >
                   <Sparkles className={`h-3.5 w-3.5 ${engineeringLoading ? 'animate-pulse' : ''}`} />
                   Review {selectedRows.length ? `${selectedRows.length} selected` : 'visible rows'}
+                </button>
+                <button
+                  onClick={applyHighConfidenceSuggestions}
+                  disabled={!highConfCount}
+                  title="Stage all suggestions with ≥85% confidence"
+                  className="flex h-8 items-center gap-1.5 rounded border border-cyan-400/30 bg-cyan-400/10 px-3 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/15 disabled:opacity-40"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Stage ≥85%
+                  {highConfCount > 0 && (
+                    <span className="ml-0.5 rounded-full bg-cyan-400/20 px-1.5 py-px font-mono text-[10px] text-cyan-300">
+                      {highConfCount}
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={applyAllSuggestions}

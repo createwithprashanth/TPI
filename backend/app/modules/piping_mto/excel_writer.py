@@ -119,6 +119,37 @@ def _review_remarks(metadata: dict, match: dict) -> str:
     return "; ".join(dict.fromkeys(remarks))
 
 
+def _row_metadata_for_match(metadata: dict, match: dict) -> dict:
+    return {
+        **metadata,
+        "sizeInch": (
+            _s(match.get("sizeInch"))
+            or _s(match.get("aiNormalizedSizeInch"))
+            or metadata["sizeInch"]
+        ),
+        "materialDescription": _material_description(metadata, match),
+        "remarks": _review_remarks(metadata, match),
+    }
+
+
+def _aggregate_key(row_metadata: dict) -> tuple:
+    return (
+        row_metadata["categoryCode"],
+        row_metadata["categoryName"],
+        row_metadata["unit"],
+        row_metadata["itemType"],
+        row_metadata["pipingClass"],
+        row_metadata["sizeInch"],
+        row_metadata["rating"],
+        row_metadata["valveBore"],
+        row_metadata["endConnection"],
+        row_metadata["materialDescription"],
+        row_metadata["dataSheetDocumentNo"],
+        row_metadata["dataSheetReferenceNo"],
+        row_metadata["remarks"],
+    )
+
+
 def _detection_reasons(match: dict) -> list[str]:
     reasons = []
     if not match.get("accepted", True):
@@ -150,6 +181,7 @@ def _detection_grade(match: dict) -> str:
 
 
 def _audit_rows(payload: dict) -> list[dict]:
+    refs = _checkprint_references(payload)
     rows = []
     for session in payload.get("sessions", []):
         metadata = _meta(session)
@@ -157,8 +189,10 @@ def _audit_rows(payload: dict) -> list[dict]:
             for match in file_result.get("matches", []):
                 reasons = _detection_reasons(match)
                 grade = _detection_grade(match)
+                row_ref = refs.get(_aggregate_key(_row_metadata_for_match(metadata, match)), "")
                 rows.append({
                     "Grade": grade,
+                    "Checkprint Ref": row_ref if grade != "Excluded" else "",
                     "Component": _s(session.get("label")),
                     "Category": f"{metadata['categoryCode']}. {metadata['categoryName']}",
                     "Drawing": _s(file_result.get("fileName")),
@@ -175,12 +209,15 @@ def _audit_rows(payload: dict) -> list[dict]:
 
 
 def _iter_detection_rows(payload: dict):
+    refs = _checkprint_references(payload)
     for session in payload.get("sessions", []):
         metadata = _meta(session)
         for file_result in session.get("fileResults", []):
             drawing = _s(file_result.get("fileName"))
             for match in file_result.get("matches", []):
+                row_ref = refs.get(_aggregate_key(_row_metadata_for_match(metadata, match)), "")
                 yield {
+                    "Checkprint Ref": row_ref if match.get("accepted", True) and _s(match.get("aiDecision")).upper() != "REJECT" else "",
                     "Selected": "Yes" if match.get("accepted", True) else "No",
                     "Symbol": _s(session.get("label")),
                     "Category": f"{metadata['categoryCode']}. {metadata['categoryName']}",
@@ -214,33 +251,8 @@ def _aggregate_rows(payload: dict) -> list[dict]:
                     continue
                 if _s(match.get("aiDecision")).upper() == "REJECT":
                     continue
-                row_metadata = {
-                    **metadata,
-                    "sizeInch": (
-                        _s(match.get("sizeInch"))
-                        or _s(match.get("aiNormalizedSizeInch"))
-                        or metadata["sizeInch"]
-                    ),
-                    "materialDescription": (
-                        _material_description(metadata, match)
-                    ),
-                    "remarks": _review_remarks(metadata, match),
-                }
-                key = (
-                    row_metadata["categoryCode"],
-                    row_metadata["categoryName"],
-                    row_metadata["unit"],
-                    row_metadata["itemType"],
-                    row_metadata["pipingClass"],
-                    row_metadata["sizeInch"],
-                    row_metadata["rating"],
-                    row_metadata["valveBore"],
-                    row_metadata["endConnection"],
-                    row_metadata["materialDescription"],
-                    row_metadata["dataSheetDocumentNo"],
-                    row_metadata["dataSheetReferenceNo"],
-                    row_metadata["remarks"],
-                )
+                row_metadata = _row_metadata_for_match(metadata, match)
+                key = _aggregate_key(row_metadata)
                 if key not in groups:
                     groups[key] = {
                         **row_metadata,
@@ -269,7 +281,22 @@ def _aggregate_rows(payload: dict) -> list[dict]:
 
     rows = list(groups.values())
     rows.sort(key=lambda r: (_natural_key(r["categoryCode"]), r["categoryName"], r["itemType"], _natural_key(r["pipingClass"]), _natural_key(r["sizeInch"])))
+    _assign_checkprint_refs(rows)
     return rows
+
+
+def _assign_checkprint_refs(rows: list[dict]) -> None:
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[(row["categoryCode"], row["categoryName"])].append(row)
+    for category_key in sorted(grouped, key=lambda k: _natural_key(k[0])):
+        code, _ = category_key
+        for idx, row in enumerate(grouped[category_key], start=1):
+            row["checkprintRef"] = f"{code}.{idx}"
+
+
+def _checkprint_references(payload: dict) -> dict[tuple, str]:
+    return {_aggregate_key(row): _s(row.get("checkprintRef")) for row in _aggregate_rows(payload)}
 
 
 def _qa_rows(payload: dict, mto_rows: list[dict]) -> list[dict]:
@@ -447,7 +474,7 @@ def _write_main_mto(path: Path, payload: dict, mto_rows: list[dict]) -> None:
     ws.fit_to_pages(1, 0)
     ws.set_margins(0.25, 0.25, 0.25, 0.25)
 
-    widths = [8, 12, 18, 12, 8, 10, 10, 15, 82, 22, 22, 14, 24]
+    widths = [8, 12, 18, 12, 8, 10, 10, 15, 82, 22, 22, 14, 16, 24]
     for i, width in enumerate(widths):
         ws.set_column(i, i, width)
 
@@ -462,7 +489,7 @@ def _write_main_mto(path: Path, payload: dict, mto_rows: list[dict]) -> None:
     headers = [
         "SL. No.", "Unit", "Item Type", "Piping\nClass", "Size\n(Inch)",
         "Rating", "Valve\nBore", "End\nConnection", "Material Description",
-        "Data Sheet\nDocument Nos.", "Data Sheet\nReference Nos.", "Total\nQuantity", "Remarks",
+        "Data Sheet\nDocument Nos.", "Data Sheet\nReference Nos.", "Total\nQuantity", "Checkprint\nRef.", "Remarks",
     ]
     ws.set_row(3, 30)
     for col, header in enumerate(headers):
@@ -493,10 +520,11 @@ def _write_main_mto(path: Path, payload: dict, mto_rows: list[dict]) -> None:
                 item["dataSheetDocumentNo"],
                 item["dataSheetReferenceNo"],
                 item["quantity"],
+                item["checkprintRef"],
                 item["remarks"],
             ]
             for col, value in enumerate(values):
-                ws.write(row_no, col, value, fmt["left"] if col in (2, 8, 12) else fmt["cell"])
+                ws.write(row_no, col, value, fmt["left"] if col in (2, 8, 13) else fmt["cell"])
             row_no += 1
 
     if not mto_rows:
@@ -512,25 +540,25 @@ def _write_detection_register(path: Path, payload: dict) -> None:
     fmt = _formats(wb)
     ws = wb.add_worksheet("Detection Register")
     headers = [
-        "No.", "Selected", "Symbol", "Category", "Drawing", "Page", "Size", "Size Source", "Source Type",
+        "No.", "Checkprint Ref", "Selected", "Symbol", "Category", "Drawing", "Page", "Size", "Size Source", "Source Type",
         "Size Candidates", "Ambiguous", "Size Confidence",
         "Score", "AI Decision", "AI Confidence", "AI Flags", "AI Reason",
         "X1", "Y1", "X2", "Y2",
     ]
-    widths = [7, 9, 24, 28, 42, 8, 8, 18, 12, 48, 10, 14, 10, 14, 12, 32, 70, 10, 10, 10, 10]
+    widths = [7, 14, 9, 24, 28, 42, 8, 8, 18, 12, 48, 10, 14, 10, 14, 12, 32, 70, 10, 10, 10, 10]
     for i, width in enumerate(widths):
         ws.set_column(i, i, width)
         ws.write(0, i, headers[i], fmt["hdr"])
     for idx, row in enumerate(_iter_detection_rows(payload), start=1):
         values = [
-            idx, row["Selected"], row["Symbol"], row["Category"], row["Drawing"], row["Page"],
+            idx, row["Checkprint Ref"], row["Selected"], row["Symbol"], row["Category"], row["Drawing"], row["Page"],
             row["Size"], row["Size Source"], row["Size Source Type"], row["Size Candidates"],
             row["Size Ambiguous"], row["Size Confidence"] or "", row["Score"], row["AI Decision"],
             row["AI Confidence"] or "", row["AI Flags"], row["AI Reason"],
             row["X1"], row["Y1"], row["X2"], row["Y2"],
         ]
         for col, value in enumerate(values):
-            ws.write(idx, col, value, fmt["left"] if col in (2, 3, 4, 7, 9, 15, 16) else fmt["cell"])
+            ws.write(idx, col, value, fmt["left"] if col in (3, 4, 5, 8, 10, 16, 17) else fmt["cell"])
     ws.freeze_panes(1, 0)
     ws.autofilter(0, 0, max(1, idx if "idx" in locals() else 1), len(headers) - 1)
     wb.close()
@@ -584,16 +612,21 @@ def _write_audit(path: Path, payload: dict, mto_rows: list[dict], qa_rows: list[
             item["Reasons"].add(row["Reasons"])
 
     ws2 = wb.add_worksheet("Component Matrix")
-    headers = ["Component", "Ready", "Review", "Excluded", "Total", "Readiness %", "Top Reasons"]
-    widths = [28, 10, 10, 10, 10, 14, 90]
+    headers = ["Component", "Checkprint Refs", "Ready", "Review", "Excluded", "Total", "Readiness %", "Top Reasons"]
+    widths = [28, 24, 10, 10, 10, 10, 14, 90]
     for col, (header, width) in enumerate(zip(headers, widths)):
         ws2.set_column(col, col, width)
         ws2.write(0, col, header, fmt["hdr"])
+    refs_by_component = defaultdict(set)
+    for row in mto_rows:
+        refs_by_component[row["itemType"]].add(row["checkprintRef"])
+
     for idx, (component, item) in enumerate(sorted(by_component.items()), start=1):
         selected_count = item["Ready"] + item["Review"]
         score = round((item["Ready"] / selected_count) * 100, 1) if selected_count else 0
         values = [
             component,
+            ", ".join(sorted(refs_by_component.get(component, []), key=_natural_key)),
             item["Ready"],
             item["Review"],
             item["Excluded"],
@@ -603,16 +636,16 @@ def _write_audit(path: Path, payload: dict, mto_rows: list[dict], qa_rows: list[
         ]
         for col, value in enumerate(values):
             row_fmt = fmt["pass"] if score >= 90 else fmt["warn"] if item["Review"] else fmt["cell"]
-            ws2.write(idx, col, value, fmt["left"] if col in (0, 6) else row_fmt)
+            ws2.write(idx, col, value, fmt["left"] if col in (0, 1, 7) else row_fmt)
     ws2.freeze_panes(1, 0)
     ws2.autofilter(0, 0, max(1, len(by_component)), len(headers) - 1)
 
     ws3 = wb.add_worksheet("Detection Audit")
     headers = [
-        "Grade", "Selected", "Component", "Category", "Drawing", "Page", "Size", "Size Source",
+        "Grade", "Checkprint Ref", "Selected", "Component", "Category", "Drawing", "Page", "Size", "Size Source",
         "Match Confidence", "Size Confidence", "AI Decision", "Reasons",
     ]
-    widths = [12, 10, 26, 28, 42, 8, 8, 18, 16, 16, 14, 90]
+    widths = [12, 14, 10, 26, 28, 42, 8, 8, 18, 16, 16, 14, 90]
     for col, (header, width) in enumerate(zip(headers, widths)):
         ws3.set_column(col, col, width)
         ws3.write(0, col, header, fmt["hdr"])
@@ -621,7 +654,7 @@ def _write_audit(path: Path, payload: dict, mto_rows: list[dict], qa_rows: list[
         values = [row.get(header, "") for header in headers]
         row_fmt = grade_fmt.get(row["Grade"], fmt["cell"])
         for col, value in enumerate(values):
-            ws3.write(idx, col, value, fmt["left"] if col in (2, 3, 4, 7, 11) else row_fmt)
+            ws3.write(idx, col, value, fmt["left"] if col in (3, 4, 5, 8, 12) else row_fmt)
     ws3.freeze_panes(1, 0)
     ws3.autofilter(0, 0, max(1, len(audit_rows)), len(headers) - 1)
     wb.close()

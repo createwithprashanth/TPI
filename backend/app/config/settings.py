@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 import json
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,8 +38,11 @@ class Settings(BaseSettings):
     ALLOW_SYSTEM_WORKER_START: bool = False
 
     # Offline project database. SQLite keeps XYRA Studio self-contained for
-    # client LAN deployments while preserving the same API contract as web.
+    # client LAN deployments. Keep backend/url explicit so enterprise DBs can
+    # be introduced later without changing frontend contracts.
+    XYRA_DB_BACKEND: Literal["sqlite", "postgresql", "mssql", "oracle"] = "sqlite"
     XYRA_DB_PATH: Optional[str] = None
+    XYRA_DATABASE_URL: Optional[str] = None
     XYRA_DEFAULT_PROJECT_ID: str = "default"
 
     @field_validator("CORS_ORIGINS", mode="before")
@@ -60,6 +63,12 @@ class Settings(BaseSettings):
             _log.warning(
                 "CORS_ORIGINS is using the default localhost value in production. "
                 "Set CORS_ORIGINS in .env to the server's actual URL."
+            )
+        if self.XYRA_DB_BACKEND != "sqlite":
+            _log.warning(
+                "XYRA_DB_BACKEND=%s is reserved for enterprise deployments but is not enabled in this build. "
+                "Use sqlite unless the backend storage adapter has been implemented.",
+                self.XYRA_DB_BACKEND,
             )
         return self
 

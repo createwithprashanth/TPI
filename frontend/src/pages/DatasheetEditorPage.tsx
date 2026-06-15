@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ChevronLeft, FileText, Save, Loader2,
   CheckCircle2, Plus, Trash2, Calculator, Thermometer,
-  Gauge, Waves, Shield, Wrench, Settings2,
+  Gauge, Waves, Shield, Wrench, Settings2, Printer,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -752,11 +752,25 @@ export const DatasheetEditorPage: React.FC<Props> = ({ instrument, projectId, on
           <span className="text-[11px] text-gray-500">{instrument.instrument_type}</span>
           {instrument.service && <span className="text-[11px] text-gray-600">— {instrument.service}</span>}
         </div>
-        {instrument.ds_status && (
-          <span className="ml-auto text-[10px] text-gray-600 border border-white/[0.08] rounded px-2 py-0.5">
-            {instrument.ds_revision} · {instrument.ds_status}
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {instrument.ds_status && (
+            <span className="text-[10px] text-gray-600 border border-white/[0.08] rounded px-2 py-0.5">
+              {instrument.ds_revision} · {instrument.ds_status}
+            </span>
+          )}
+          <a
+            href={`${API}/api/v1/datasheet/instruments/${instrument.id}/pdf`}
+            target="_blank"
+            rel="noreferrer"
+            title="Open printable datasheet PDF"
+            className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-white/[0.08]
+              bg-white/[0.03] text-[11px] text-gray-400 hover:text-white hover:border-white/[0.2]
+              transition-colors"
+          >
+            <Printer className="w-3 h-3" />
+            Print PDF
+          </a>
+        </div>
       </div>
 
       <div className="shrink-0 border-b border-white/[0.06] bg-[#0d0d11] px-5 flex items-end gap-0">
