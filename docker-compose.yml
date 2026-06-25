@@ -51,7 +51,7 @@ services:
               capabilities: [gpu]
 
   backend:
-    image: xyra-studio-backend
+    image: tpi-backend
     build: ./backend
     restart: unless-stopped
     networks:
@@ -96,7 +96,7 @@ services:
         condition: service_healthy
 
   frontend:
-    image: xyra-studio-frontend
+    image: tpi-frontend
     build: ./frontend
     restart: unless-stopped
     networks:

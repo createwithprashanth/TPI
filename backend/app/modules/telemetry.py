@@ -1,5 +1,5 @@
 """
-Run telemetry for XYRA Studio P&ID analysis.
+Run telemetry for TPI P&ID analysis.
 
 Writes one JSONL event file and one human-readable summary (.txt) per run to
 logs/runs/ in the project root.  Both are gitignored — they live only on disk
@@ -30,7 +30,7 @@ class RunLogger:
         self._t0 = time.monotonic()
         self._filename_base = filename_base
         self._ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
-        self._logs_dir = logs_dir or os.getenv("XYRA_LOGS_DIR", _DEFAULT_LOGS_DIR)
+        self._logs_dir = logs_dir or os.getenv("TPI_LOGS_DIR", _DEFAULT_LOGS_DIR)
         self._append("run_start", filename=filename_base)
 
     # ── Low-level ─────────────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ def _build_summary(events: list) -> str:
 
     out += [
         "=" * _W,
-        "  XYRA Studio — P&ID Analysis Run Log",
+        "  TPI — P&ID Analysis Run Log",
         f"  File    : {run_start.get('filename', '?')}",
         f"  Started : {run_start.get('ts', '?')}",
         f"  Path    : {path_ev.get('path', 'unknown')}",

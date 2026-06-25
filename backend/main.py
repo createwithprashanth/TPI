@@ -13,17 +13,8 @@ from app.config.settings import settings
 from app.config.redis_client import init_redis
 from app.config.local_db import db_path, init_db
 from app.modules.pid_analyser.routes import router as pid_router, PREFIX as PID_PREFIX
-from app.modules.piping_mto.routes import router as mto_router, PREFIX as MTO_PREFIX
 from app.modules.instruments.routes import router as instruments_router, PREFIX as INSTRUMENTS_PREFIX
 from app.modules.aigrid.routes import router as aigrid_router, PREFIX as AIGRID_PREFIX
-from app.modules.flowsizing.routes import router as flowsizing_router, PREFIX as FLOWSIZING_PREFIX
-from app.modules.engineering_team.routes import router as engineering_team_router, PREFIX as ENGINEERING_TEAM_PREFIX
-from app.modules.project_intelligence.routes import router as project_intelligence_router, PREFIX as PROJECT_INTELLIGENCE_PREFIX
-from app.modules.datapump.routes import router as datapump_router, PREFIX as DATAPUMP_PREFIX
-from app.modules.datadiff.routes import router as datadiff_router, PREFIX as DATADIFF_PREFIX
-from app.modules.datasheet.routes import router as datasheet_router, PREFIX as DATASHEET_PREFIX
-from app.modules.cause_effect.routes import router as ce_router, PREFIX as CE_PREFIX
-from app.modules.project_knowledge.routes import router as project_knowledge_router, PREFIX as PROJECT_KNOWLEDGE_PREFIX
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,17 +44,8 @@ app.add_middleware(
 )
 
 app.include_router(pid_router, prefix=PID_PREFIX)
-app.include_router(mto_router, prefix=MTO_PREFIX)
 app.include_router(instruments_router, prefix=INSTRUMENTS_PREFIX)
 app.include_router(aigrid_router, prefix=AIGRID_PREFIX)
-app.include_router(flowsizing_router, prefix=FLOWSIZING_PREFIX)
-app.include_router(engineering_team_router, prefix=ENGINEERING_TEAM_PREFIX)
-app.include_router(project_intelligence_router, prefix=PROJECT_INTELLIGENCE_PREFIX)
-app.include_router(datapump_router, prefix=DATAPUMP_PREFIX)
-app.include_router(datadiff_router, prefix=DATADIFF_PREFIX)
-app.include_router(datasheet_router, prefix=DATASHEET_PREFIX)
-app.include_router(ce_router,        prefix=CE_PREFIX)
-app.include_router(project_knowledge_router, prefix=PROJECT_KNOWLEDGE_PREFIX)
 
 
 @app.get("/health")
@@ -71,26 +53,11 @@ async def health():
     return {"status": "ok"}
 
 
-@app.get("/api/v1/llm/status")
-async def llm_status():
-    from app.modules.llm.service import _is_available, DEFAULT_MODEL
-    available = await asyncio.to_thread(_is_available)
-    return {"available": available, "model": DEFAULT_MODEL}
-
-
 @app.get("/api/v1/system/health")
 async def system_health():
-    """Full system health check — backend, Redis, RQ worker, Ollama, models."""
+    """System health check — backend, Redis, SQLite, RQ worker."""
     import time
-    import json as _json
-    import urllib.request
     from app.config.redis_client import get_redis_connection, is_redis_available
-    from app.modules.ai_engineers.contracts import ENGINEER_CONTRACTS
-    from app.modules.llm.service import (
-        _is_available, OLLAMA_BASE_URL,
-        INSTRUMENT_MODEL, LINE_MAPPER_MODEL, MTO_REVIEWER_MODEL,
-    )
-    from app.modules.project_context.extractor import PROJECT_CONTEXT_MODEL
 
     def _check() -> dict:
         services: dict[str, dict] = {}
@@ -99,19 +66,11 @@ async def system_health():
         active_workers = 0
 
         def service(label: str, ok: bool, role: str, detail: str, **extra) -> dict:
-            return {
-                "label": label,
-                "ok": ok,
-                "role": role,
-                "detail": detail,
-                **extra,
-            }
+            return {"label": label, "ok": ok, "role": role, "detail": detail, **extra}
 
-        # 1. Backend (we're responding, so always OK)
+        # 1. Backend
         services["backend"] = service(
-            "Backend API",
-            True,
-            "secure API gateway",
+            "Backend API", True, "secure API gateway",
             "API is responding to health checks.",
             scope="internal service",
         )
@@ -119,9 +78,7 @@ async def system_health():
         # 2. Redis
         redis_ok = is_redis_available()
         services["redis"] = service(
-            "Redis",
-            redis_ok,
-            "job state and cache",
+            "Redis", redis_ok, "job state and cache",
             "Redis is reachable." if redis_ok else "Redis is not reachable; queued extraction state may be unavailable.",
             scope="internal service",
         )
@@ -143,17 +100,11 @@ async def system_health():
         except Exception as exc:
             db_detail = f"SQLite project database is unavailable: {exc}"
         services["project_db"] = service(
-            "Project Database",
-            db_ok,
-            "offline instrument grid",
-            db_detail,
-            scope="local SQLite",
-            size_mb=db_size_mb,
+            "Project Database", db_ok, "offline instrument grid",
+            db_detail, scope="local SQLite", size_mb=db_size_mb,
         )
 
-        # 4. RQ Worker — instrumap queue registered and at least one live worker
-        # RQ 2.x stores only last_heartbeat in worker hashes (no pid/queues fields).
-        # Queue registration lives in the rq:queues set; worker liveness via TTL.
+        # 4. RQ Worker
         conn = get_redis_connection()
         rq_ok = False
         if conn:
@@ -168,101 +119,14 @@ async def system_health():
             except Exception:
                 pass
         services["rq_worker"] = service(
-            "RQ Worker",
-            rq_ok,
-            "background extraction engine",
+            "RQ Worker", rq_ok, "background extraction engine",
             f"{active_workers} active worker(s), {queue_depth} queued job(s), {failed_jobs} failed job(s)."
-            if rq_ok
-            else "No live worker heartbeat found for the instrumap queue.",
+            if rq_ok else "No live worker heartbeat found for the instrumap queue.",
             scope="instrumap queue",
             queue_depth=queue_depth,
             active_workers=active_workers,
             failed_jobs=failed_jobs,
         )
-
-        # 5. Ollama reachability + model metadata from /api/tags
-        ollama_ok = False
-        models_meta: dict[str, dict] = {}
-        try:
-            with urllib.request.urlopen(
-                f"{OLLAMA_BASE_URL}/api/tags", timeout=3
-            ) as resp:
-                ollama_ok = True
-                tags = _json.loads(resp.read())
-                for m in tags.get("models", []):
-                    base = m["name"].split(":")[0]
-                    d = m.get("details", {})
-                    models_meta[base] = {
-                        "params": d.get("parameter_size", ""),
-                        "quant":  d.get("quantization_level", ""),
-                        "size_gb": round(m.get("size", 0) / 1e9, 2),
-                        "family": d.get("family", ""),
-                    }
-        except Exception:
-            pass
-        services["ollama"] = service(
-            "Ollama",
-            ollama_ok,
-            "local LLM runtime",
-            "Local LLM runtime is reachable." if ollama_ok else "Ollama is not reachable; model-backed reasoning is unavailable.",
-            scope="internal service",
-        )
-
-        # 6. xyra-pid-engineer model
-        meta = models_meta.get(INSTRUMENT_MODEL, {})
-        pid_ok = _is_available(INSTRUMENT_MODEL)
-        services["pid_model"] = service(
-            INSTRUMENT_MODEL,
-            pid_ok,
-            "instrument intelligence",
-            "Instrument classification model is loaded." if pid_ok else f"{INSTRUMENT_MODEL} is not available in Ollama.",
-            **meta,
-        )
-
-        # 7. xyra-line-mapper model
-        meta = models_meta.get(LINE_MAPPER_MODEL, {})
-        line_ok = _is_available(LINE_MAPPER_MODEL)
-        services["line_model"] = service(
-            LINE_MAPPER_MODEL,
-            line_ok,
-            "line connection reasoning",
-            "Line mapper model is loaded." if line_ok else f"{LINE_MAPPER_MODEL} is not available in Ollama.",
-            **meta,
-        )
-
-        # 8. Project/document context model
-        meta = models_meta.get(PROJECT_CONTEXT_MODEL, {})
-        project_context_ok = _is_available(PROJECT_CONTEXT_MODEL)
-        services["project_context_model"] = service(
-            PROJECT_CONTEXT_MODEL,
-            project_context_ok,
-            "project context normalizer",
-            "Project context model is loaded." if project_context_ok else f"{PROJECT_CONTEXT_MODEL} is not available in Ollama.",
-            **meta,
-        )
-
-        # 9. Piping MTO reviewer model
-        meta = models_meta.get(MTO_REVIEWER_MODEL, {})
-        mto_reviewer_ok = _is_available(MTO_REVIEWER_MODEL)
-        services["mto_reviewer_model"] = service(
-            MTO_REVIEWER_MODEL,
-            mto_reviewer_ok,
-            "piping MTO reviewer",
-            "Piping MTO reviewer model is loaded." if mto_reviewer_ok else f"{MTO_REVIEWER_MODEL} is not available in Ollama.",
-            **meta,
-        )
-
-        # 10+. Discipline engineer models
-        for contract in ENGINEER_CONTRACTS.values():
-            meta = models_meta.get(contract.model, {})
-            model_ok = _is_available(contract.model)
-            services[contract.health_key] = service(
-                contract.model,
-                model_ok,
-                contract.health_role,
-                f"{contract.label} model is loaded." if model_ok else f"{contract.model} is not available in Ollama.",
-                **meta,
-            )
 
         return services, {
             "queue_depth": queue_depth,
@@ -278,7 +142,7 @@ async def system_health():
 
 @app.post("/api/v1/system/worker/start")
 async def start_worker():
-    """Spawn a new RQ worker for the instrumap queue (legacy single-service endpoint)."""
+    """Spawn a new RQ worker for the instrumap queue."""
     if not settings.ALLOW_SYSTEM_WORKER_START:
         raise HTTPException(status_code=403, detail="Worker start is disabled for this deployment.")
     result = await _start_worker_process()
@@ -288,13 +152,10 @@ async def start_worker():
 @app.post("/api/v1/system/start")
 async def start_all_services():
     """
-    Boot all backend services: Redis → Ollama → RQ Worker.
+    Boot backend services: Redis → RQ Worker.
     Only active when ALLOW_SYSTEM_WORKER_START=true.
-    Safe to call when services are already running — skips anything already live.
+    Safe to call when services are already running.
     """
-    import os
-    import urllib.request
-    from pathlib import Path
     from app.config.redis_client import is_redis_available
 
     if not settings.ALLOW_SYSTEM_WORKER_START:
@@ -302,28 +163,12 @@ async def start_all_services():
 
     results: dict[str, str] = {}
 
-    # ── Redis ────────────────────────────────────────────────────────────────
     if is_redis_available():
         results["redis"] = "already_running"
     else:
         results["redis"] = await _brew_start("redis") or "error: could not start"
-        # Give Redis a moment to come up before worker tries to connect
         await asyncio.sleep(1.5)
 
-    # ── Ollama ───────────────────────────────────────────────────────────────
-    ollama_live = False
-    try:
-        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2):
-            ollama_live = True
-    except Exception:
-        pass
-
-    if ollama_live:
-        results["ollama"] = "already_running"
-    else:
-        results["ollama"] = await _brew_start("ollama") or "error: could not start"
-
-    # ── RQ Worker ────────────────────────────────────────────────────────────
     worker_result = await _start_worker_process()
     results["worker"] = (
         f"started (pid {worker_result.get('pid')})"
@@ -337,7 +182,6 @@ async def start_all_services():
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 async def _brew_start(service: str) -> str:
-    """Try `brew services start <service>`, return status string."""
     import shutil
     brew = shutil.which("brew")
     if not brew:
@@ -355,7 +199,6 @@ async def _brew_start(service: str) -> str:
 
 
 async def _start_worker_process() -> dict:
-    """Find the rq binary and spawn a worker. Returns {started, pid/error}."""
     import os
     import shutil
     from pathlib import Path
@@ -364,7 +207,6 @@ async def _start_worker_process() -> dict:
     env = os.environ.copy()
     env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
 
-    # Search order: project venv → user site-packages → system PATH
     rq_candidates = [
         backend_dir / ".venv" / "bin" / "rq",
         Path.home() / "Library" / "Python" / "3.11" / "bin" / "rq",

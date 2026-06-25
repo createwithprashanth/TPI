@@ -1,9 +1,0 @@
-{
-  "run_id": "pid_knowledge_20260608_140245",
-  "model": "gpt-4.1",
-  "source_dir": "/Users/prashanththipparthi/Desktop/XYRA Studio/learning_review/pids_for_learning",
-  "output_file": "/Users/prashanththipparthi/Desktop/XYRA Studio/learning_review/knowledge_distilled/pid_knowledge_20260608_140245/xyra_pid_model_teaching_doc.md",
-  "latest_file": "/Users/prashanththipparthi/Desktop/XYRA Studio/learning_review/knowledge_distilled/xyra_pid_model_teaching_doc.latest.md",
-  "documents": 32,
-  "extractable_documents": 31
-}

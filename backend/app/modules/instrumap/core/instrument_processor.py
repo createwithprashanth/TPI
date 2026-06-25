@@ -1,4 +1,4 @@
-# XYRA-BACKEND/app/modules/instrumap/core/instrument_processor.py
+# TPI/app/modules/instrumap/core/instrument_processor.py
 
 import logging
 import os

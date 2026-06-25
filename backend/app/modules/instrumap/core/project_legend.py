@@ -3,7 +3,7 @@ Optional project tag-convention context for InstruMap.
 
 This module is deliberately small and side-effect free. It lets a client or
 engineer provide project-specific legend notes without changing the base
-xyra-pid-engineer model or the extraction pipeline.
+the extraction pipeline.
 """
 
 from __future__ import annotations

@@ -45,7 +45,7 @@ services:
               capabilities: [gpu]
 
   backend:
-    image: xyra-studio-backend
+    image: tpi-backend
     restart: unless-stopped
     networks:
       - internal
@@ -68,7 +68,7 @@ services:
         condition: service_healthy
 
   worker:
-    image: xyra-studio-backend
+    image: tpi-backend
     restart: unless-stopped
     command: python worker.py
     networks:
@@ -89,7 +89,7 @@ services:
         condition: service_healthy
 
   frontend:
-    image: xyra-studio-frontend
+    image: tpi-frontend
     restart: unless-stopped
     networks:
       - frontend

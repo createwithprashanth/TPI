@@ -67,7 +67,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   return (
     <div
       ref={viewerRef}
-      className="xyra-scroll-contained flex-1 relative bg-[#111114] min-h-0"
+      className="tpi-scroll-contained flex-1 relative bg-[#111114] min-h-0"
       style={{
         overflow: zoom > 1 ? 'auto' : 'hidden',
         display: 'flex',
@@ -97,12 +97,6 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           className="flex flex-col items-center gap-6 select-none cursor-pointer group"
           onClick={onOpenFiles}
         >
-          {/* Logo + wordmark */}
-          <div className="flex flex-col items-center gap-3">
-            <img src="/favicon.png" alt="XYRA" className="w-10 h-10 opacity-40 group-hover:opacity-60 transition-opacity" />
-            <p className="text-[11px] font-bold text-gray-700 tracking-[0.2em] uppercase">XYRA Studio</p>
-          </div>
-
           {/* Drop zone card */}
           <div className="flex flex-col items-center gap-3 border border-dashed border-white/[0.08] rounded-2xl px-10 py-8 group-hover:border-white/[0.15] transition-colors">
             <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center group-hover:bg-white/[0.07] transition-colors">

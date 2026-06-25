@@ -3,8 +3,7 @@ LLM-powered instrument type enricher.
 
 Runs after InstrumentLogicEngine.get_epc_specs().  For every row where
 IO_Type is still 'REVIEW' (or the description is unknown/low-confidence),
-queries the xyra-pid-engineer Ollama model (built on qwen2.5:7b + full
-ISA-5.1 knowledge base) for a refined classification.
+queries an Ollama model for a refined classification.
 
 Fully non-fatal — if Ollama is unavailable or any call fails the row
 stays as-is.  Calls are made one at a time.
@@ -243,8 +242,7 @@ def enrich_review_types(df: pd.DataFrame, project_legend_notes: str | None = Non
     """
     Attempt LLM classification for every row with IO_Type='REVIEW'.
 
-    Uses xyra-pid-engineer (custom ISA-5.1 model) if available, falls back
-    to qwen2.5:7b.  Returns unchanged df if Ollama is offline.
+    Uses a local LLM if available, falls back gracefully.  Returns unchanged df if Ollama is offline.
     """
     df = df.copy()
 

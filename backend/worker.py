@@ -18,7 +18,7 @@ def _worker_class():
     PyMuPDF, OpenCV, pdf2image, and Objective-C initialized libraries can abort
     inside RQ's forked work-horse on macOS. Docker/Linux keeps the normal Worker.
     """
-    configured = os.getenv("XYRA_RQ_WORKER_MODE", "").strip().lower()
+    configured = os.getenv("TPI_RQ_WORKER_MODE", "").strip().lower()
     if configured in {"simple", "nofork", "no-fork"}:
         return SimpleWorker
     if configured in {"fork", "worker"}:

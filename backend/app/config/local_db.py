@@ -1,4 +1,4 @@
-"""Offline SQLite database for XYRA Studio.
+"""Offline SQLite database for TPI.
 
 This mirrors the cloud project's shared instrument DB at a practical local
 scale. It is intentionally small, dependency-free, and safe for a single
@@ -20,10 +20,10 @@ _initialized = False
 
 
 def db_path() -> Path:
-    if settings.XYRA_DB_BACKEND != "sqlite":
+    if settings.TPI_DB_BACKEND != "sqlite":
         raise RuntimeError(
-            f"XYRA_DB_BACKEND={settings.XYRA_DB_BACKEND!r} is not enabled in this build. "
-            "Set XYRA_DB_BACKEND=sqlite or implement the enterprise storage adapter."
+            f"TPI_DB_BACKEND={settings.TPI_DB_BACKEND!r} is not enabled in this build. "
+            "Set TPI_DB_BACKEND=sqlite or implement the enterprise storage adapter."
         )
     path = Path(settings.local_db_path)
     path.parent.mkdir(parents=True, exist_ok=True)

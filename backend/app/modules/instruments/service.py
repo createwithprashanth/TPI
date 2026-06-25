@@ -56,7 +56,7 @@ def _user_id(user_id: str | None = None) -> str:
 
 
 def _normalize_project_id(project_id: str | None) -> str:
-    return (project_id or settings.XYRA_DEFAULT_PROJECT_ID or "default").strip() or "default"
+    return (project_id or settings.TPI_DEFAULT_PROJECT_ID or "default").strip() or "default"
 
 
 def ensure_project(project_id: str, **metadata) -> None:

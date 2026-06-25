@@ -8,7 +8,7 @@ interface ThemeContextValue {
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
-const STORAGE_KEY = 'xyra.theme';
+const STORAGE_KEY = 'tpi.theme';
 
 const getInitialTheme = (): ThemeMode => {
   if (typeof window === 'undefined') return 'dark';

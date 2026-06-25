@@ -5,7 +5,6 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowUpDown,
-  Bot,
   Check,
   Columns3,
   Database,
@@ -18,9 +17,7 @@ import {
   Save,
   Search,
   SlidersHorizontal,
-  Sparkles,
   Trash2,
-  Users,
   X,
 } from 'lucide-react';
 import { useProject } from '../contexts/ProjectContext';
@@ -31,16 +28,6 @@ import {
   type InstrumentLookupOptions,
   type InstrumentRow,
 } from '../services/instruments';
-import {
-  EngineeringTeamService,
-  type EngineeringRole,
-  type EngineeringSuggestion,
-} from '../services/engineeringTeam';
-import {
-  ProjectIntelligenceService,
-  type ProjectMemory,
-  type ProjectQueryResponse,
-} from '../services/projectIntelligence';
 
 type ColumnKey = keyof InstrumentRow;
 type GridRow = InstrumentRow & { _isNew?: boolean };
@@ -57,11 +44,6 @@ interface Column {
 }
 
 const DATASOURCE_ID = 'instruments';
-const ENGINEERING_ROLES: { value: EngineeringRole; label: string }[] = [
-  { value: 'instrumentation', label: 'Instrumentation' },
-  { value: 'process', label: 'Process' },
-  { value: 'piping', label: 'Piping' },
-];
 
 const COLUMNS: Column[] = [
   { key: 'tag_number', label: 'Instrument', width: 'minmax(160px, 1.1fr)' },
@@ -164,19 +146,6 @@ const AiGridPage: React.FC = () => {
   const [pinnedColumns, setPinnedColumns] = useState<ColumnKey[]>(['tag_number']);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [teamPanelOpen, setTeamPanelOpen] = useState(false);
-  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
-  const [projectMemory, setProjectMemory] = useState<ProjectMemory | null>(null);
-  const [memoryLoading, setMemoryLoading] = useState(false);
-  const [projectEngineer, setProjectEngineer] = useState<EngineeringRole>('instrumentation');
-  const [projectQuestion, setProjectQuestion] = useState('What should we fix first before issuing this project data?');
-  const [projectQueryLoading, setProjectQueryLoading] = useState(false);
-  const [projectQueryResult, setProjectQueryResult] = useState<ProjectQueryResponse | null>(null);
-  const [engineeringRoles, setEngineeringRoles] = useState<EngineeringRole[]>(['instrumentation']);
-  const [engineeringQuestion, setEngineeringQuestion] = useState('');
-  const [engineeringLoading, setEngineeringLoading] = useState(false);
-  const [engineeringSuggestions, setEngineeringSuggestions] = useState<EngineeringSuggestion[]>([]);
-  const [appliedSuggestionKeys, setAppliedSuggestionKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -223,8 +192,6 @@ const AiGridPage: React.FC = () => {
       setDraftChanges({});
       setDeletedIds(new Set());
       setSelectedRowIds(new Set());
-      setEngineeringSuggestions([]);
-      setAppliedSuggestionKeys(new Set());
       setLookups(lookupData);
       setProjects(projectList);
       if (!list.data.length && !selectedProjectId && projectList.length) {
@@ -251,23 +218,6 @@ const AiGridPage: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const loadProjectMemory = useCallback(async () => {
-    setMemoryLoading(true);
-    setError(null);
-    try {
-      const memory = await ProjectIntelligenceService.getMemory(effectiveProjectId);
-      setProjectMemory(memory);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : 'Could not load project memory.');
-    } finally {
-      setMemoryLoading(false);
-    }
-  }, [effectiveProjectId]);
-
-  useEffect(() => {
-    if (memoryPanelOpen) void loadProjectMemory();
-  }, [loadProjectMemory, memoryPanelOpen]);
 
   const activeRows = useMemo(
     () => rows
@@ -339,20 +289,6 @@ const AiGridPage: React.FC = () => {
     [deletedIds, rows, selectedRowIds],
   );
 
-  const suggestionKey = (suggestion: EngineeringSuggestion) => (
-    `${suggestion.id}:${suggestion.engineer}:${String(suggestion.field)}:${String(suggestion.suggested_value)}`
-  );
-
-  const toggleRole = (role: EngineeringRole) => {
-    setEngineeringRoles(prev => {
-      if (prev.includes(role)) {
-        const next = prev.filter(item => item !== role);
-        return next.length ? next : prev;
-      }
-      return [...prev, role];
-    });
-  };
-
   const toggleSelectedRow = (id: string) => {
     setSelectedRowIds(prev => {
       const next = new Set(prev);
@@ -374,96 +310,6 @@ const AiGridPage: React.FC = () => {
       return next;
     });
   };
-
-  const runEngineeringReview = async () => {
-    const rowsForReview = selectedRows.length ? selectedRows : activeRows.filter(row => !row._isNew).slice(0, 50);
-    if (!rowsForReview.length) {
-      setError('Select rows or load a project with instruments before running XYRA Engineering Team.');
-      return;
-    }
-    setTeamPanelOpen(true);
-    setEngineeringLoading(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const res = await EngineeringTeamService.review({
-        project_id: effectiveProjectId,
-        roles: engineeringRoles,
-        rows: rowsForReview,
-        question: engineeringQuestion.trim() || undefined,
-      });
-      setEngineeringSuggestions(res.suggestions);
-      setAppliedSuggestionKeys(new Set());
-      setMessage(`XYRA Engineering Team reviewed ${res.summary.rows_reviewed} row${res.summary.rows_reviewed === 1 ? '' : 's'} and found ${res.summary.suggestions} suggestion${res.summary.suggestions === 1 ? '' : 's'}.`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : 'Engineering review failed.');
-    } finally {
-      setEngineeringLoading(false);
-    }
-  };
-
-  const runProjectQuery = async () => {
-    setMemoryPanelOpen(true);
-    setProjectQueryLoading(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const res = await ProjectIntelligenceService.query({
-        project_id: effectiveProjectId,
-        engineer: projectEngineer,
-        question: projectQuestion.trim() || 'Review this project memory and identify the next EPC data fixes.',
-        limit: 24,
-        use_model: true,
-      });
-      setProjectMemory(res.memory);
-      setProjectQueryResult(res);
-      setMessage(`${res.model_status.model} ${res.model_status.status}; ${res.actions.length} project action${res.actions.length === 1 ? '' : 's'} prepared.`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : 'Project memory query failed.');
-    } finally {
-      setProjectQueryLoading(false);
-    }
-  };
-
-  const applySuggestion = (suggestion: EngineeringSuggestion) => {
-    updateLocal(suggestion.id, suggestion.field, suggestion.suggested_value as string | boolean);
-    setAppliedSuggestionKeys(prev => new Set(prev).add(suggestionKey(suggestion)));
-  };
-
-  const applyAllSuggestions = () => {
-    const stagedFields = new Set<string>();
-    const appliedKeys = new Set(appliedSuggestionKeys);
-    engineeringSuggestions.forEach(suggestion => {
-      const fieldKey = `${suggestion.id}:${String(suggestion.field)}`;
-      const key = suggestionKey(suggestion);
-      if (!appliedSuggestionKeys.has(key) && !stagedFields.has(fieldKey)) {
-        updateLocal(suggestion.id, suggestion.field, suggestion.suggested_value as string | boolean);
-        stagedFields.add(fieldKey);
-        appliedKeys.add(key);
-      }
-    });
-    setAppliedSuggestionKeys(appliedKeys);
-  };
-
-  const applyHighConfidenceSuggestions = () => {
-    const HIGH_CONF = 0.85;
-    const stagedFields = new Set<string>();
-    const appliedKeys = new Set(appliedSuggestionKeys);
-    engineeringSuggestions
-      .filter(s => s.confidence >= HIGH_CONF)
-      .forEach(suggestion => {
-        const fieldKey = `${suggestion.id}:${String(suggestion.field)}`;
-        const key = suggestionKey(suggestion);
-        if (!appliedSuggestionKeys.has(key) && !stagedFields.has(fieldKey)) {
-          updateLocal(suggestion.id, suggestion.field, suggestion.suggested_value as string | boolean);
-          stagedFields.add(fieldKey);
-          appliedKeys.add(key);
-        }
-      });
-    setAppliedSuggestionKeys(appliedKeys);
-  };
-
-  const highConfCount = engineeringSuggestions.filter(s => s.confidence >= 0.85).length;
 
   const handleSort = (key: ColumnKey) => {
     if (sortBy === key) {
@@ -847,38 +693,6 @@ const AiGridPage: React.FC = () => {
           Columns
         </button>
         <button
-          onClick={() => setTeamPanelOpen(prev => !prev)}
-          disabled={saving}
-          className={`flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-medium disabled:opacity-40 ${
-            teamPanelOpen
-              ? 'border-cyan-300/40 bg-cyan-300/15 text-cyan-100'
-              : 'border-white/[0.08] bg-white/[0.04] text-gray-200 hover:bg-white/[0.08]'
-          }`}
-        >
-          <Users className="h-3.5 w-3.5" />
-          XYRA Team
-        </button>
-        <button
-          onClick={() => setMemoryPanelOpen(prev => !prev)}
-          disabled={saving}
-          className={`flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-medium disabled:opacity-40 ${
-            memoryPanelOpen
-              ? 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100'
-              : 'border-white/[0.08] bg-white/[0.04] text-gray-200 hover:bg-white/[0.08]'
-          }`}
-        >
-          <Database className="h-3.5 w-3.5" />
-          Project Memory
-        </button>
-        <button
-          onClick={() => void runEngineeringReview()}
-          disabled={saving || engineeringLoading || (!selectedRows.length && !activeRows.length)}
-          className="flex h-8 items-center gap-1.5 rounded border border-cyan-300/25 bg-cyan-300/10 px-3 text-xs font-semibold text-cyan-100 hover:bg-cyan-300/15 disabled:opacity-40"
-        >
-          <Sparkles className={`h-3.5 w-3.5 ${engineeringLoading ? 'animate-pulse' : ''}`} />
-          Review {selectedRows.length ? selectedRows.length : ''}
-        </button>
-        <button
           onClick={addDraftRow}
           disabled={saving}
           className="ml-auto flex h-8 items-center gap-1.5 rounded border border-white/[0.08] bg-white/[0.04] px-3 text-xs font-medium text-gray-200 hover:bg-white/[0.08] disabled:opacity-40"
@@ -1024,264 +838,7 @@ const AiGridPage: React.FC = () => {
         </div>
       )}
 
-      {memoryPanelOpen && (
-        <div className="shrink-0 border-b border-emerald-300/10 bg-[#07100c] px-4 py-2.5">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <Database className="h-4 w-4 text-emerald-200" />
-              <div className="min-w-0">
-                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100">Shared Project Memory</div>
-                <div className="truncate text-[11px] text-gray-500">
-                  SQLite project context used by instrumentation, process, and piping engineers.
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => void loadProjectMemory()}
-                disabled={memoryLoading}
-                className="flex h-7 w-7 items-center justify-center rounded border border-white/[0.08] text-gray-500 hover:text-white disabled:opacity-40"
-                title="Refresh project memory"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${memoryLoading ? 'animate-spin' : ''}`} />
-              </button>
-              <button
-                onClick={() => setMemoryPanelOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded border border-white/[0.08] text-gray-500 hover:text-white"
-                title="Close project memory"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="grid gap-3 xl:grid-cols-[minmax(420px,0.8fr)_minmax(560px,1.2fr)]">
-            <div className="space-y-2">
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  ['Instruments', projectMemory?.counts.instruments ?? rows.length],
-                  ['Documents', projectMemory?.counts.documents ?? 0],
-                  ['Review', projectMemory?.quality_gaps.review_required ?? reviewRequiredCount],
-                  ['No service', projectMemory?.quality_gaps.missing_service ?? 0],
-                  ['No line', projectMemory?.quality_gaps.missing_line_tag ?? 0],
-                  ['Sizing gap', projectMemory?.quality_gaps.flowsizing_missing_results ?? 0],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded border border-white/[0.08] bg-black/40 px-2 py-1.5">
-                    <div className="font-mono text-sm font-semibold text-white">{value}</div>
-                    <div className="text-[10px] uppercase tracking-wide text-gray-600">{label}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {ENGINEERING_ROLES.map(role => (
-                  <button
-                    key={role.value}
-                    onClick={() => setProjectEngineer(role.value)}
-                    className={`h-8 rounded border px-3 text-xs font-medium ${
-                      projectEngineer === role.value
-                        ? 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100'
-                        : 'border-white/[0.08] bg-black/30 text-gray-500 hover:text-gray-200'
-                    }`}
-                  >
-                    {role.label}
-                  </button>
-                ))}
-              </div>
-              <textarea
-                value={projectQuestion}
-                onChange={event => setProjectQuestion(event.target.value)}
-                rows={2}
-                className="w-full resize-none rounded border border-white/[0.08] bg-black px-3 py-2 text-xs text-gray-200 outline-none placeholder:text-gray-700 focus:border-emerald-300/35"
-              />
-              <button
-                onClick={() => void runProjectQuery()}
-                disabled={projectQueryLoading}
-                className="flex h-8 items-center gap-1.5 rounded bg-white px-3 text-xs font-semibold text-black hover:bg-gray-200 disabled:opacity-40"
-              >
-                <Sparkles className={`h-3.5 w-3.5 ${projectQueryLoading ? 'animate-pulse' : ''}`} />
-                Ask {ENGINEERING_ROLES.find(item => item.value === projectEngineer)?.label}
-              </button>
-            </div>
-
-            <div className="grid gap-2 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-              <div className="rounded border border-white/[0.08] bg-black/40 p-3">
-                <div className="mb-1 text-xs font-semibold text-white">Engineer answer</div>
-                <div className="text-xs leading-5 text-gray-300">
-                  {projectQueryResult?.answer || 'Ask an engineer to reason over the full project memory.'}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {(projectQueryResult?.actions || []).map(action => (
-                    <span
-                      key={`${action.label}-${action.count}`}
-                      className={`rounded border px-2 py-1 text-[11px] ${
-                        action.severity === 'high'
-                          ? 'border-red-300/25 text-red-200'
-                          : action.severity === 'medium'
-                            ? 'border-amber-300/25 text-amber-200'
-                            : 'border-emerald-300/20 text-emerald-200'
-                      }`}
-                    >
-                      {action.label}: {action.count}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="max-h-44 overflow-y-auto rounded border border-white/[0.08] bg-black/40 xyra-scroll-contained">
-                {(projectQueryResult?.evidence || projectMemory?.evidence_samples || []).map(item => (
-                  <div key={`${item.id}-${item.reason}`} className="grid grid-cols-[112px_72px_minmax(0,1fr)] gap-2 border-b border-white/[0.05] px-3 py-2 text-xs last:border-b-0">
-                    <div className="min-w-0">
-                      <div className="truncate font-semibold text-white">{item.tag_number || '-'}</div>
-                      <div className="text-[10px] text-gray-600">{item.pid_number || item.table}</div>
-                    </div>
-                    <div className="font-mono text-[11px] text-emerald-200">{item.instrument_type || '-'}</div>
-                    <div className="min-w-0">
-                      <div className="truncate text-gray-400" title={item.reason}>{item.reason}</div>
-                      <div className="truncate text-[11px] text-gray-600">{item.service || item.line_tag || item.status || '-'}</div>
-                    </div>
-                  </div>
-                ))}
-                {!(projectQueryResult?.evidence?.length || projectMemory?.evidence_samples?.length) && (
-                  <div className="flex h-24 items-center justify-center text-xs text-gray-600">
-                    No project memory evidence yet.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {teamPanelOpen && (
-        <div className="shrink-0 border-b border-cyan-300/10 bg-[#071012] px-4 py-2.5">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <Bot className="h-4 w-4 text-cyan-200" />
-              <div className="min-w-0">
-                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100">XYRA Engineering Team</div>
-                <div className="text-[11px] text-gray-500">
-                  Select rows, review with discipline models, stage changes, then Save.
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={() => setTeamPanelOpen(false)}
-              className="flex h-7 w-7 items-center justify-center rounded border border-white/[0.08] text-gray-500 hover:text-white"
-              title="Close engineering team"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          <div className="grid gap-3 lg:grid-cols-[minmax(360px,0.72fr)_minmax(520px,1.28fr)]">
-            <div className="space-y-2">
-              <div className="flex flex-wrap gap-2">
-                {ENGINEERING_ROLES.map(role => {
-                  const active = engineeringRoles.includes(role.value);
-                  return (
-                    <button
-                      key={role.value}
-                      onClick={() => toggleRole(role.value)}
-                      className={`h-8 rounded border px-3 text-xs font-medium ${
-                        active
-                          ? 'border-cyan-300/40 bg-cyan-300/15 text-cyan-100'
-                          : 'border-white/[0.08] bg-black/30 text-gray-500 hover:text-gray-200'
-                      }`}
-                    >
-                      {role.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <textarea
-                value={engineeringQuestion}
-                onChange={event => setEngineeringQuestion(event.target.value)}
-                placeholder="Optional instruction, e.g. review selected FCVs for IO, line, and sizing handoff."
-                rows={2}
-                className="w-full resize-none rounded border border-white/[0.08] bg-black px-3 py-2 text-xs text-gray-200 outline-none placeholder:text-gray-700 focus:border-cyan-300/35"
-              />
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => void runEngineeringReview()}
-                  disabled={engineeringLoading || (!selectedRows.length && !activeRows.length)}
-                  className="flex h-8 items-center gap-1.5 rounded bg-white px-3 text-xs font-semibold text-black hover:bg-gray-200 disabled:opacity-40"
-                >
-                  <Sparkles className={`h-3.5 w-3.5 ${engineeringLoading ? 'animate-pulse' : ''}`} />
-                  Review {selectedRows.length ? `${selectedRows.length} selected` : 'visible rows'}
-                </button>
-                <button
-                  onClick={applyHighConfidenceSuggestions}
-                  disabled={!highConfCount}
-                  title="Stage all suggestions with ≥85% confidence"
-                  className="flex h-8 items-center gap-1.5 rounded border border-cyan-400/30 bg-cyan-400/10 px-3 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/15 disabled:opacity-40"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  Stage ≥85%
-                  {highConfCount > 0 && (
-                    <span className="ml-0.5 rounded-full bg-cyan-400/20 px-1.5 py-px font-mono text-[10px] text-cyan-300">
-                      {highConfCount}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={applyAllSuggestions}
-                  disabled={!engineeringSuggestions.length}
-                  className="flex h-8 items-center gap-1.5 rounded border border-emerald-400/30 bg-emerald-400/10 px-3 text-xs font-semibold text-emerald-200 hover:bg-emerald-400/15 disabled:opacity-40"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  Stage all
-                </button>
-                <span className="text-[11px] text-gray-600">
-                  {engineeringSuggestions.length} suggestion{engineeringSuggestions.length === 1 ? '' : 's'}
-                </span>
-              </div>
-            </div>
-
-            <div className="max-h-48 overflow-y-auto rounded border border-white/[0.08] bg-black/40 xyra-scroll-contained">
-              {engineeringSuggestions.map(suggestion => {
-                const key = suggestionKey(suggestion);
-                const applied = appliedSuggestionKeys.has(key);
-                return (
-                  <div key={key} className="grid grid-cols-[118px_110px_minmax(0,1fr)_82px] gap-2 border-b border-white/[0.05] px-3 py-2 text-xs last:border-b-0">
-                    <div>
-                      <div className="font-semibold text-white">{suggestion.tag_number || '-'}</div>
-                      <div className="text-[10px] uppercase tracking-wide text-cyan-300/80">{suggestion.engineer}</div>
-                    </div>
-                    <div>
-                      <div className="text-gray-500">{String(suggestion.field)}</div>
-                      <div className="font-mono text-[10px] text-gray-600">{Math.round(suggestion.confidence * 100)}% confidence</div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="truncate text-gray-200">
-                        <span className="text-gray-600">Set to </span>
-                        <span className="font-semibold text-emerald-200">{String(suggestion.suggested_value)}</span>
-                      </div>
-                      <div className="truncate text-[11px] text-gray-500" title={suggestion.reason}>{suggestion.reason}</div>
-                    </div>
-                    <button
-                      onClick={() => applySuggestion(suggestion)}
-                      disabled={applied}
-                      className={`h-7 rounded border px-2 text-[11px] font-semibold ${
-                        applied
-                          ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300'
-                          : 'border-white/[0.08] bg-white/[0.04] text-gray-300 hover:bg-white/[0.08]'
-                      }`}
-                    >
-                      {applied ? 'Staged' : 'Stage'}
-                    </button>
-                  </div>
-                );
-              })}
-              {!engineeringSuggestions.length && (
-                <div className="flex h-24 items-center justify-center text-xs text-gray-600">
-                  Select rows, choose engineer roles, then run Review.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="xyra-scroll-contained min-h-0 flex-1 overflow-auto pb-8">
+      <div className="tpi-scroll-contained min-h-0 flex-1 overflow-auto pb-8">
         <div className="min-w-[1550px]">
           <div
             className="sticky top-0 z-10 grid border-b border-white/[0.08] bg-[#0b0b0d] text-[10px] font-semibold uppercase tracking-wider text-gray-500"
