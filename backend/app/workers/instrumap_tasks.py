@@ -137,6 +137,7 @@ def process_pid_task(
     contractor_name: Optional[str] = None,
     location: Optional[str] = None,
     project_legend_notes: Optional[str] = None,
+    german_pid: bool = False,
 ) -> Dict[str, Any]:
     pid_temp_path = None
     _rl = None  # telemetry logger — flushed in finally
@@ -183,14 +184,45 @@ def process_pid_task(
         project_info = legacy_project_info(project_context)
         save_project_context(context_path, project_context)
 
-        # ── PyMuPDF first pass (vector PDFs, no calibration needed) ─────────
+        # ── German P&ID path (pill-shaped bubbles) ───────────────────────────
         results_df = pd.DataFrame()
         lines_df = pd.DataFrame()
         equipment_df = pd.DataFrame()
         _pymupdf_succeeded = False
         final_calibration_radius = None
 
-        if instrumap_config.USE_PYMUPDF:
+        if german_pid:
+            try:
+                from app.modules.instrumap.core.german_extractor import extract_from_pdf_german
+                _report_progress(job_id, "extraction", "Extracting instruments (German P&ID)…")
+                results_df, lines_df, _stats = extract_from_pdf_german(
+                    pdf_path=pid_temp_path,
+                    filename_base=pid_filename_base,
+                    default_area_code=area_code,
+                    dpi=instrumap_config.PDF_DPI,
+                )
+                accepted_count = int(
+                    (results_df.get("Tag_Quality", pd.Series()) == "accepted").sum()
+                ) if not results_df.empty else 0
+                if accepted_count > 0:
+                    _pymupdf_succeeded = True
+                    logger.info(f"[Job {job_id}] German extractor: {accepted_count} instruments accepted")
+                    # Generate check print (highlighted drawing)
+                    try:
+                        processor._render_pymupdf_highlights(
+                            pdf_content, results_df, batch_dir,
+                            pid_filename_base, instrumap_config.PDF_DPI,
+                            lines_df=lines_df,
+                        )
+                    except Exception as he:
+                        logger.warning(f"[Job {job_id}] German check print failed (non-fatal): {he}")
+                else:
+                    logger.warning(f"[Job {job_id}] German extractor: 0 instruments accepted")
+            except Exception as exc:
+                logger.error(f"[Job {job_id}] German extractor failed: {exc}", exc_info=True)
+
+        # ── PyMuPDF first pass (vector PDFs, no calibration needed) ─────────
+        if not german_pid and instrumap_config.USE_PYMUPDF:
             try:
                 from app.modules.instrumap.core.level2_extraction_pymupdf import extract_from_pdf as _pymupdf_extract
                 _report_progress(job_id, "extraction", "Extracting instruments from P&ID…")
@@ -292,7 +324,8 @@ def process_pid_task(
         instruments_count = 0
         results_table = []
         if not results_df.empty:
-            results_df = apply_output_sanity_rules(results_df)
+            if not german_pid:
+                results_df = apply_output_sanity_rules(results_df)
             results_df = enrich_instrument_services(results_df, lines_df, equipment_df)
             instruments_count = len(results_df)
             results_df.to_csv(os.path.join(batch_dir, f"{pid_filename_base}_data.csv"), index=False)
@@ -350,7 +383,8 @@ def process_pid_task(
                 master_df = refine_descriptions_by_loop_context(master_df)
                 master_df = compute_programmatic_fields(master_df)
                 master_df = enrich_review_types(master_df, project_legend_notes=project_legend_notes)
-                master_df = apply_output_sanity_rules(master_df)
+                if not german_pid:
+                    master_df = apply_output_sanity_rules(master_df)
                 master_df = enrich_instrument_services(master_df, all_lines_df, all_equipment_df)
                 service_enrichment = build_service_enrichment(master_df, all_lines_df, all_equipment_df)
 

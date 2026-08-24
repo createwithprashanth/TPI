@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X } from 'lucide-react';
+import { Play, X } from 'lucide-react';
 import {
   processAsync as processInstruMapFilesAsync,
   getJobStatus,
@@ -46,12 +46,21 @@ interface PIDAnalyserPageProps {
   areaCode: string;
   onOpenFiles: () => void;
   onDropFiles?: (files: File[]) => void;
+  onExtractionComplete?: (instrumentCount: number) => void;
+  onReferenceChange?: (ready: boolean) => void;
 }
 
-const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles, onDropFiles }) => {
+const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
+  areaCode,
+  onOpenFiles,
+  onDropFiles,
+  onExtractionComplete,
+  onReferenceChange,
+}) => {
   const { pidFiles, currentPidIndex, isPreviewLoading } = useWorkspace();
   const { project } = useProject();
 
+  const [germanPid, setGermanPid] = useState(false);
   const [anchorPoint, setAnchorPoint] = useState<AnchorPoint | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
@@ -95,6 +104,10 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
     progressReceivedAtRef.current = null;
   }, [pidFiles]);
 
+  useEffect(() => {
+    onReferenceChange?.(Boolean(anchorPoint) && !isLoading);
+  }, [anchorPoint, isLoading, onReferenceChange]);
+
   // Cleanup timers on unmount
   useEffect(() => () => {
     if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
@@ -125,9 +138,12 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
 
   const pollJobStatus = (jobId: string): Promise<JobStatusResponse> =>
     new Promise((resolve, reject) => {
+      let transientFailures = 0;
+      const maxTransientFailures = 12;
       const poll = async () => {
         try {
           const s = await getJobStatus(jobId);
+          transientFailures = 0;
           setJobStatus(s.status);
           setQueuePosition(s.position_in_queue ?? null);
           if (s.progress) {
@@ -151,6 +167,13 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
             resolve(s);
           }
         } catch (err) {
+          const status = (err as any)?.response?.status;
+          const isTransient = !status || [502, 503, 504].includes(status);
+          if (isTransient && transientFailures < maxTransientFailures) {
+            transientFailures += 1;
+            setProgressMessage('Backend is reconnecting. Waiting for job status...');
+            return;
+          }
           if (pollingIntervalRef.current) { clearInterval(pollingIntervalRef.current); pollingIntervalRef.current = null; }
           if (elapsedTimerRef.current) { clearInterval(elapsedTimerRef.current); elapsedTimerRef.current = null; }
           reject(err);
@@ -161,7 +184,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
     });
 
   const handleExtract = async () => {
-    if (!anchorPoint || isLoading) return;
+    if ((!anchorPoint && !germanPid) || isLoading) return;
     setIsLoading(true);
     setError(null);
     setBatchResults([]);
@@ -193,8 +216,9 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
       try {
         const resp = await processInstruMapFilesAsync({
           pidFile: file,
-          calibration_x: batchRadius ? undefined : anchorPoint?.x,
-          calibration_y: batchRadius ? undefined : anchorPoint?.y,
+          german_pid: germanPid,
+          calibration_x: germanPid ? undefined : (batchRadius ? undefined : anchorPoint?.x),
+          calibration_y: germanPid ? undefined : (batchRadius ? undefined : anchorPoint?.y),
           user_selected_radius: batchRadius,
           area_code: areaCode,
           batch_id: currentBatchId,
@@ -232,6 +256,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
     if (currentBatchId && anySucceeded) {
       try { await downloadBatchResults(currentBatchId); }
       catch { setError('Results ready but ZIP download failed. Use the download button to retry.'); }
+      onExtractionComplete?.(newResults.reduce((sum, result) => sum + (result.results?.length || 0), 0));
     } else if (currentBatchId && !anySucceeded && newResults.every(r => !!r.error)) {
       setError('Processing failed — check that the worker is running and try again.');
     }
@@ -349,25 +374,6 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
 
   const floats = (
     <>
-      {/* Extract button */}
-      <AnimatePresence>
-        {anchorPoint && !isLoading && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.18 }}
-            className="absolute top-4 right-4 z-10"
-          >
-            <button
-              onClick={handleExtract}
-              className="flex items-center gap-2 bg-white text-gray-900 font-bold text-sm px-6 py-2.5 rounded-xl shadow-2xl hover:bg-gray-100 active:scale-95 transition-all"
-            >
-              Extract &amp; Download
-              {pidFiles.length > 1 && <span className="text-gray-500 font-normal text-xs">({pidFiles.length} files)</span>}
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Download marked image */}
       <AnimatePresence>
         {!isLoading && batchId && batchResults.some(r => r.results.length > 0) && (
@@ -408,6 +414,45 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({ areaCode, onOpenFiles
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      {pidFiles.length > 0 && (
+        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-[#d4dbe3] bg-white px-4 text-[#1f2933]">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold">
+              {truncate(pidFiles[Math.min(currentPidIndex, pidFiles.length - 1)]?.name || 'P&ID drawing', 54)}
+            </div>
+            <div className="truncate text-xs text-[#64748b]">
+              {isLoading
+                ? 'Extraction is running.'
+                : germanPid
+                  ? 'German P&ID mode — click Extract to detect pill-shaped bubbles.'
+                  : anchorPoint
+                    ? 'Reference symbol selected. Extract will write rows to TDE for this unit.'
+                    : 'Click one instrument bubble on the drawing to set the reference symbol.'}
+            </div>
+          </div>
+
+          {/* German P&ID toggle */}
+          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 select-none">
+            <input
+              type="checkbox"
+              checked={germanPid}
+              onChange={e => { setGermanPid(e.target.checked); setAnchorPoint(null); }}
+              className="h-3.5 w-3.5 accent-[#0f5f99]"
+            />
+            <span className="text-xs text-[#475569] font-medium whitespace-nowrap">German P&amp;ID</span>
+          </label>
+
+          <button
+            onClick={handleExtract}
+            disabled={(!anchorPoint && !germanPid) || isLoading}
+            className="flex h-8 items-center gap-2 rounded bg-[#0f5f99] px-4 text-sm font-semibold text-white hover:bg-[#0b4f80] disabled:cursor-not-allowed disabled:bg-[#cbd5e1] disabled:text-[#64748b]"
+          >
+            <Play className="h-3.5 w-3.5" />
+            Extract to TDE
+            {pidFiles.length > 1 && <span className="text-xs font-normal opacity-80">({pidFiles.length})</span>}
+          </button>
+        </div>
+      )}
       <PDFViewer
         imageRef={imageRef}
         cursor={!isLoading ? 'crosshair' : 'default'}

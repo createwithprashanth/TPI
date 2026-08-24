@@ -68,6 +68,7 @@ export const processAsync = async ({
   user_selected_radius,
   area_code,
   batch_id,
+  german_pid,
   project,
 }: {
   pidFile: File;
@@ -76,6 +77,7 @@ export const processAsync = async ({
   user_selected_radius?: number;
   area_code?: string;
   batch_id?: string;
+  german_pid?: boolean;
   project?: ProjectInfo;
 }): Promise<ProcessResponse> => {
   const form = new FormData();
@@ -85,6 +87,7 @@ export const processAsync = async ({
   if (user_selected_radius !== undefined) form.append('user_selected_radius', String(user_selected_radius));
   if (area_code) form.append('area_code', area_code);
   if (batch_id) form.append('batch_id', batch_id);
+  if (german_pid) form.append('german_pid', 'true');
   if (project?.project_name) form.append('project_name', project.project_name);
   if (project?.project_no) form.append('project_no', project.project_no);
   if (project?.client_name) form.append('client_name', project.client_name);

@@ -3,7 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from app.config.local_db import connection, json_text, row_to_dict
+from app.config.local_db import connection, json_text, row_to_dict, write_connection
 
 router = APIRouter()
 PREFIX = "/api/v1/aigrid"
@@ -67,7 +67,7 @@ async def save_preferences(request: Request, datasource_id: str, body: GridPrefe
         "pinned_columns": json_text(body.pinned_columns, []),
         "saved_views": json_text([v.model_dump() for v in (body.saved_views or [])], []),
     }
-    with connection() as conn:
+    with write_connection() as conn:
         conn.execute(
             """
             INSERT INTO user_grid_preferences

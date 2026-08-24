@@ -16,7 +16,9 @@ from typing import Iterator
 from app.config.settings import settings
 
 _lock = threading.RLock()
+_read_lock = threading.RLock()
 _initialized = False
+_read_conn: sqlite3.Connection | None = None
 
 
 def db_path() -> Path:
@@ -34,13 +36,22 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(db_path(), timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 
 @contextmanager
 def connection() -> Iterator[sqlite3.Connection]:
+    init_db()
+    global _read_conn
+    with _read_lock:
+        if _read_conn is None:
+            _read_conn = _connect()
+        yield _read_conn
+
+
+@contextmanager
+def write_connection() -> Iterator[sqlite3.Connection]:
     init_db()
     with _lock:
         conn = _connect()
@@ -112,6 +123,7 @@ def init_db() -> None:
             return
         conn = _connect()
         try:
+            conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(_SCHEMA_SQL)
             _apply_schema_upgrades(conn)
             _seed_instrument_type_catalog(conn)

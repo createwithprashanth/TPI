@@ -1,55 +1,101 @@
-import React, { useRef, useState } from 'react';
-import { ProjectProvider } from '../contexts/ProjectContext';
+import React, { useEffect, useRef, useState } from 'react';
+import ProjectNavigator from '../components/workspace/ProjectNavigator';
+import { DomainProvider, useDomain } from '../contexts/DomainContext';
+import { ProjectProvider, useProject } from '../contexts/ProjectContext';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import { WorkspaceProvider, useWorkspace } from '../contexts/WorkspaceContext';
-import WorkspaceBar from '../components/workspace/WorkspaceBar';
-import ActivityBar from '../components/workspace/ActivityBar';
+import WorkflowHeader from '../components/workspace/WorkflowHeader';
 import FileTabs from '../components/workspace/FileTabs';
 import type { WorkspaceView } from '../components/workspace/ActivityBar';
 import PIDAnalyserPage from './pid/PIDAnalyserPage';
 import AiGridPage from './AiGridPage';
 
-const TOOL_LABELS: Record<WorkspaceView, string> = {
-  pid:    'Instrumentation',
-  aigrid: 'AI Grid',
-};
-
 // ── Inner shell ───────────────────────────────────────────────────────────────
 
 const WorkspaceShell: React.FC = () => {
-  const { loadFiles, isPreviewLoading } = useWorkspace();
+  const { pidFiles, loadFiles, clearFiles, isPreviewLoading } = useWorkspace();
+  const { selected } = useDomain();
+  const { project, setProject } = useProject();
   const [view, setView] = useState<WorkspaceView>('pid');
-  const [areaCode, setAreaCode] = useState('');
+  const [extractedCount, setExtractedCount] = useState<number | null>(null);
+  const [referenceReady, setReferenceReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previousUnitRef = useRef(selected.unit.id);
 
-  const openFiles = () => fileInputRef.current?.click();
+  const openFiles = () => {
+    setView('pid');
+    fileInputRef.current?.click();
+  };
+
+  useEffect(() => {
+    setProject({
+      ...project,
+      project_name: selected.project.name,
+      project_no: selected.projectId,
+      location: `${selected.plant.name} / ${selected.area.name} / ${selected.unit.name}`,
+    });
+    // selected domain is the source of truth for extraction scope.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected.projectId, selected.project.name, selected.plant.name, selected.area.name, selected.unit.name]);
+
+  useEffect(() => {
+    if (previousUnitRef.current === selected.unit.id) return;
+    previousUnitRef.current = selected.unit.id;
+    setExtractedCount(null);
+    setReferenceReady(false);
+    setView('pid');
+    clearFiles();
+  }, [clearFiles, selected.unit.id]);
+
+  useEffect(() => {
+    if (!pidFiles.length) {
+      setExtractedCount(null);
+      setReferenceReady(false);
+    }
+  }, [pidFiles.length]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    if (files.length) loadFiles(files);
+    if (files.length) {
+      setExtractedCount(null);
+      setReferenceReady(false);
+      setView('pid');
+      loadFiles(files);
+    }
     e.target.value = '';
   };
 
-  const handleDropFiles = (files: File[]) => loadFiles(files);
+  const handleDropFiles = (files: File[]) => {
+    setExtractedCount(null);
+    setReferenceReady(false);
+    setView('pid');
+    loadFiles(files);
+  };
+
+  const handleExtractionComplete = (instrumentCount: number) => {
+    setExtractedCount(instrumentCount);
+    setView('aigrid');
+  };
 
   return (
-    <div className="tpi-app h-full flex flex-col bg-[#0c0c0e] overflow-hidden">
+    <div className="tpi-app h-full flex flex-col bg-[#eef2f6] overflow-hidden">
 
       {/* ── Workspace bar — full width, above everything ── */}
-      <WorkspaceBar
-        toolLabel={TOOL_LABELS[view]}
-        showAreaCode={view === 'pid'}
-        areaCode={areaCode}
-        onAreaCodeChange={setAreaCode}
-        onOpenFiles={view === 'aigrid' ? undefined : openFiles}
+      <WorkflowHeader
+        view={view}
+        onViewChange={setView}
+        selectedPath={selected.displayPath}
+        onOpenFiles={openFiles}
         openFilesDisabled={isPreviewLoading}
+        pidFileCount={pidFiles.length}
+        extractionComplete={extractedCount !== null}
+        referenceReady={referenceReady}
       />
 
       {/* ── Main row ── */}
       <div className="flex-1 flex overflow-hidden min-h-0">
 
-        {/* Activity bar */}
-        <ActivityBar view={view} onViewChange={setView} />
+        <ProjectNavigator />
 
         {/* ── Editor area ── */}
         {view === 'aigrid' ? (
@@ -61,9 +107,11 @@ const WorkspaceShell: React.FC = () => {
             <FileTabs onOpenFiles={openFiles} />
             <div className="flex-1 flex flex-col overflow-hidden min-h-0">
               <PIDAnalyserPage
-                areaCode={areaCode}
+                areaCode={selected.areaCode}
                 onOpenFiles={openFiles}
                 onDropFiles={handleDropFiles}
+                onExtractionComplete={handleExtractionComplete}
+                onReferenceChange={setReferenceReady}
               />
             </div>
           </div>
@@ -88,9 +136,11 @@ const WorkspaceShell: React.FC = () => {
 const InstruMapPage: React.FC = () => (
   <ThemeProvider>
     <ProjectProvider>
-      <WorkspaceProvider>
-        <WorkspaceShell />
-      </WorkspaceProvider>
+      <DomainProvider>
+        <WorkspaceProvider>
+          <WorkspaceShell />
+        </WorkspaceProvider>
+      </DomainProvider>
     </ProjectProvider>
   </ThemeProvider>
 );

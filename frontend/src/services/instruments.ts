@@ -4,6 +4,7 @@ export interface InstrumentRow {
   id: string;
   tag_number: string;
   instrument_type?: string;
+  type_description?: string;
   suffix?: string;
   service?: string;
   category?: string;
@@ -17,7 +18,7 @@ export interface InstrumentRow {
   line_association_method?: string;
   line_association_reason?: string;
   line_candidates?: Array<Record<string, unknown>>;
-  geometry_evidence?: Record<string, unknown>;
+  geometry_evidence?: Record<string, unknown> | string;
   pid_number?: string;
   location?: string;
   elevation_m?: number;
@@ -98,6 +99,7 @@ export const InstrumentsService = {
       search?: string;
       status?: string;
       reviewRequired?: boolean;
+      activeOnPid?: boolean;
     },
   ): Promise<InstrumentListResult> {
     const res = await api.get(BASE, {
@@ -110,6 +112,7 @@ export const InstrumentsService = {
         ...(params?.search ? { search: params.search } : {}),
         ...(params?.status ? { status: params.status } : {}),
         ...(params?.reviewRequired !== undefined ? { review_required: params.reviewRequired } : {}),
+        ...(params?.activeOnPid !== undefined ? { active_on_pid: params.activeOnPid } : {}),
       },
     });
     return res.data;

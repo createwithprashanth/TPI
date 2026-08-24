@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.config.local_db import connection, json_text, row_to_dict
+from app.config.local_db import connection, json_text, row_to_dict, write_connection
 from app.config.settings import settings
 from app.modules.instrumap.core.standard_library import instrument_tag_quality
 
@@ -24,6 +24,19 @@ INSTRUMENT_COLUMNS = {
     "enclosure_class", "status", "review_required", "notes", "active_on_pid",
     "batch_id", "created_by", "updated_by",
 }
+
+INSTRUMENT_LIST_SELECT = """
+    id, project_id, tag_number, suffix, instrument_type, service,
+    category, io_type, signal_type, area_id, unit_id, location,
+    elevation_m, loop_id, loop_number, pid_document_id, pid_number,
+    area_code, unit_code, line_tag, system, flowsizing_type,
+    line_confidence, line_association_method, line_association_reason,
+    COALESCE(NULLIF(line_association_reason, ''), NULLIF(line_tag, ''), '') AS geometry_evidence,
+    extraction_session_id, source, range_min, range_max, range_unit,
+    calib_min, calib_max, calib_unit, supply_voltage, hazardous_area,
+    area_class, is_certified, enclosure_class, status, review_required,
+    notes, active_on_pid, batch_id, created_by, updated_by, created_at, updated_at
+"""
 
 MANUAL_PROTECTED_FIELDS = {
     "tag_number", "instrument_type", "service", "category", "io_type",
@@ -61,7 +74,7 @@ def _normalize_project_id(project_id: str | None) -> str:
 
 def ensure_project(project_id: str, **metadata) -> None:
     project_id = _normalize_project_id(project_id)
-    with connection() as conn:
+    with write_connection() as conn:
         conn.execute(
             """
             INSERT INTO projects(project_id, name, project_no, client_name, contractor_name, location)
@@ -108,9 +121,9 @@ def list_instruments(
     sort_dir: str = "asc",
     status: str | None = None,
     review_required: bool | None = None,
+    active_on_pid: bool | None = None,
     search: str | None = None,
 ) -> dict:
-    ensure_project(project_id)
     allowed_sort = INSTRUMENT_COLUMNS | {"created_at", "updated_at", "id"}
     if sort_by not in allowed_sort:
         sort_by = "tag_number"
@@ -123,6 +136,9 @@ def list_instruments(
     if review_required is not None:
         where.append("review_required = ?")
         params.append(1 if review_required else 0)
+    if active_on_pid is not None:
+        where.append("active_on_pid = ?")
+        params.append(1 if active_on_pid else 0)
     if search:
         where.append("tag_number LIKE ?")
         params.append(f"{search}%")
@@ -133,7 +149,8 @@ def list_instruments(
         total = conn.execute(f"SELECT COUNT(*) FROM instruments WHERE {where_sql}", params).fetchone()[0]
         rows = conn.execute(
             f"""
-            SELECT * FROM instruments
+            SELECT {INSTRUMENT_LIST_SELECT}
+            FROM instruments
             WHERE {where_sql}
             ORDER BY {sort_by} {direction}
             LIMIT ? OFFSET ?
@@ -151,7 +168,6 @@ def list_instruments(
 
 
 def get_lookups(project_id: str) -> dict:
-    ensure_project(project_id)
     with connection() as conn:
         types = [row_to_dict(r) for r in conn.execute(
             "SELECT code, display_name, category FROM instrument_type_catalog WHERE is_active=1 ORDER BY sort_order, code"
@@ -209,6 +225,10 @@ def create_instrument(payload: dict, user_id: str | None = None) -> dict:
     row["project_id"] = project_id
     row["source"] = row.get("source") or "manual"
     row["instrument_type"] = row.get("instrument_type") or "UNKNOWN"
+    row["loop_number"] = row.get("loop_number") or _derive_loop_number(
+        str(row.get("tag_number") or ""),
+        str(row.get("instrument_type") or ""),
+    )
     row["created_by"] = _user_id(user_id)
     row["updated_by"] = _user_id(user_id)
     if isinstance(row.get("field_confidence"), dict):
@@ -223,7 +243,7 @@ def create_instrument(payload: dict, user_id: str | None = None) -> dict:
 
     cols = list(row.keys())
     placeholders = ", ".join("?" for _ in cols)
-    with connection() as conn:
+    with write_connection() as conn:
         cur = conn.execute(
             f"INSERT INTO instruments ({', '.join(cols)}) VALUES ({placeholders})",
             [row[c] for c in cols],
@@ -247,7 +267,7 @@ def update_instrument(instrument_id: str, changes: dict, user_id: str | None = N
         if key in updates:
             updates[key] = 1 if updates[key] else 0
 
-    with connection() as conn:
+    with write_connection() as conn:
         current = conn.execute("SELECT * FROM instruments WHERE id=?", (instrument_id,)).fetchone()
         if not current:
             return None
@@ -281,7 +301,7 @@ def update_instrument(instrument_id: str, changes: dict, user_id: str | None = N
 
 
 def delete_instrument(instrument_id: str) -> bool:
-    with connection() as conn:
+    with write_connection() as conn:
         cur = conn.execute("DELETE FROM instruments WHERE id=?", (instrument_id,))
     return cur.rowcount > 0
 
@@ -300,7 +320,7 @@ def upsert_instrumap_dataframe(
         return {"inserted": 0, "updated": 0, "skipped": 0}
 
     inserted = updated = skipped = 0
-    with connection() as conn:
+    with write_connection() as conn:
         session_id = conn.execute(
             """
             INSERT INTO extraction_sessions
@@ -359,6 +379,7 @@ def upsert_instrumap_dataframe(
 
 
 def _map_instrumap_row(raw: dict, project_id: str, batch_id: str, pdf_filename: str, extraction_session_id: str | None) -> dict:
+    tag_number = str(raw.get("Tag_Number") or "").strip()
     instrument_type = str(
         raw.get("Instrument_Type")
         or raw.get("Type")
@@ -397,14 +418,14 @@ def _map_instrumap_row(raw: dict, project_id: str, batch_id: str, pdf_filename: 
         notes = "; ".join(review_reasons + ([notes] if notes else []))
     return {
         "project_id": project_id,
-        "tag_number": str(raw.get("Tag_Number") or "").strip(),
+        "tag_number": tag_number,
         "suffix": _clean(raw.get("Suffix")),
         "instrument_type": instrument_type,
         "service": _clean(raw.get("Instrument_Service")) or _clean(raw.get("Service")) or _clean(raw.get("Instrument_Description")),
         "category": category or _category_from_io(raw.get("IO_Type")),
         "io_type": _clean(raw.get("IO_Type")),
         "signal_type": _clean(raw.get("Signal_Type")),
-        "loop_number": _clean(raw.get("Loop")),
+        "loop_number": _derive_loop_number(tag_number, instrument_type, _clean(raw.get("Loop"))),
         "area_code": _clean(raw.get("Area")),
         "line_tag": connected_line,
         "line_confidence": _float_or_none(raw.get("Line_Confidence")),
@@ -428,6 +449,19 @@ def _map_instrumap_row(raw: dict, project_id: str, batch_id: str, pdf_filename: 
         "created_by": "instrumap",
         "updated_by": "instrumap",
     }
+
+
+def _derive_loop_number(tag_number: str, instrument_type: str, fallback: str | None = None) -> str | None:
+    tag = (tag_number or "").strip()
+    inst_type = (instrument_type or "").strip()
+    if tag and inst_type and tag.upper() == inst_type.upper():
+        return fallback
+    if tag and inst_type and tag.upper().startswith(inst_type.upper()):
+        return f"{inst_type[0].upper()}{tag[len(inst_type):]}"
+    if tag and inst_type:
+        separator = "" if tag.startswith("-") else "-"
+        return f"{inst_type[0].upper()}{separator}{tag}"
+    return fallback
 
 
 def _catalog_mapping(code: str) -> tuple[str | None, str | None]:

@@ -20,11 +20,10 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useProject } from '../contexts/ProjectContext';
+import { useDomain } from '../contexts/DomainContext';
 import {
   GridPreferencesService,
   InstrumentsService,
-  type InstrumentProject,
   type InstrumentLookupOptions,
   type InstrumentRow,
 } from '../services/instruments';
@@ -33,6 +32,7 @@ type ColumnKey = keyof InstrumentRow;
 type GridRow = InstrumentRow & { _isNew?: boolean };
 type DraftChanges = Record<string, Partial<InstrumentRow>>;
 type SortDir = 'asc' | 'desc';
+type SortRule = { key: ColumnKey; dir: SortDir };
 
 interface Column {
   key: ColumnKey;
@@ -47,9 +47,10 @@ const DATASOURCE_ID = 'instruments';
 
 const COLUMNS: Column[] = [
   { key: 'tag_number', label: 'Instrument', width: 'minmax(160px, 1.1fr)' },
-  { key: 'instrument_type', label: 'Type', width: '98px', kind: 'select', optionsKey: 'instrument_types' },
+  { key: 'loop_number', label: 'Loop', width: '130px' },
+  { key: 'instrument_type', label: 'Type', width: '86px', kind: 'select', optionsKey: 'instrument_types' },
+  { key: 'type_description', label: 'Type Description', width: 'minmax(190px, 1.1fr)', readOnly: true },
   { key: 'service', label: 'Service', width: 'minmax(280px, 1.8fr)' },
-  { key: 'loop_number', label: 'Loop', width: '105px' },
   { key: 'io_type', label: 'IO', width: '90px', kind: 'select', optionsKey: 'io_type_options' },
   { key: 'signal_type', label: 'Signal', width: '150px', kind: 'select', optionsKey: 'signal_type_options' },
   { key: 'line_tag', label: 'Line', width: 'minmax(190px, 1.2fr)' },
@@ -66,6 +67,12 @@ const DEFAULT_COLUMN_ORDER = COLUMNS.map(column => column.key);
 const DEFAULT_VISIBLE_COLUMNS = DEFAULT_COLUMN_ORDER;
 const COLUMN_BY_KEY = Object.fromEntries(COLUMNS.map(column => [column.key, column])) as Record<ColumnKey, Column>;
 
+const normalizeColumnOrder = (order: ColumnKey[]) => {
+  const core: ColumnKey[] = ['tag_number', 'loop_number', 'instrument_type', 'type_description'];
+  const withoutCore = order.filter(key => !core.includes(key));
+  return [...core, ...withoutCore] as ColumnKey[];
+};
+
 const emptyLookups: InstrumentLookupOptions = {
   instrument_types: [],
   areas: [],
@@ -76,11 +83,6 @@ const emptyLookups: InstrumentLookupOptions = {
   signal_type_options: [],
 };
 
-const normalizeProjectId = (projectNo?: string, projectName?: string) => {
-  const value = (projectNo || projectName || 'default').trim();
-  return value || 'default';
-};
-
 const valueToText = (value: unknown) => {
   if (value === undefined || value === null) return '';
   if (typeof value === 'object') return JSON.stringify(value);
@@ -88,7 +90,9 @@ const valueToText = (value: unknown) => {
 };
 
 const evidenceSummary = (value: unknown) => {
-  if (!value || typeof value !== 'object') return '';
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value !== 'object') return '';
   const evidence = value as Record<string, any>;
   if (typeof evidence.summary === 'string' && evidence.summary.trim()) {
     return evidence.summary.trim();
@@ -100,9 +104,19 @@ const evidenceSummary = (value: unknown) => {
   return parts.join('; ');
 };
 
+const typeLabelToDescription = (label: string, value: string) => {
+  const prefix = `${value} - `;
+  return label.startsWith(prefix) ? label.slice(prefix.length).trim() : label;
+};
+
 const valuesEqual = (a: unknown, b: unknown) => {
   if (typeof a === 'boolean' || typeof b === 'boolean') return Boolean(a) === Boolean(b);
   return valueToText(a) === valueToText(b);
+};
+
+const backendChanges = (changes: Partial<InstrumentRow>) => {
+  const { type_description: _typeDescription, ...rest } = changes;
+  return rest;
 };
 
 const compareValues = (a: unknown, b: unknown, dir: SortDir) => {
@@ -115,15 +129,10 @@ const compareValues = (a: unknown, b: unknown, dir: SortDir) => {
 };
 
 const AiGridPage: React.FC = () => {
-  const { project } = useProject();
-  const projectId = useMemo(
-    () => normalizeProjectId(project.project_no, project.project_name),
-    [project.project_no, project.project_name],
-  );
+  const { selected } = useDomain();
+  const projectId = selected.projectId || 'default';
 
   const [rows, setRows] = useState<GridRow[]>([]);
-  const [projects, setProjects] = useState<InstrumentProject[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [originalRows, setOriginalRows] = useState<Record<string, InstrumentRow>>({});
   const [draftChanges, setDraftChanges] = useState<DraftChanges>({});
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
@@ -135,10 +144,13 @@ const AiGridPage: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState('');
   const [ioFilter, setIoFilter] = useState('');
   const [reviewFilter, setReviewFilter] = useState('');
+  const [activeFilter, setActiveFilter] = useState<'active' | 'inactive' | 'all'>('active');
   const [sourceFilter, setSourceFilter] = useState('');
   const [lineFilter, setLineFilter] = useState('');
   const [sortBy, setSortBy] = useState<ColumnKey>('tag_number');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [customSortOpen, setCustomSortOpen] = useState(false);
+  const [customSorts, setCustomSorts] = useState<SortRule[]>([]);
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [columnPanelOpen, setColumnPanelOpen] = useState(false);
   const [columnOrder, setColumnOrder] = useState<ColumnKey[]>(DEFAULT_COLUMN_ORDER);
@@ -149,11 +161,7 @@ const AiGridPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const effectiveProjectId = selectedProjectId || projectId;
-
-  useEffect(() => {
-    if (!selectedProjectId) setSelectedProjectId(projectId);
-  }, [projectId, selectedProjectId]);
+  const effectiveProjectId = projectId;
 
   const orderedColumns = useMemo(() => {
     const validOrder = columnOrder.filter(key => COLUMN_BY_KEY[key]);
@@ -179,41 +187,51 @@ const AiGridPage: React.FC = () => {
     setError(null);
     setMessage(null);
     try {
-      const [list, lookupData, projectList, prefs] = await Promise.all([
+      const [list, lookupData, prefs] = await Promise.all([
         InstrumentsService.list(effectiveProjectId, {
           pageSize: 2000,
+          activeOnPid: activeFilter === 'all' ? undefined : activeFilter === 'active',
         }),
         InstrumentsService.getLookups(effectiveProjectId),
-        InstrumentsService.listProjects().catch(() => []),
         GridPreferencesService.get(DATASOURCE_ID).catch(() => null),
       ]);
-      setRows(list.data);
-      setOriginalRows(Object.fromEntries(list.data.map(row => [row.id, row])));
+      const typeDescriptionByCode = Object.fromEntries(
+        lookupData.instrument_types.map(item => [
+          item.value,
+          typeLabelToDescription(item.label, item.value),
+        ]),
+      );
+      const rowsWithDescriptions = list.data.map(row => ({
+        ...row,
+        type_description: typeDescriptionByCode[valueToText(row.instrument_type)] || '',
+      }));
+      setRows(rowsWithDescriptions);
+      setOriginalRows(Object.fromEntries(rowsWithDescriptions.map(row => [row.id, row])));
       setDraftChanges({});
       setDeletedIds(new Set());
       setSelectedRowIds(new Set());
       setLookups(lookupData);
-      setProjects(projectList);
-      if (!list.data.length && !selectedProjectId && projectList.length) {
-        const populatedProject = projectList.find(item => item.instrument_count > 0);
-        if (populatedProject && populatedProject.project_id !== effectiveProjectId) {
-          setSelectedProjectId(populatedProject.project_id);
-        }
-      }
       if (prefs) {
         const savedVisible = (prefs.visible_columns || []).filter((key): key is ColumnKey => key in COLUMN_BY_KEY);
         const savedOrder = (prefs.column_order || []).filter((key): key is ColumnKey => key in COLUMN_BY_KEY);
         const savedPinned = (prefs.pinned_columns || []).filter((key): key is ColumnKey => key in COLUMN_BY_KEY);
-        if (savedVisible.length) setVisibleColumns(savedVisible);
-        if (savedOrder.length) setColumnOrder(savedOrder);
+        if (savedVisible.length) {
+          const withRequired = new Set<ColumnKey>(savedVisible);
+          withRequired.add('tag_number');
+          withRequired.add('loop_number');
+          withRequired.add('instrument_type');
+          withRequired.add('type_description');
+          setVisibleColumns(DEFAULT_COLUMN_ORDER.filter(key => withRequired.has(key)));
+        }
+        if (savedOrder.length) setColumnOrder(normalizeColumnOrder(savedOrder));
         if (savedPinned.length) setPinnedColumns(savedPinned);
       }
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : 'Could not load AI Grid.');
+      setError(exc instanceof Error ? exc.message : 'Could not load TDE.');
     } finally {
       setLoading(false);
     }
-  }, [effectiveProjectId, selectedProjectId]);
+  }, [activeFilter, effectiveProjectId]);
 
   useEffect(() => {
     void load();
@@ -255,9 +273,16 @@ const AiGridPage: React.FC = () => {
       .sort((a, b) => {
         if (a._isNew && !b._isNew) return -1;
         if (!a._isNew && b._isNew) return 1;
+        if (customSorts.length) {
+          for (const rule of customSorts) {
+            const result = compareValues(a[rule.key], b[rule.key], rule.dir);
+            if (result !== 0) return result;
+          }
+          return compareValues(a.tag_number, b.tag_number, 'asc');
+        }
         return compareValues(a[sortBy], b[sortBy], sortDir);
       }),
-    [deletedIds, ioFilter, lineFilter, quickFilter, reviewFilter, rows, search, sortBy, sortDir, sourceFilter, statusFilter, typeFilter],
+    [customSorts, deletedIds, ioFilter, lineFilter, quickFilter, reviewFilter, rows, search, sortBy, sortDir, sourceFilter, statusFilter, typeFilter],
   );
 
   const pendingUpdates = useMemo(
@@ -273,6 +298,7 @@ const AiGridPage: React.FC = () => {
     ioFilter,
     statusFilter,
     reviewFilter,
+    activeFilter !== 'active' ? activeFilter : '',
     sourceFilter,
     lineFilter,
   ].filter(Boolean).length;
@@ -312,12 +338,38 @@ const AiGridPage: React.FC = () => {
   };
 
   const handleSort = (key: ColumnKey) => {
+    setCustomSorts([]);
     if (sortBy === key) {
       setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortBy(key);
       setSortDir('asc');
     }
+  };
+
+  const addSortRule = () => {
+    const used = new Set(customSorts.map(rule => rule.key));
+    const nextColumn = DEFAULT_COLUMN_ORDER.find(key => !used.has(key)) || 'tag_number';
+    setCustomSorts(prev => [...prev, { key: nextColumn, dir: 'asc' }]);
+    setCustomSortOpen(true);
+  };
+
+  const updateSortRule = (index: number, patch: Partial<SortRule>) => {
+    setCustomSorts(prev => prev.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)));
+  };
+
+  const removeSortRule = (index: number) => {
+    setCustomSorts(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const moveSortRule = (index: number, delta: -1 | 1) => {
+    setCustomSorts(prev => {
+      const target = index + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
   };
 
   const clearFilters = () => {
@@ -327,6 +379,7 @@ const AiGridPage: React.FC = () => {
     setTypeFilter('');
     setIoFilter('');
     setReviewFilter('');
+    setActiveFilter('active');
     setSourceFilter('');
     setLineFilter('');
   };
@@ -392,7 +445,16 @@ const AiGridPage: React.FC = () => {
   };
 
   const updateLocal = (id: string, key: ColumnKey, value: string | boolean) => {
-    setRows(prev => prev.map(row => (row.id === id ? { ...row, [key]: value } : row)));
+    const typeDescriptionByCode = Object.fromEntries(
+      lookups.instrument_types.map(item => [
+        item.value,
+        typeLabelToDescription(item.label, item.value),
+      ]),
+    );
+    const extra = key === 'instrument_type'
+      ? { type_description: typeDescriptionByCode[valueToText(value)] || '' }
+      : {};
+    setRows(prev => prev.map(row => (row.id === id ? { ...row, [key]: value, ...extra } : row)));
     setDraftChanges(prev => {
       const row = rows.find(r => r.id === id);
       const original = originalRows[id];
@@ -418,6 +480,9 @@ const AiGridPage: React.FC = () => {
       id,
       tag_number: '',
       instrument_type: lookups.instrument_types[0]?.value || 'PT',
+      type_description: lookups.instrument_types[0]
+        ? typeLabelToDescription(lookups.instrument_types[0].label, lookups.instrument_types[0].value)
+        : '',
       service: '',
       status: 'Draft',
       source: 'manual',
@@ -494,7 +559,7 @@ const AiGridPage: React.FC = () => {
 
       for (const [id, changes] of Object.entries(draftChanges)) {
         if (id.startsWith('new-') || deletedIds.has(id) || !Object.keys(changes).length) continue;
-        await InstrumentsService.update(id, changes);
+        await InstrumentsService.update(id, backendChanges(changes));
       }
 
       for (const id of deletedIds) {
@@ -504,7 +569,7 @@ const AiGridPage: React.FC = () => {
       setMessage(`Saved ${pendingTotal} change${pendingTotal === 1 ? '' : 's'} to SQLite.`);
       await load();
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : 'Could not save AI Grid changes.');
+      setError(exc instanceof Error ? exc.message : 'Could not save TDE changes.');
     } finally {
       setSaving(false);
     }
@@ -561,7 +626,9 @@ const AiGridPage: React.FC = () => {
           <option value="">-</option>
           {options.map(option => {
             const value = typeof option === 'string' ? option : option.value;
-            const label = typeof option === 'string' ? option : option.label;
+            const label = column.key === 'instrument_type'
+              ? value
+              : typeof option === 'string' ? option : option.label;
             return <option key={value} value={value}>{label}</option>;
           })}
         </select>
@@ -583,9 +650,9 @@ const AiGridPage: React.FC = () => {
         <div className="flex min-w-0 items-center gap-3">
           <Database className="h-4 w-4 text-gray-500" strokeWidth={1.7} />
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-white">AI Grid</div>
+            <div className="text-sm font-semibold text-white">TDE</div>
             <div className="truncate font-mono text-[10px] uppercase tracking-wider text-gray-600">
-              Project DB: {effectiveProjectId}
+              Unit DB: {effectiveProjectId}
             </div>
           </div>
         </div>
@@ -628,21 +695,12 @@ const AiGridPage: React.FC = () => {
       </div>
 
       <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-white/[0.06] bg-[#08080a] px-4 py-1.5">
-        <select
-          value={effectiveProjectId}
-          onChange={event => setSelectedProjectId(event.target.value)}
-          className="h-8 max-w-64 rounded border border-white/[0.08] bg-black px-2 text-xs text-gray-300 outline-none focus:border-white/25"
-          title="Database project"
-        >
-          {!projects.some(item => item.project_id === effectiveProjectId) && (
-            <option value={effectiveProjectId}>{effectiveProjectId}</option>
-          )}
-          {projects.map(item => (
-            <option key={item.project_id} value={item.project_id}>
-              {item.project_id} ({item.instrument_count})
-            </option>
-          ))}
-        </select>
+        <div className="flex h-8 max-w-[28rem] items-center gap-2 rounded border border-white/[0.08] bg-black px-2 text-xs text-gray-300">
+          <span className="text-gray-600">Project</span>
+          <span className="truncate font-mono text-[11px] font-semibold text-gray-100" title={selected.displayPath}>
+            {selected.displayPath}
+          </span>
+        </div>
         <div className="relative w-52">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-600" />
           <input
@@ -679,6 +737,32 @@ const AiGridPage: React.FC = () => {
           className="flex h-8 items-center gap-1.5 rounded border border-white/[0.08] bg-white/[0.02] px-3 text-xs font-medium text-gray-400 hover:text-white disabled:opacity-40"
         >
           Clear
+        </button>
+        <select
+          value={activeFilter}
+          onChange={event => setActiveFilter(event.target.value as 'active' | 'inactive' | 'all')}
+          disabled={saving}
+          className="h-8 w-36 rounded border border-white/[0.08] bg-black px-2 text-xs text-gray-300 outline-none focus:border-white/25 disabled:opacity-40"
+          title="Noise visibility"
+        >
+          <option value="active">Active only</option>
+          <option value="inactive">Noise audit</option>
+          <option value="all">All rows</option>
+        </select>
+        <button
+          onClick={() => {
+            if (!customSorts.length) addSortRule();
+            else setCustomSortOpen(prev => !prev);
+          }}
+          disabled={saving}
+          className={`flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-medium disabled:opacity-40 ${
+            customSortOpen || customSorts.length
+              ? 'border-white/20 bg-white/[0.08] text-white'
+              : 'border-white/[0.08] bg-white/[0.04] text-gray-300 hover:bg-white/[0.08]'
+          }`}
+        >
+          <ArrowUpDown className="h-3.5 w-3.5" />
+          Sort{customSorts.length ? ` ${customSorts.length}` : ''}
         </button>
         <button
           onClick={() => setColumnPanelOpen(prev => !prev)}
@@ -758,6 +842,88 @@ const AiGridPage: React.FC = () => {
           </select>
           <div className="ml-auto text-[11px] text-gray-600">
             Filters apply instantly to the loaded project.
+          </div>
+        </div>
+      )}
+
+      {customSortOpen && (
+        <div className="shrink-0 border-b border-white/[0.06] bg-[#050507] px-4 py-2">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              Custom Sort
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={addSortRule}
+                className="flex h-7 items-center gap-1.5 rounded border border-white/[0.08] px-2.5 text-xs text-gray-300 hover:text-white"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Level
+              </button>
+              <button
+                onClick={() => setCustomSorts([])}
+                disabled={!customSorts.length}
+                className="h-7 rounded border border-white/[0.08] px-2.5 text-xs text-gray-400 hover:text-white disabled:opacity-30"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {customSorts.map((rule, index) => (
+              <div
+                key={`${rule.key}-${index}`}
+                className="flex h-9 items-center gap-2 rounded border border-white/[0.08] bg-black/60 px-2 text-xs text-gray-300"
+              >
+                <span className="w-5 text-center font-mono text-gray-600">{index + 1}</span>
+                <select
+                  value={rule.key}
+                  onChange={event => updateSortRule(index, { key: event.target.value as ColumnKey })}
+                  className="h-7 w-40 rounded border border-white/[0.08] bg-black px-2 text-xs text-gray-200 outline-none focus:border-white/25"
+                >
+                  {DEFAULT_COLUMN_ORDER.map(key => (
+                    <option key={key} value={key}>{COLUMN_BY_KEY[key].label}</option>
+                  ))}
+                </select>
+                <select
+                  value={rule.dir}
+                  onChange={event => updateSortRule(index, { dir: event.target.value as SortDir })}
+                  className="h-7 w-28 rounded border border-white/[0.08] bg-black px-2 text-xs text-gray-200 outline-none focus:border-white/25"
+                >
+                  <option value="asc">Ascending</option>
+                  <option value="desc">Descending</option>
+                </select>
+                <button
+                  onClick={() => moveSortRule(index, -1)}
+                  disabled={index === 0}
+                  title="Move sort level up"
+                  className="flex h-7 w-7 items-center justify-center rounded text-gray-600 hover:text-gray-300 disabled:opacity-25"
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => moveSortRule(index, 1)}
+                  disabled={index === customSorts.length - 1}
+                  title="Move sort level down"
+                  className="flex h-7 w-7 items-center justify-center rounded text-gray-600 hover:text-gray-300 disabled:opacity-25"
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => removeSortRule(index)}
+                  title="Remove sort level"
+                  className="flex h-7 w-7 items-center justify-center rounded text-gray-600 hover:bg-red-500/10 hover:text-red-300"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            {!customSorts.length && (
+              <div className="flex h-9 items-center text-xs text-gray-600">
+                Header sort is active: {COLUMN_BY_KEY[sortBy].label} {sortDir === 'asc' ? 'ascending' : 'descending'}.
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -853,18 +1019,27 @@ const AiGridPage: React.FC = () => {
             </button>
             {orderedColumns.map((column, index) => {
               const active = sortBy === column.key;
+              const customIndex = customSorts.findIndex(rule => rule.key === column.key);
+              const customRule = customIndex >= 0 ? customSorts[customIndex] : null;
               const SortIcon = active ? (sortDir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
               return (
               <button
                 key={column.key}
                 onClick={() => handleSort(column.key)}
                 className={`flex items-center justify-between gap-1 border-r border-white/[0.05] px-2 py-2 text-left hover:bg-white/[0.04] ${
-                  active ? 'text-white' : ''
+                  active || customRule ? 'text-white' : ''
                 } ${index === 0 ? 'sticky z-20 bg-[#0b0b0d]' : ''}`}
                 style={index === 0 ? { left: 36 } : undefined}
               >
                 <span className="truncate">{column.label}</span>
-                <SortIcon className={`h-3 w-3 shrink-0 ${active ? 'text-white' : 'text-gray-700'}`} />
+                {customRule ? (
+                  <span className="flex items-center gap-1 text-[10px] text-white">
+                    {customRule.dir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                    {customIndex + 1}
+                  </span>
+                ) : (
+                  <SortIcon className={`h-3 w-3 shrink-0 ${active ? 'text-white' : 'text-gray-700'}`} />
+                )}
               </button>
               );
             })}

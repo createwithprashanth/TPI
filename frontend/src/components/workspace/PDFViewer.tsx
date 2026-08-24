@@ -90,30 +90,6 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           </div>
         </div>
       )}
-
-      {/* Empty state */}
-      {!hdPreviewBase64 && !isPreviewLoading && (
-        <div
-          className="flex flex-col items-center gap-6 select-none cursor-pointer group"
-          onClick={onOpenFiles}
-        >
-          {/* Drop zone card */}
-          <div className="flex flex-col items-center gap-3 border border-dashed border-white/[0.08] rounded-2xl px-10 py-8 group-hover:border-white/[0.15] transition-colors">
-            <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center group-hover:bg-white/[0.07] transition-colors">
-              <Upload className="w-5 h-5 text-gray-500 group-hover:text-gray-300 transition-colors" />
-            </div>
-            <div className="text-center">
-              <p className="text-gray-300 text-sm font-medium group-hover:text-white transition-colors">
-                Drop P&ID drawings here
-              </p>
-              <p className="text-gray-600 text-xs mt-1">
-                or click to browse &nbsp;·&nbsp; PDF &nbsp;·&nbsp; multi-page &nbsp;·&nbsp; batch
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Loading state */}
       {isPreviewLoading && (
         <div className="flex flex-col items-center gap-3">

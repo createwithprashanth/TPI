@@ -35,6 +35,7 @@ async def list_instruments(
     sort_dir: str = Query("asc"),
     status: Optional[str] = Query(None),
     review_required: Optional[bool] = Query(None),
+    active_on_pid: Optional[bool] = Query(None),
     search: Optional[str] = Query(None),
 ) -> dict:
     return service.list_instruments(
@@ -45,6 +46,7 @@ async def list_instruments(
         sort_dir=sort_dir,
         status=status,
         review_required=review_required,
+        active_on_pid=active_on_pid,
         search=search,
     )
 

@@ -49,6 +49,7 @@ _NOISE_WORD_TOKENS = {
     "FIRE",
     "FLAME",
     "FLOW",
+    "FLARE",
     "FROM",
     "GATE",
     "LIMIT",
@@ -56,8 +57,10 @@ _NOISE_WORD_TOKENS = {
     "NEED",
     "PANEL",
     "PLUG",
+    "PLC",
     "SPARE",
     "VALVE",
+    "VENT",
     "WELL",
     "WHICH",
     "WILL",
@@ -75,7 +78,10 @@ _NON_INSTRUMENT_PREFIXES = {
     "BALL",
     "BAND",
     "BLEED",
+    "CALL",
     "EPC",
+    "FB",
+    "FLARE",
     "FOR",
     "FROM",
     "GAS",
@@ -87,13 +93,17 @@ _NON_INSTRUMENT_PREFIXES = {
     "LOCAL",
     "LP",
     "PLUG",
+    "PLC",
     "PLUGS",
     "SH",
     "SIL",
     "SPARE",
     "PANEL",
     "THE",
+    "TO",
     "VALVE",
+    "VENT",
+    "VTP",
     "WELL",
     "WILL",
     "XFAB",
@@ -133,6 +143,22 @@ _LINE_OPTIONAL_TYPES = {
 }
 
 _HARDWIRED_IO_TYPES = {"AI", "AO", "DI", "DO"}
+
+_CATALOG_INSTRUMENT_PREFIXES = {
+    "AT", "BDV", "CVZI", "CVZT", "FCV", "FE", "FI", "FIC", "FIT",
+    "FQI", "FT", "FZT", "HCV", "HS", "LCV", "LI", "LIC", "LIT",
+    "LT", "MOV", "PCV", "PDT", "PI", "PIC", "PIT", "PSAH", "PSAL",
+    "PSV", "PT", "PY", "RO", "SDV", "SSV", "ST", "TCV", "TE", "TI",
+    "TIT", "TP", "TT", "TW", "VT", "XA", "XFD", "XGD", "XV", "ZI",
+    "ZIH", "ZIL",
+}
+
+_PROJECT_VALID_INSTRUMENT_PREFIXES = {
+    "HSD",
+    "HSS",
+    "SZSH",
+    "SZSL",
+}
 
 _INVALID_LINE_TAG_RE = re.compile(
     r"^(?:"
@@ -228,6 +254,13 @@ def instrument_tag_quality(row) -> tuple[str, str]:
 
     if typ in _NON_INSTRUMENT_PREFIXES:
         return "rejected_noise", f"Non-ISA/non-instrument prefix: {typ}"
+
+    valid_prefix = typ in _CATALOG_INSTRUMENT_PREFIXES or typ in _PROJECT_VALID_INSTRUMENT_PREFIXES
+    service_conf = _clean_text(row.get("Service_Confidence")).lower()
+    connected_line = _clean_text(row.get("Connected_Line"))
+    if typ and not valid_prefix:
+        if service_conf in {"", "low", "review"} or not connected_line:
+            return "rejected_noise", f"Unknown/non-catalog instrument prefix: {typ}"
 
     if re.match(r"^\d", tag) and not _is_project_prefixed_instrument_tag(tag, typ, row):
         return "rejected_noise", "Incomplete tag: missing ISA type prefix"
