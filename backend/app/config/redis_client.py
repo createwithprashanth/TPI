@@ -35,7 +35,7 @@ def init_redis():
     except Exception as e:
         redis_conn = None
         instrumap_queue = None
-        logger.warning(f"Redis unavailable: {e}")
+        logger.info("Redis unavailable; using the in-process job worker: %s", e)
 
 
 def get_redis_connection():

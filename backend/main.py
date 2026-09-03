@@ -3,11 +3,13 @@ API server — white-label edition.
 """
 import asyncio
 import logging
+import time
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from app.config.settings import settings
 from app.config.redis_client import init_redis
@@ -15,18 +17,19 @@ from app.config.local_db import db_path, init_db
 from app.modules.pid_analyser.routes import router as pid_router, PREFIX as PID_PREFIX
 from app.modules.instruments.routes import router as instruments_router, PREFIX as INSTRUMENTS_PREFIX
 from app.modules.data_editor.routes import router as data_editor_router, PREFIX as DATA_EDITOR_PREFIX
+from app.config.logging_config import BACKEND_LOG, ERROR_LOG, configure_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
-)
+configure_logging()
+logger = logging.getLogger("tpi.server")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("TPI backend starting | env=%s | backend_log=%s", settings.ENV, BACKEND_LOG)
     init_redis()
     init_db()
     yield
+    logger.info("TPI backend stopped")
 
 
 app = FastAPI(
@@ -48,9 +51,56 @@ app.include_router(instruments_router, prefix=INSTRUMENTS_PREFIX)
 app.include_router(data_editor_router, prefix=DATA_EDITOR_PREFIX)
 
 
+@app.middleware("http")
+async def request_logging(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4())[:8])
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((time.perf_counter() - started) * 1000)
+        logger.exception(
+            "request_failed | id=%s | method=%s | path=%s | duration_ms=%s",
+            request_id, request.method, request.url.path, duration_ms,
+        )
+        raise
+    duration_ms = round((time.perf_counter() - started) * 1000)
+    response.headers["X-Request-ID"] = request_id
+    # Do not fill logs with the three-second job-status polling loop.
+    if response.status_code >= 400 or request.method != "GET" or duration_ms >= 2000:
+        level = logging.WARNING if response.status_code >= 400 else logging.INFO
+        logger.log(
+            level,
+            "request | id=%s | method=%s | path=%s | status=%s | duration_ms=%s",
+            request_id, request.method, request.url.path, response.status_code, duration_ms,
+        )
+    return response
+
+
+class ClientLog(BaseModel):
+    level: str = "error"
+    message: str = Field(max_length=1000)
+    stack: str = Field(default="", max_length=4000)
+    source: str = Field(default="", max_length=500)
+    status: int | None = None
+    session_id: str = Field(default="", max_length=100)
+    user_agent: str = Field(default="", max_length=500)
+
+
+@app.post("/api/v1/system/client-log", status_code=204)
+async def client_log(entry: ClientLog):
+    level = logging.ERROR if entry.level == "error" else logging.WARNING
+    logging.getLogger("tpi.frontend").log(
+        level,
+        "browser_error | session=%s | source=%s | status=%s | message=%s | stack=%s | ua=%s",
+        entry.session_id, entry.source, entry.status, entry.message,
+        entry.stack.replace("\n", " <- "), entry.user_agent,
+    )
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "log_file": str(BACKEND_LOG), "error_log": str(ERROR_LOG)}
 
 
 @app.get("/api/v1/system/health")

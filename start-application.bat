@@ -69,6 +69,7 @@ echo.
 echo TPI application started.
 echo Frontend: http://127.0.0.1:5173
 echo Backend:  http://127.0.0.1:8000
+echo Logs:     %APP_ROOT%logs
 echo.
 echo Keep the TPI Backend and TPI Frontend windows open while using the application.
 pause
