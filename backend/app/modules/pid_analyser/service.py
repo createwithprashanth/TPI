@@ -79,7 +79,9 @@ def _do_preview(content: bytes, page: int = 1, dpi: int | None = None) -> Previe
     # Preserve thin CAD lines and small text without JPEG ringing or fading.
     preview_image = Image.fromarray(pixels, "RGB")
     buf = io.BytesIO()
-    preview_image.save(buf, format="PNG", optimize=True)
+    # This image is served over localhost. Low compression is substantially
+    # faster on engineering-size drawings and does not alter any pixels.
+    preview_image.save(buf, format="PNG", compress_level=1)
     b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
     return PreviewResponse(status="SUCCESS", base64_image=b64, page_count=page_count)
 
