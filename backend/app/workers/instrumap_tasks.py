@@ -1,6 +1,6 @@
 """
 InstruMap background worker — white-label edition.
-No LLM enrichment. No Supabase. Results stored locally.
+No external enrichment or hosted database. Results are stored locally.
 """
 import json
 import logging
@@ -24,7 +24,6 @@ from app.modules.instrumap.core.standard_library import (
     apply_output_sanity_rules,
 )
 from app.modules.instrumap.core.tag_validator import validate_tag_formats
-from app.modules.instrumap.core.type_enricher import enrich_review_types
 from app.modules.instrumap.core.service_enricher import (
     enrich_instrument_services,
     build_service_enrichment,
@@ -98,12 +97,18 @@ def _auto_detect_radius(pdf_content: bytes, poppler_path, target_dpi: int = 300)
     try:
         import cv2
         import numpy as np
+        import pymupdf
+        from PIL import Image
         from collections import Counter
 
-        pages = convert_from_bytes(pdf_content, dpi=150, poppler_path=poppler_path, first_page=1, last_page=1)
-        if not pages:
+        doc = pymupdf.open(stream=pdf_content, filetype="pdf")
+        if not doc.page_count:
+            doc.close()
             return None
-        img = np.array(pages[0])
+        pix = doc[0].get_pixmap(matrix=pymupdf.Matrix(150 / 72, 150 / 72), alpha=False)
+        page_image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        doc.close()
+        img = np.array(page_image)
         gray = cv2.cvtColor(img[:, :, ::-1].copy(), cv2.COLOR_BGR2GRAY)
         blurred = cv2.medianBlur(gray, 5)
         circles = cv2.HoughCircles(
@@ -115,7 +120,20 @@ def _auto_detect_radius(pdf_content: bytes, poppler_path, target_dpi: int = 300)
         rounded = [round(int(c[2]) / 2) * 2 for c in circles[0]]
         if not rounded:
             return None
-        modal_r = Counter(rounded).most_common(1)[0][0]
+        radius_counts = Counter(rounded)
+        modal_r, modal_count = radius_counts.most_common(1)[0]
+        # Revision clouds are made from many repeated small arcs and can easily
+        # dominate the radius histogram. When that happens, prefer the repeated
+        # larger radius used by the actual instrument bubbles.
+        if modal_r <= 24:
+            larger = [
+                (radius, count)
+                for radius, count in radius_counts.items()
+                if modal_r * 1.75 <= radius <= modal_r * 3
+                and count >= max(5, round(modal_count * 0.04))
+            ]
+            if larger:
+                modal_r = max(larger, key=lambda item: item[1])[0]
         return max(1, round(modal_r * target_dpi / 150))
     except Exception as exc:
         logger.warning(f"Auto-calibration failed: {exc}")
@@ -275,6 +293,26 @@ def process_pid_task(
 
         # ── OCR fallback ─────────────────────────────────────────────────────
         if not _pymupdf_succeeded:
+            import importlib.util
+
+            tesseract_available = bool(
+                shutil.which("tesseract")
+                or os.path.isfile(os.path.join(
+                    os.environ.get("LOCALAPPDATA", ""),
+                    "Programs", "Tesseract-OCR", "tesseract.exe",
+                ))
+            )
+            if importlib.util.find_spec("paddleocr") is None and not tesseract_available:
+                return {
+                    "status": "ocr_unavailable",
+                    "job_id": job_id,
+                    "batch_id": batch_id,
+                    "message": (
+                        "This PDF has no searchable text and requires OCR, but the optional "
+                        "OCR engine is not installed on this VM. Use a searchable/vector PDF "
+                        "or install the OCR runtime."
+                    ),
+                }
             if _rl:
                 _rl.log_path("ocr")
             final_calibration_radius = user_selected_radius
@@ -382,7 +420,6 @@ def process_pid_task(
                 master_df = full_df.drop_duplicates(subset=["Tag_Number"]).copy()
                 master_df = refine_descriptions_by_loop_context(master_df)
                 master_df = compute_programmatic_fields(master_df)
-                master_df = enrich_review_types(master_df, project_legend_notes=project_legend_notes)
                 if not german_pid:
                     master_df = apply_output_sanity_rules(master_df)
                 master_df = enrich_instrument_services(master_df, all_lines_df, all_equipment_df)

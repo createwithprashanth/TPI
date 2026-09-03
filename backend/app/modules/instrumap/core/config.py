@@ -1,7 +1,6 @@
 # Env-driven values come from settings; algorithm constants live here.
 from app.config.settings import settings
 
-GOOGLE_APPLICATION_CREDENTIALS_PATH = settings.google_credentials_path
 POPPLER_PATH = settings.POPPLER_PATH
 PDF_DPI = settings.PDF_DPI
 
@@ -49,7 +48,7 @@ TEXT_MINING_STOPWORDS = {
 
 # --- NEW INTERACTIVE CALIBRATION CONFIG ---
 ANCHOR_MIN_COUNT = 1 # Minimum number of anchor points required (currently 1 for interactive)
-RADIUS_TOLERANCE_PERCENT = 0.20 # 20% tolerance around the measured radius to define the search range
+RADIUS_TOLERANCE_PERCENT = 0.40 # Mixed-size bubbles are common on large P&IDs
 
 # --- P&ID GRID FOR LOCATION (Legacy/Future Use) ---
 PID_GRID_ROWS = 5

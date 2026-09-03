@@ -2,8 +2,12 @@
 
 import logging
 import math
+import importlib.util
+import os
+import shutil
+from collections import Counter
 import numpy as np
-from PIL import Image as _PILImage
+from PIL import Image as _PILImage, ImageEnhance as _PILImageEnhance, ImageOps as _ImageOps
 from .standard_library import InstrumentLogicEngine
 
 # Tile size for large-image OCR.  Images wider/taller than this threshold are
@@ -17,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Lazy-initialised PaddleOCR reader — loaded once per worker process.
 _ocr_reader = None
+_recognition_reader = None
 
 def _get_reader():
     global _ocr_reader
@@ -26,6 +31,7 @@ def _get_reader():
         from paddleocr import PaddleOCR
         logger.info("Initialising PaddleOCR reader (first call)...")
         _ocr_reader = PaddleOCR(
+            enable_mkldnn=False,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
@@ -35,6 +41,18 @@ def _get_reader():
         )
         logger.info("PaddleOCR reader ready.")
     return _ocr_reader
+
+
+def _get_recognizer():
+    global _recognition_reader
+    if _recognition_reader is None:
+        from paddleocr import TextRecognition
+        logger.info("Initialising lightweight text recognizer...")
+        _recognition_reader = TextRecognition(
+            model_name="en_PP-OCRv5_mobile_rec",
+            enable_mkldnn=False,
+        )
+    return _recognition_reader
 
 # --- TUNING CONSTANTS ---
 TEXT_MINING_MAX_X_DIST = 40  # Looser X-tolerance for center-aligned text
@@ -99,6 +117,316 @@ def _dedup_words(words, proximity=25):
     return unique
 
 
+def _tesseract_command():
+    """Resolve Tesseract without requiring a shell or VM restart."""
+    discovered = shutil.which("tesseract")
+    if discovered:
+        return discovered
+    candidates = [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Tesseract-OCR", "tesseract.exe"),
+        os.path.join(os.environ.get("ProgramFiles", ""), "Tesseract-OCR", "tesseract.exe"),
+    ]
+    return next((path for path in candidates if path and os.path.isfile(path)), None)
+
+
+def _tesseract_tile(tile_img, x_offset, y_offset, ocr_scale=2.0, page_mode=11):
+    import pytesseract
+    from pytesseract import Output
+
+    command = _tesseract_command()
+    if not command:
+        raise RuntimeError("Tesseract executable was not found")
+    pytesseract.pytesseract.tesseract_cmd = command
+    # P&ID bubble text is extremely small relative to an A1/A0 sheet. Upscale
+    # and normalize each tile for OCR, then map boxes back to page coordinates.
+    rgb = np.asarray(tile_img.convert("RGB"), dtype=np.uint8)
+    # Revision clouds/markup are strongly coloured while original CAD text is
+    # neutral gray. Removing chromatic pixels prevents red cloud arcs from
+    # dominating contrast normalization on otherwise very pale drawings.
+    chroma = rgb.max(axis=2).astype(np.int16) - rgb.min(axis=2).astype(np.int16)
+    gray = rgb.mean(axis=2).astype(np.uint8)
+    gray[chroma > 24] = 255
+    prepared = _ImageOps.autocontrast(_PILImage.fromarray(gray), cutoff=1)
+    prepared = prepared.resize(
+        (round(prepared.width * ocr_scale), round(prepared.height * ocr_scale)),
+        _PILImage.Resampling.LANCZOS,
+    )
+    data = pytesseract.image_to_data(
+        prepared,
+        lang="eng",
+        config=f"--oem 1 --psm {page_mode} -c preserve_interword_spaces=1",
+        output_type=Output.DICT,
+    )
+    words = []
+    for i, text in enumerate(data.get("text", [])):
+        text = str(text).strip()
+        try:
+            confidence = float(data["conf"][i])
+        except (TypeError, ValueError, KeyError, IndexError):
+            confidence = -1
+        if not text or confidence < 20:
+            continue
+        x = float(data["left"][i]) / ocr_scale + x_offset
+        y = float(data["top"][i]) / ocr_scale + y_offset
+        width = float(data["width"][i]) / ocr_scale
+        height = float(data["height"][i]) / ocr_scale
+        words.append({
+            "text": text,
+            "x": x,
+            "y": y,
+            "w": width,
+            "h": height,
+            "center_x": x + width / 2,
+            "center_y": y + height / 2,
+        })
+    return words
+
+
+def detect_text_region(pil_image, left, top, right, bottom):
+    """Read one small instrument bubble at high magnification."""
+    left = max(0, int(left))
+    top = max(0, int(top))
+    right = min(pil_image.width, int(right))
+    bottom = min(pil_image.height, int(bottom))
+    if right <= left or bottom <= top:
+        return []
+    crop = pil_image.crop((left, top, right, bottom))
+    if importlib.util.find_spec("paddleocr") is not None:
+        # Full-sheet Paddle detection is too memory-heavy for the shared VM.
+        # A padded 4x bubble crop gives the recognizer enough pixels for all
+        # stacked rows while keeping memory bounded.
+        border = 20
+        scale = 4.0
+        prepared = _ImageOps.expand(crop.convert("RGB"), border=border, fill="white")
+        prepared = prepared.resize(
+            (round(prepared.width * scale), round(prepared.height * scale)),
+            _PILImage.Resampling.LANCZOS,
+        )
+        focused = _ocr_tile(_get_reader(), prepared, 0, 0)
+        for word in focused:
+            word["x"] = word["x"] / scale - border + left
+            word["y"] = word["y"] / scale - border + top
+            word["w"] /= scale
+            word["h"] /= scale
+            word["center_x"] = word["x"] + word["w"] / 2
+            word["center_y"] = word["y"] + word["h"] / 2
+            word["focused_bubble_ocr"] = True
+        return focused
+    return _tesseract_tile(crop, left, top, ocr_scale=6.0, page_mode=6)
+
+
+def detect_text_regions(pil_image, regions):
+    """Read multiple bubble crops in a few bounded Paddle contact sheets."""
+    if not regions:
+        return []
+    if importlib.util.find_spec("paddleocr") is None:
+        return [detect_text_region(pil_image, *region) for region in regions]
+
+    scale, border, columns, batch_size = 2.5, 16, 4, 12
+    outputs = [[] for _ in regions]
+    for batch_start in range(0, len(regions), batch_size):
+        batch = regions[batch_start:batch_start + batch_size]
+        prepared = []
+        cell_w = cell_h = 0
+        for left, top, right, bottom in batch:
+            left, top = max(0, int(left)), max(0, int(top))
+            right, bottom = min(pil_image.width, int(right)), min(pil_image.height, int(bottom))
+            crop = pil_image.crop((left, top, right, bottom)).convert("RGB")
+            crop = _ImageOps.expand(crop, border=border, fill="white")
+            crop = crop.resize((round(crop.width * scale), round(crop.height * scale)), _PILImage.Resampling.LANCZOS)
+            prepared.append((crop, left, top))
+            cell_w, cell_h = max(cell_w, crop.width), max(cell_h, crop.height)
+        rows = math.ceil(len(prepared) / columns)
+        sheet = _PILImage.new("RGB", (cell_w * columns, cell_h * rows), "white")
+        for index, (crop, _, _) in enumerate(prepared):
+            sheet.paste(crop, ((index % columns) * cell_w, (index // columns) * cell_h))
+        for word in _ocr_tile(_get_reader(), sheet, 0, 0):
+            col, row = int(word["center_x"] // cell_w), int(word["center_y"] // cell_h)
+            local_index = row * columns + col
+            if local_index >= len(prepared):
+                continue
+            _, left, top = prepared[local_index]
+            ox, oy = col * cell_w, row * cell_h
+            word["x"] = (word["x"] - ox) / scale - border + left
+            word["y"] = (word["y"] - oy) / scale - border + top
+            word["w"], word["h"] = word["w"] / scale, word["h"] / scale
+            word["center_x"] = word["x"] + word["w"] / 2
+            word["center_y"] = word["y"] + word["h"] / 2
+            word["focused_bubble_ocr"] = True
+            outputs[batch_start + local_index].append(word)
+    return outputs
+
+
+def detect_text_region_discovery(pil_image, left, top, right, bottom):
+    """Quick, bounded-memory OCR used to decide whether a circle contains a tag."""
+    left = max(0, int(left))
+    top = max(0, int(top))
+    right = min(pil_image.width, int(right))
+    bottom = min(pil_image.height, int(bottom))
+    if right <= left or bottom <= top or not _tesseract_command():
+        return []
+    crop = pil_image.crop((left, top, right, bottom))
+    focused = _tesseract_tile(crop, left, top, ocr_scale=8.0, page_mode=11)
+    for word in focused:
+        word["focused_bubble_ocr"] = True
+    return focused
+
+
+def detect_numeric_bubble_rows(pil_image, center_x, center_y, radius):
+    """Read the numeric loop and suffix from fixed bands in a round ISA bubble."""
+    import pytesseract
+
+    command = _tesseract_command()
+    if not command:
+        return "", ""
+    pytesseract.pytesseract.tesseract_cmd = command
+
+    def read_band(y_low, y_high, half_width):
+        left = max(0, int(center_x - radius * half_width))
+        right = min(pil_image.width, int(center_x + radius * half_width))
+        top = max(0, int(center_y + radius * y_low))
+        bottom = min(pil_image.height, int(center_y + radius * y_high))
+        if right <= left or bottom <= top:
+            return ""
+        crop = pil_image.crop((left, top, right, bottom)).convert("RGB")
+        rgb = np.asarray(crop, dtype=np.uint8)
+        chroma = rgb.max(axis=2).astype(np.int16) - rgb.min(axis=2).astype(np.int16)
+        gray = rgb.mean(axis=2).astype(np.uint8)
+        gray[chroma > 24] = 255
+        prepared = _ImageOps.autocontrast(_PILImage.fromarray(gray), cutoff=1)
+        prepared = prepared.resize(
+            (prepared.width * 10, prepared.height * 10),
+            _PILImage.Resampling.LANCZOS,
+        )
+        text = pytesseract.image_to_string(
+            prepared,
+            lang="eng",
+            config="--oem 1 --psm 7 -c tessedit_char_whitelist=0123456789",
+        )
+        return "".join(char for char in text if char.isdigit())
+
+    readings = []
+    original_radius = radius
+    for factor in (0.95, 1.0, 1.20):
+        radius = original_radius * factor
+        readings.append((
+            read_band(-0.28, 0.35, 0.70),
+            read_band(0.18, 0.90, 0.55),
+        ))
+    loop_candidates = [value for value, _ in readings if 3 <= len(value) <= 6]
+    suffix_candidates = [value for _, value in readings if 1 <= len(value) <= 3]
+    # Prefer agreement, then the structurally strongest loop/suffix length.
+    loop = max(Counter(loop_candidates), key=lambda value: (Counter(loop_candidates)[value], len(value))) if loop_candidates else ""
+    suffix = max(Counter(suffix_candidates), key=lambda value: (Counter(suffix_candidates)[value], len(value) == 2)) if suffix_candidates else ""
+    return loop, suffix
+
+
+def recognize_structured_bubbles(pil_image, circles):
+    """Batch-recognize type, loop and suffix rows from known circle geometry."""
+    if not circles or importlib.util.find_spec("paddleocr") is None:
+        return [{} for _ in circles]
+    rows, row_meta = [], []
+    bands = (
+        ("type", -0.95, -0.12, 0.85),
+        ("loop", -0.30, 0.35, 0.78),
+        ("suffix", 0.18, 0.95, 0.65),
+    )
+    for circle_index, (center_x, center_y, radius) in enumerate(circles):
+        for field, y_low, y_high, half_width in bands:
+            left = max(0, int(center_x - radius * half_width))
+            right = min(pil_image.width, int(center_x + radius * half_width))
+            top = max(0, int(center_y + radius * y_low))
+            bottom = min(pil_image.height, int(center_y + radius * y_high))
+            if right <= left or bottom <= top:
+                continue
+            crop = _ImageOps.autocontrast(
+                pil_image.crop((left, top, right, bottom)).convert("RGB")
+            )
+            rows.append(np.asarray(crop))
+            row_meta.append((circle_index, field))
+    outputs = [{} for _ in circles]
+    if not rows:
+        return outputs
+    predictions = _get_recognizer().predict(rows, batch_size=8)
+    for (circle_index, field), prediction in zip(row_meta, predictions):
+        text = str(prediction.get("rec_text", "")).upper().strip()
+        score = float(prediction.get("rec_score", 0) or 0)
+        if score < 0.60:
+            continue
+        if field == "type":
+            text = "".join(char for char in text if char.isalpha())
+            if not 2 <= len(text) <= 5:
+                continue
+        else:
+            text = "".join(char for char in text if char.isdigit())
+            if field == "loop" and not 3 <= len(text) <= 6:
+                continue
+            if field == "suffix" and not 1 <= len(text) <= 3:
+                continue
+        outputs[circle_index][field] = text
+        outputs[circle_index][f"{field}_score"] = score
+
+    # The bottom row is the smallest text in an ISA bubble.  If the normal
+    # suffix crop was rejected, retry only those circles with a tighter band
+    # that excludes the loop row and lower circle arc.  Keeping this as a
+    # second, missing-only batch avoids slowing every extraction materially.
+    retry_rows, retry_indices = [], []
+    for circle_index, (center_x, center_y, radius) in enumerate(circles):
+        if outputs[circle_index].get("suffix"):
+            continue
+        left = max(0, int(center_x - radius * 0.50))
+        right = min(pil_image.width, int(center_x + radius * 0.50))
+        top = max(0, int(center_y + radius * 0.25))
+        bottom = min(pil_image.height, int(center_y + radius * 0.72))
+        if right <= left or bottom <= top:
+            continue
+        crop = _ImageOps.autocontrast(
+            pil_image.crop((left, top, right, bottom)).convert("RGB")
+        )
+        crop = _PILImageEnhance.Contrast(crop).enhance(2.0)
+        retry_rows.append(np.asarray(crop))
+        retry_indices.append(circle_index)
+    if retry_rows:
+        retry_predictions = _get_recognizer().predict(retry_rows, batch_size=8)
+        for circle_index, prediction in zip(retry_indices, retry_predictions):
+            text = "".join(
+                char for char in str(prediction.get("rec_text", "")) if char.isdigit()
+            )
+            score = float(prediction.get("rec_score", 0) or 0)
+            if 1 <= len(text) <= 3 and score >= 0.75:
+                outputs[circle_index]["suffix"] = text
+                outputs[circle_index]["suffix_score"] = score
+                outputs[circle_index]["suffix_recovered"] = True
+    return outputs
+
+
+def _detect_text_tesseract(pil_image):
+    """Tiled Tesseract fallback for scanned or text-flattened drawings."""
+    orig_w, orig_h = pil_image.size
+    if max(orig_w, orig_h) <= _OCR_TILE_THRESHOLD:
+        return _tesseract_tile(pil_image, 0, 0)
+
+    step = _OCR_TILE_SIZE - _OCR_TILE_OVERLAP
+
+    def tile_starts(total):
+        starts = list(range(0, total, step))
+        if not starts or starts[-1] + _OCR_TILE_SIZE < total:
+            starts.append(max(0, total - _OCR_TILE_SIZE))
+        return starts
+
+    words = []
+    for y0 in tile_starts(orig_h):
+        for x0 in tile_starts(orig_w):
+            tile = pil_image.crop((
+                x0,
+                y0,
+                min(x0 + _OCR_TILE_SIZE, orig_w),
+                min(y0 + _OCR_TILE_SIZE, orig_h),
+            ))
+            words.extend(_tesseract_tile(tile, x0, y0))
+    return _dedup_words(words)
+
+
 def detect_text_full_page(pil_image, vision_client=None):
     """Run PaddleOCR on a full page and return word-level bounding boxes.
 
@@ -109,6 +437,11 @@ def detect_text_full_page(pil_image, vision_client=None):
     vision_client parameter is kept for call-site compatibility but ignored.
     """
     try:
+        # Use Tesseract for bounded-memory full-page word discovery. Paddle is
+        # applied later only to magnified instrument-bubble crops.
+        if _tesseract_command():
+            logger.info("Using Tesseract for full-page OCR discovery")
+            return _detect_text_tesseract(pil_image)
         reader = _get_reader()
         orig_w, orig_h = pil_image.size
 

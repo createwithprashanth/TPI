@@ -4,11 +4,10 @@ import { DomainProvider, useDomain } from '../contexts/DomainContext';
 import { ProjectProvider, useProject } from '../contexts/ProjectContext';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import { WorkspaceProvider, useWorkspace } from '../contexts/WorkspaceContext';
-import WorkflowHeader from '../components/workspace/WorkflowHeader';
+import WorkflowHeader, { type WorkspaceView } from '../components/workspace/WorkflowHeader';
 import FileTabs from '../components/workspace/FileTabs';
-import type { WorkspaceView } from '../components/workspace/ActivityBar';
 import PIDAnalyserPage from './pid/PIDAnalyserPage';
-import AiGridPage from './AiGridPage';
+import DataEditorPage from './DataEditorPage';
 
 // ── Inner shell ───────────────────────────────────────────────────────────────
 
@@ -74,11 +73,11 @@ const WorkspaceShell: React.FC = () => {
 
   const handleExtractionComplete = (instrumentCount: number) => {
     setExtractedCount(instrumentCount);
-    setView('aigrid');
+    setView('data-editor');
   };
 
   return (
-    <div className="tpi-app h-full flex flex-col bg-[#eef2f6] overflow-hidden">
+    <div className="tpi-app h-full flex flex-col overflow-hidden">
 
       {/* ── Workspace bar — full width, above everything ── */}
       <WorkflowHeader
@@ -98,9 +97,9 @@ const WorkspaceShell: React.FC = () => {
         <ProjectNavigator />
 
         {/* ── Editor area ── */}
-        {view === 'aigrid' ? (
+        {view === 'data-editor' ? (
           <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-            <AiGridPage />
+            <DataEditorPage />
           </div>
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden min-w-0">

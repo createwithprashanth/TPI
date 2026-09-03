@@ -72,8 +72,8 @@ const NodeRow: React.FC<NodeRowProps> = ({
   return (
     <div>
       <div
-        className={`group grid h-8 grid-cols-[18px_1fr_auto] items-center gap-1 pr-2 text-sm ${
-          isSelected ? 'bg-[#d8ecff] text-[#0b3558]' : 'text-[#1f2933] hover:bg-[#f1f5f9]'
+        className={`group mx-2 grid h-9 grid-cols-[18px_1fr_auto] items-center gap-1 rounded-lg pr-2 text-sm transition-all ${
+          isSelected ? 'tpi-tree-selected font-medium text-[#073b62]' : 'text-[#334155] hover:bg-white hover:shadow-sm'
         }`}
         style={{ paddingLeft: 10 + depth * 16 }}
       >
@@ -185,16 +185,16 @@ const ProjectNavigator: React.FC = () => {
   };
 
   return (
-    <aside className="flex w-[320px] shrink-0 flex-col border-r border-[#d4dbe3] bg-white text-[#1f2933]">
-      <div className="border-b border-[#dbe3eb] px-4 py-3">
+    <aside className="tpi-project-rail flex w-[320px] shrink-0 flex-col text-[#1f2933]">
+      <div className="border-b border-slate-200/80 px-4 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-sm font-semibold">Projects</div>
-            <div className="mt-0.5 text-xs text-[#64748b]">Data is stored against the active unit.</div>
+            <div className="flex items-center gap-2 text-sm font-semibold"><FolderTree className="h-4 w-4 text-[#0f6fa8]" /> Project space</div>
+            <div className="mt-1 text-[11px] text-[#64748b]">Structured engineering context</div>
           </div>
           <button
             onClick={addProject}
-            className="flex h-8 items-center gap-1.5 rounded bg-[#0f5f99] px-3 text-xs font-semibold text-white hover:bg-[#0b4f80]"
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-[#0f6fa8]/15 bg-white px-3 text-xs font-semibold text-[#0f5f99] shadow-sm transition hover:-translate-y-px hover:shadow-md"
           >
             <Plus className="h-3.5 w-3.5" />
             Project
@@ -202,7 +202,7 @@ const ProjectNavigator: React.FC = () => {
         </div>
       </div>
 
-      <div className="tpi-scroll-contained min-h-0 flex-1 overflow-auto py-2">
+      <div className="tpi-scroll-contained min-h-0 flex-1 overflow-auto py-3">
         {tree.map(node => (
           <NodeRow
             key={node.id}
@@ -219,9 +219,9 @@ const ProjectNavigator: React.FC = () => {
         ))}
       </div>
 
-      <div className="border-t border-[#dbe3eb] bg-[#f8fafc] px-4 py-3">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">Active Unit</div>
-        <div className="mt-1 truncate text-sm font-medium text-[#0f3554]" title={selected.displayPath}>
+      <div className="m-3 rounded-xl border border-[#0f6fa8]/10 bg-white/80 px-4 py-3 shadow-sm">
+        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#0f6fa8]"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" /> Active unit</div>
+        <div className="mt-1.5 truncate text-sm font-semibold text-[#0f3554]" title={selected.displayPath}>
           {selected.displayPath}
         </div>
       </div>

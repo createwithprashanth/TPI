@@ -438,7 +438,7 @@ def _map_instrumap_row(raw: dict, project_id: str, batch_id: str, pdf_filename: 
         "system": _clean(raw.get("System")),
         "flowsizing_type": flowsizing_type,
         "extraction_session_id": extraction_session_id,
-        "source": "ai_extracted",
+        "source": "deterministic_extracted",
         "field_confidence": json.dumps(confidence, separators=(",", ":")),
         "supply_voltage": _clean(raw.get("Power_Supply")),
         "status": "Rejected - Noise" if rejected_as_noise else ("Suppressed - Incomplete" if suppressed else ("For Review" if review_required else "Draft")),

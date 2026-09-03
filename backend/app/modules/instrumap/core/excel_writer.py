@@ -3,7 +3,7 @@ Engineering-grade Excel deliverable writer for InstruMap.
 Shared by both the FastAPI service layer and the RQ background worker.
 
 Produces four separate workbooks:
-  Instrument Index.xlsx  — full engineering columns, LLM-enriched per instrument
+  Instrument Index.xlsx  — full engineering columns with derived instrument data
   IO List.xlsx           — hardwired AI/AO/DI/DO points for DCS/PLC design
   Verification Log.xlsx  — raw OCR extraction with review flags
   Line List.xlsx         — pipe line numbers extracted from P&ID
@@ -21,9 +21,9 @@ from .standard_library import instrument_tag_quality
 
 logger = logging.getLogger(__name__)
 
-# Columns populated by LLM — rendered with a light blue tint so engineers can
+# Enriched columns — rendered with a light blue tint so engineers can
 # distinguish AI-suggested values from OCR-extracted values at a glance.
-_LLM_COLS = {
+_ENRICHED_COLS = {
     "Instrument Service",
     "Process Fluid",
     "Oper. Pressure (bar g)",
@@ -263,8 +263,8 @@ def _make_formats(wb):
         }),
         "loop_even":  wb.add_format({"border": 1}),
         "loop_odd":   wb.add_format({"bg_color": "#F2F2F2", "border": 1}),
-        "llm_even":   wb.add_format({"bg_color": "#EBF3FB", "border": 1}),
-        "llm_odd":    wb.add_format({"bg_color": "#D6E8F7", "border": 1}),
+        "enriched_even": wb.add_format({"bg_color": "#EBF3FB", "border": 1}),
+        "enriched_odd": wb.add_format({"bg_color": "#D6E8F7", "border": 1}),
         "prog_even":  wb.add_format({"bg_color": "#E8F5E9", "border": 1}),
         "prog_odd":   wb.add_format({"bg_color": "#C8E6C9", "border": 1}),
         "warn":       wb.add_format({"bg_color": "#FFEB9C", "font_color": "#9C5700", "border": 1}),
@@ -318,8 +318,8 @@ def _write_instrument_index(output_dir: str, index_df: pd.DataFrame, project_inf
             for col_num, col_name in enumerate(col_names):
                 val = data_row[col_name]
                 val = "" if pd.isna(val) else val
-                if col_name in _LLM_COLS:
-                    cell_fmt = fmt["llm_odd"] if is_odd else fmt["llm_even"]
+                if col_name in _ENRICHED_COLS:
+                    cell_fmt = fmt["enriched_odd"] if is_odd else fmt["enriched_even"]
                 elif col_name in _PROG_COLS:
                     cell_fmt = fmt["prog_odd"] if is_odd else fmt["prog_even"]
                 else:
@@ -740,7 +740,7 @@ def write_engineering_excel(
         output_dir  : Directory where the four .xlsx files will be written.
         master_df   : Deduplicated instrument DataFrame (one row per tag).
         full_df     : Raw extraction DataFrame (all pages, all occurrences).
-        enrichment  : Per-tag LLM enrichment dict keyed by Tag_Number.
+        enrichment  : Per-tag enrichment dict keyed by Tag_Number.
         lines_df    : Line numbers DataFrame (optional).
         equipment_df: Equipment tags DataFrame (optional).
 

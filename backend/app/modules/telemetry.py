@@ -10,7 +10,6 @@ Usage:
     rl.log_path("pymupdf")
     rl.log_lines(page=1, line_numbers=["6\"-P-1001", ...])
     rl.log_instruments(page=1, tags=["101-FT-001", ...])
-    rl.log_llm_call(page=1, tag="101-FT-001", ...)
     rl.flush()   # returns (jsonl_path, txt_path)
 """
 import json
@@ -55,40 +54,6 @@ class RunLogger:
     def log_instruments(self, page: int, tags: list) -> None:
         self._append("instruments_extracted", page=page,
                      count=len(tags), tags=tags)
-
-    def log_llm_skip(self, page: int, reason: str) -> None:
-        self._append("llm_skip", page=page, reason=reason)
-
-    def log_llm_call(
-        self,
-        page: int,
-        tag: str,
-        ix: int,
-        iy: int,
-        candidates: list,       # [(ln, lx, ly, dist, size, fluid), ...]
-        raw_response: Optional[dict],
-        resolved_line: str,
-        confidence: float,
-        reason: str,
-        latency_ms: float,
-        accepted: bool,
-    ) -> None:
-        self._append(
-            "llm_call",
-            page=page,
-            tag=tag,
-            coords=(ix, iy),
-            candidates=[
-                {"ln": ln, "dist": round(d, 1), "size": size, "fluid": fluid}
-                for ln, _lx, _ly, d, size, fluid in candidates
-            ],
-            raw_response=raw_response,
-            resolved_line=resolved_line,
-            confidence=round(confidence, 3),
-            reason=reason,
-            latency_ms=round(latency_ms, 1),
-            accepted=accepted,
-        )
 
     # ── Flush ─────────────────────────────────────────────────────────────────
 
@@ -144,8 +109,6 @@ def _build_summary(events: list) -> str:
         evs       = [e for e in events if e.get("page") == page]
         lines_ev  = _first(evs, "lines_extracted")
         instr_ev  = _first(evs, "instruments_extracted")
-        llm_calls = [e for e in evs if e["event"] == "llm_call"]
-        llm_skips = [e for e in evs if e["event"] == "llm_skip"]
 
         out.append(f"\n── Page {page} " + "─" * (_W - 10))
 
@@ -157,33 +120,6 @@ def _build_summary(events: list) -> str:
             tags = ", ".join(instr_ev.get("tags", []))
             out.append(f"  Instruments({instr_ev.get('count', 0)}): {tags or '—'}")
 
-        for sk in llm_skips:
-            out.append(f"  LLM skip  : {sk.get('reason', '?')}")
-
-        if llm_calls:
-            accepted_n = sum(1 for c in llm_calls if c.get("accepted"))
-            out.append(f"  LLM calls : {len(llm_calls)} total, {accepted_n} accepted")
-            out.append(f"  {'Tag':<28} {'→ Resolved line':<28} {'Conf':>5}  {'ms':>6}  OK?")
-            out.append(f"  {'-'*28} {'-'*28} {'-'*5}  {'-'*6}  ---")
-            for call in llm_calls:
-                tick = "Y " if call.get("accepted") else "n "
-                out.append(
-                    f"  {call.get('tag','?'):<28} "
-                    f"{call.get('resolved_line','(none)'):<28} "
-                    f"{call.get('confidence', 0):>5.2f}  "
-                    f"{call.get('latency_ms', 0):>6.0f}  "
-                    f"{tick}"
-                )
-                if call.get("reason"):
-                    out.append(f"       reason : {call['reason']}")
-                cands = call.get("candidates", [])
-                if cands:
-                    cand_str = "  |  ".join(
-                        f"{c['ln']} ({c['dist']:.0f}px, {c['fluid']})"
-                        for c in cands[:3]
-                    )
-                    out.append(f"       top-3  : {cand_str}")
-
     # ── Totals ────────────────────────────────────────────────────────────────
     total_instr = sum(
         e.get("count", 0) for e in events if e["event"] == "instruments_extracted"
@@ -191,15 +127,11 @@ def _build_summary(events: list) -> str:
     total_lines = sum(
         e.get("count", 0) for e in events if e["event"] == "lines_extracted"
     )
-    all_calls   = [e for e in events if e["event"] == "llm_call"]
-    total_llm_accepted = sum(1 for c in all_calls if c.get("accepted"))
-
     out += [
         "",
         "─" * _W,
         f"  Total instruments : {total_instr}",
         f"  Total line numbers: {total_lines}",
-        f"  LLM matched       : {total_llm_accepted} / {len(all_calls)} calls accepted",
         "=" * _W,
         "",
     ]

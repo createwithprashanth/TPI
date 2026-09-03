@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 import pandas as pd
 import numpy as np
 from pdf2image import convert_from_bytes
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import math
 import cv2
 Image.MAX_IMAGE_PIXELS = None
@@ -25,13 +25,6 @@ from .config import (
 )
 
 from .level2_extraction_fast import extract_instruments
-
-try:
-    from ...llm.line_mapper import map_instruments_to_lines_llm as _llm_map
-    _LLM_AVAILABLE = True
-except ImportError:
-    _LLM_AVAILABLE = False
-    _llm_map = None
 
 try:
     from ...telemetry import RunLogger as _RunLogger
@@ -140,12 +133,17 @@ class InstrumentProcessor:
         scale = HIGHLIGHT_DPI / full_dpi  # instrument coords are at full_dpi
 
         try:
-            if self.poppler_path:
-                pages = convert_from_bytes(pdf_content, dpi=HIGHLIGHT_DPI, poppler_path=self.poppler_path)
-            else:
-                pages = convert_from_bytes(pdf_content, dpi=HIGHLIGHT_DPI)
+            import pymupdf
+
+            doc = pymupdf.open(stream=pdf_content, filetype="pdf")
+            matrix = pymupdf.Matrix(HIGHLIGHT_DPI / 72, HIGHLIGHT_DPI / 72)
+            pages = []
+            for page in doc:
+                pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+                pages.append(Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples))
+            doc.close()
         except Exception as exc:
-            logger.warning(f"PyMuPDF highlight render: PDF conversion failed: {exc}")
+            logger.warning("Checkprint render failed: %s", exc)
             return
 
         try:
@@ -260,18 +258,16 @@ class InstrumentProcessor:
         SEARCH_RADIUS_PX = 100 
 
         try:
-            images = convert_from_bytes(
-                open(pid_file_path, 'rb').read(),
-                dpi=self.config_defaults['PDF_DPI'],
-                poppler_path=self.poppler_path,
-                first_page=1,
-                last_page=1,
-            )
-            if not images:
+            import pymupdf
+            doc = pymupdf.open(pid_file_path)
+            if not doc.page_count:
+                doc.close()
                 logger.warning("No images converted from PDF during calibration.")
                 return None
-
-            pil_image = images[0]
+            dpi = self.config_defaults['PDF_DPI']
+            pix = doc[0].get_pixmap(matrix=pymupdf.Matrix(dpi / 72, dpi / 72), alpha=False)
+            pil_image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            doc.close()
             cv_image = np.array(pil_image)
             cv_image_rgb = cv_image[:, :, ::-1].copy()
             gray_image = cv2.cvtColor(cv_image_rgb, cv2.COLOR_BGR2GRAY)
@@ -365,10 +361,14 @@ class InstrumentProcessor:
             if _rl:
                 _rl.log_path("ocr")
             status_update_fn("Starting PDF conversion (DPI 300)...")
-            if self.poppler_path:
-                images = convert_from_bytes(pdf_content, dpi=config_params['PDF_DPI'], poppler_path=self.poppler_path)
-            else:
-                images = convert_from_bytes(pdf_content, dpi=config_params['PDF_DPI'])
+            import pymupdf
+            pdf_doc = pymupdf.open(stream=pdf_content, filetype="pdf")
+            matrix = pymupdf.Matrix(config_params['PDF_DPI'] / 72, config_params['PDF_DPI'] / 72)
+            images = []
+            for pdf_page in pdf_doc:
+                pix = pdf_page.get_pixmap(matrix=matrix, alpha=False)
+                images.append(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
+            pdf_doc.close()
 
             if not images:
                 status_update_fn("ERROR: No images converted from PDF.")
@@ -387,10 +387,13 @@ class InstrumentProcessor:
                 page_number = page_idx + 1
                 page_filename_base = f"{filename_base}_p{page_number}"
 
-                cv_image = np.array(pil_image)
-                cv_image_rgb = cv_image[:, :, ::-1].copy()
-                gray_image = cv2.cvtColor(cv_image_rgb, cv2.COLOR_BGR2GRAY)
-                blurred_image_page = cv2.medianBlur(gray_image, 5)
+                # Hough needs only luminance. PIL enhancement avoids the several
+                # hundred MB float arrays created by RGB NumPy arithmetic.
+                enhanced_gray = ImageEnhance.Contrast(pil_image.convert("L")).enhance(10.0)
+                gray_image = np.asarray(enhanced_gray, dtype=np.uint8)
+                # Gaussian blur preserves the very thin circular outlines that a
+                # median filter removes on pale raster drawings.
+                blurred_image_page = cv2.GaussianBlur(gray_image, (3, 3), 0)
 
                 extraction_result = extract_instruments(
                     pil_image=pil_image,
@@ -420,18 +423,6 @@ class InstrumentProcessor:
 
                 if not final_instruments_df_page.empty:
                     final_instruments_df_page['P&ID_Page'] = page_number
-
-                    if _LLM_AVAILABLE and not page_lines_df.empty:
-                        try:
-                            final_instruments_df_page = _llm_map(
-                                final_instruments_df_page,
-                                page_lines_df,
-                                status_fn=lambda msg: status_update_fn(f"LLM P{page_number}: {msg}"),
-                                run_logger=_rl,
-                                page=page_number,
-                            )
-                        except Exception as _llm_exc:
-                            status_update_fn(f"LLM mapping skipped (non-fatal): {_llm_exc}")
 
                     all_instruments_data.append(final_instruments_df_page)
 

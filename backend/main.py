@@ -14,7 +14,7 @@ from app.config.redis_client import init_redis
 from app.config.local_db import db_path, init_db
 from app.modules.pid_analyser.routes import router as pid_router, PREFIX as PID_PREFIX
 from app.modules.instruments.routes import router as instruments_router, PREFIX as INSTRUMENTS_PREFIX
-from app.modules.aigrid.routes import router as aigrid_router, PREFIX as AIGRID_PREFIX
+from app.modules.data_editor.routes import router as data_editor_router, PREFIX as DATA_EDITOR_PREFIX
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,7 +45,7 @@ app.add_middleware(
 
 app.include_router(pid_router, prefix=PID_PREFIX)
 app.include_router(instruments_router, prefix=INSTRUMENTS_PREFIX)
-app.include_router(aigrid_router, prefix=AIGRID_PREFIX)
+app.include_router(data_editor_router, prefix=DATA_EDITOR_PREFIX)
 
 
 @app.get("/health")

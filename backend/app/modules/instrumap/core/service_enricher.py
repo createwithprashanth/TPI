@@ -3,7 +3,7 @@ Instrument service text generator.
 
 Creates short engineering service phrases for Instrument Index / IO List.
 The generator is deterministic by default so client deployments do not depend
-on LLM availability for basic deliverables.
+on external services for basic deliverables.
 """
 from __future__ import annotations
 

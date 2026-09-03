@@ -69,6 +69,13 @@ async def highlighted_image(batch_id: str):
     return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
 
 
+@router.get("/highlighted/{batch_id}/preview", response_model=PreviewResponse, tags=TAGS)
+async def highlighted_preview(batch_id: str, page: int = 1) -> PreviewResponse:
+    path = service.get_highlighted_path(batch_id)
+    with open(path, "rb") as checkprint:
+        return await service.generate_preview(checkprint.read(), page=page, dpi=36)
+
+
 @router.get("/download/{batch_id}", tags=TAGS)
 async def download_results(batch_id: str):
     path = service.get_download_path(batch_id)

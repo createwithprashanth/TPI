@@ -149,9 +149,6 @@ def _apply_schema_upgrades(conn: sqlite3.Connection) -> None:
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
 
-    if "mto_items" not in existing_tables or "mto_detection_evidence" not in existing_tables:
-        conn.executescript(_MTO_SCHEMA_SQL)
-
     if (
         "project_knowledge_documents" not in existing_tables
         or "project_knowledge_chunks" not in existing_tables
@@ -207,6 +204,14 @@ def _apply_schema_upgrades(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_pk_chat_project
             ON project_knowledge_chat(project_id);
     """)
+
+    # Older builds used an AI-specific source label for this deterministic
+    # extraction pipeline. Normalize existing project data on startup.
+    if "instruments" in existing_tables:
+        conn.execute(
+            "UPDATE instruments SET source = ? WHERE source = ?",
+            ("deterministic_extracted", "ai_extracted"),
+        )
 
     # ── udf_01 … udf_100 on spec_sheet_data ─────────────────────────────────
     if "spec_sheet_data" in existing_tables:
@@ -653,84 +658,6 @@ CREATE INDEX IF NOT EXISTS idx_instruments_flowsizing ON instruments(project_id,
 CREATE INDEX IF NOT EXISTS idx_grid_prefs_user ON user_grid_preferences(user_id);
 """
 
-_MTO_SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS mto_items (
-    id                       TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    project_id               TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
-    mto_run_id               TEXT,
-    component_key            TEXT NOT NULL,
-    category_code            TEXT,
-    category_name            TEXT,
-    unit                     TEXT NOT NULL DEFAULT '-',
-    item_type                TEXT NOT NULL,
-    piping_class             TEXT,
-    size_inch                TEXT,
-    rating                   TEXT,
-    valve_bore               TEXT,
-    end_connection           TEXT,
-    material_description     TEXT,
-    datasheet_document_no    TEXT,
-    datasheet_reference_no   TEXT,
-    quantity                 INTEGER NOT NULL DEFAULT 0,
-    drawing_count            INTEGER NOT NULL DEFAULT 0,
-    min_detection_score      REAL,
-    avg_detection_score      REAL,
-    min_size_confidence      REAL,
-    review_status            TEXT NOT NULL DEFAULT 'Draft',
-    review_required          INTEGER NOT NULL DEFAULT 0,
-    ai_decision              TEXT,
-    ai_confidence            REAL,
-    ai_reason                TEXT,
-    remarks                  TEXT,
-    metadata_snapshot        TEXT NOT NULL DEFAULT '{}',
-    session_snapshot         TEXT NOT NULL DEFAULT '{}',
-    source                   TEXT NOT NULL DEFAULT 'piping_mto',
-    created_by               TEXT,
-    updated_by               TEXT,
-    created_at               TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at               TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(project_id, component_key)
-);
-
-CREATE TABLE IF NOT EXISTS mto_detection_evidence (
-    id                    TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    project_id            TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
-    mto_item_id           TEXT NOT NULL REFERENCES mto_items(id) ON DELETE CASCADE,
-    mto_run_id            TEXT,
-    component_key         TEXT NOT NULL,
-    component_label       TEXT NOT NULL,
-    drawing               TEXT,
-    page                  INTEGER NOT NULL DEFAULT 1,
-    x1                    INTEGER,
-    y1                    INTEGER,
-    x2                    INTEGER,
-    y2                    INTEGER,
-    detection_score       REAL,
-    size_inch             TEXT,
-    size_source           TEXT,
-    size_source_type      TEXT,
-    size_confidence       REAL,
-    size_ambiguous        INTEGER NOT NULL DEFAULT 0,
-    ai_decision           TEXT,
-    ai_confidence         REAL,
-    ai_reason             TEXT,
-    ai_flags              TEXT NOT NULL DEFAULT '[]',
-    ai_line_number        TEXT,
-    evidence_snapshot     TEXT NOT NULL DEFAULT '{}',
-    accepted              INTEGER NOT NULL DEFAULT 1,
-    review_required       INTEGER NOT NULL DEFAULT 0,
-    created_at            TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_mto_items_project ON mto_items(project_id);
-CREATE INDEX IF NOT EXISTS idx_mto_items_type ON mto_items(project_id, item_type);
-CREATE INDEX IF NOT EXISTS idx_mto_items_review ON mto_items(project_id, review_required, review_status);
-CREATE INDEX IF NOT EXISTS idx_mto_items_run ON mto_items(mto_run_id);
-CREATE INDEX IF NOT EXISTS idx_mto_evidence_item ON mto_detection_evidence(mto_item_id);
-CREATE INDEX IF NOT EXISTS idx_mto_evidence_project ON mto_detection_evidence(project_id);
-CREATE INDEX IF NOT EXISTS idx_mto_evidence_run ON mto_detection_evidence(mto_run_id);
-"""
-
 _PROJECT_KNOWLEDGE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS project_knowledge_documents (
     id                 TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
@@ -799,7 +726,7 @@ CREATE INDEX IF NOT EXISTS idx_pk_chunks_doc ON project_knowledge_chunks(documen
 CREATE INDEX IF NOT EXISTS idx_pk_saved_project ON project_knowledge_saved_evidence(project_id, created_at);
 """
 
-_SCHEMA_SQL = _SCHEMA_SQL + _MTO_SCHEMA_SQL + _PROJECT_KNOWLEDGE_SCHEMA_SQL + """
+_SCHEMA_SQL = _SCHEMA_SQL + _PROJECT_KNOWLEDGE_SCHEMA_SQL + """
 
 -- ── calculation_data ─────────────────────────────────────────────────────────
 -- Generic engineering calculation results, one row per instrument + calc type

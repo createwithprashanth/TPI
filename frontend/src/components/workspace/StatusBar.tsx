@@ -17,12 +17,12 @@ const StatusBar: React.FC<StatusBarProps> = ({ label, dim, accent, loading, dot,
   const isActive = !loading && dot && dot !== 'gray';
 
   return (
-    <div className="h-[22px] shrink-0 flex items-stretch bg-[#0c0c0e] border-t border-white/[0.05] text-[11px]">
+    <div className="h-[24px] shrink-0 flex items-stretch bg-white border-t border-slate-200 text-[11px]">
 
       {/* Left accent segment — blue when running, green when done */}
       {(isRunning || isDone) && (
         <div
-          className={`flex items-center gap-1.5 px-3 shrink-0 border-r border-white/[0.06] font-medium ${
+          className={`flex items-center gap-1.5 px-3 shrink-0 border-r border-slate-200 font-medium ${
             isRunning
               ? 'bg-blue-500/[0.15] text-blue-300'
               : 'bg-emerald-500/[0.12] text-emerald-400'
@@ -55,7 +55,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ label, dim, accent, loading, dot,
 
       {/* Right label — tool identifier */}
       {rightLabel && (
-        <div className="flex items-center px-3 border-l border-white/[0.05] shrink-0">
+        <div className="flex items-center px-3 border-l border-slate-200 shrink-0">
           <span className="text-[10px] text-gray-700 font-medium">{rightLabel}</span>
         </div>
       )}

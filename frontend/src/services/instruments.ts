@@ -147,12 +147,12 @@ export const InstrumentsService = {
 
 export const GridPreferencesService = {
   async get(datasourceId: string): Promise<GridPreferences> {
-    const res = await api.get(`/api/v1/aigrid/preferences/${datasourceId}`);
+    const res = await api.get(`/api/v1/data-editor/preferences/${datasourceId}`);
     return res.data;
   },
 
   async save(datasourceId: string, prefs: GridPreferences): Promise<GridPreferences> {
-    const res = await api.put(`/api/v1/aigrid/preferences/${datasourceId}`, prefs);
+    const res = await api.put(`/api/v1/data-editor/preferences/${datasourceId}`, prefs);
     return res.data;
   },
 };

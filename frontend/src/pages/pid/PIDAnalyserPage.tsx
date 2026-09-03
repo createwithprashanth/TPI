@@ -6,6 +6,7 @@ import {
   getJobStatus,
   downloadBatchResults,
   downloadHighlightedImage,
+  getCheckprintPreview,
   type JobStatusResponse,
 } from '../../services/pid';
 import PDFViewer from '../../components/workspace/PDFViewer';
@@ -57,7 +58,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
   onExtractionComplete,
   onReferenceChange,
 }) => {
-  const { pidFiles, currentPidIndex, isPreviewLoading } = useWorkspace();
+  const { pidFiles, currentPidIndex, isPreviewLoading, currentPage, setCurrentPage } = useWorkspace();
   const { project } = useProject();
 
   const [germanPid, setGermanPid] = useState(false);
@@ -74,6 +75,10 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
   const [progressStage, setProgressStage] = useState<string | null>(null);
   const [estimatedSecondsRemaining, setEstimatedSecondsRemaining] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [checkprintBatchId, setCheckprintBatchId] = useState<string | null>(null);
+  const [checkprintPreview, setCheckprintPreview] = useState<string | null>(null);
+  const [checkprintPageCount, setCheckprintPageCount] = useState(1);
+  const [checkprintLoading, setCheckprintLoading] = useState(false);
 
   const imageRef = useRef<HTMLImageElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -100,9 +105,31 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
     setProgressStage(null);
     setEstimatedSecondsRemaining(null);
     setElapsedSeconds(0);
+    setCheckprintBatchId(null);
+    setCheckprintPreview(null);
+    setCheckprintPageCount(1);
     processingStartRef.current = null;
     progressReceivedAtRef.current = null;
   }, [pidFiles]);
+
+  useEffect(() => {
+    if (!checkprintBatchId) return;
+    let cancelled = false;
+    setCheckprintLoading(true);
+    getCheckprintPreview(checkprintBatchId, currentPage)
+      .then(preview => {
+        if (cancelled) return;
+        setCheckprintPreview(preview.image);
+        setCheckprintPageCount(preview.pageCount);
+      })
+      .catch(() => {
+        if (!cancelled) setError('Results are ready, but the checkprint preview could not be loaded.');
+      })
+      .finally(() => {
+        if (!cancelled) setCheckprintLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [checkprintBatchId, currentPage]);
 
   useEffect(() => {
     onReferenceChange?.(Boolean(anchorPoint) && !isLoading);
@@ -184,7 +211,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
     });
 
   const handleExtract = async () => {
-    if ((!anchorPoint && !germanPid) || isLoading) return;
+    if (isLoading || !pidFiles.length) return;
     setIsLoading(true);
     setError(null);
     setBatchResults([]);
@@ -217,8 +244,8 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
         const resp = await processInstruMapFilesAsync({
           pidFile: file,
           german_pid: germanPid,
-          calibration_x: germanPid ? undefined : (batchRadius ? undefined : anchorPoint?.x),
-          calibration_y: germanPid ? undefined : (batchRadius ? undefined : anchorPoint?.y),
+          calibration_x: undefined,
+          calibration_y: undefined,
           user_selected_radius: batchRadius,
           area_code: areaCode,
           batch_id: currentBatchId,
@@ -226,9 +253,15 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
         });
         const result = await pollJobStatus(resp.job_id);
         if (result.status === 'finished' && result.result) {
-          fr.results = result.result.results_table || [];
-          if (!batchRadius && result.result.detected_radius)
-            batchRadius = result.result.detected_radius;
+          if (result.result.status !== 'finished') {
+            fr.error = result.result.error || result.result.message || 'Extraction could not be completed.';
+          } else {
+            fr.results = result.result.results_table || [];
+            if (!batchRadius && result.result.detected_radius)
+              batchRadius = result.result.detected_radius;
+            if (!fr.results.length)
+              fr.error = result.result.message || 'No instruments were detected in this drawing.';
+          }
         } else if (result.status === 'failed') {
           fr.error = result.error || 'Processing failed.';
         }
@@ -254,11 +287,13 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
 
     const anySucceeded = newResults.some(r => r.results.length > 0);
     if (currentBatchId && anySucceeded) {
+      setCurrentPage(1);
+      setCheckprintBatchId(currentBatchId);
       try { await downloadBatchResults(currentBatchId); }
       catch { setError('Results ready but ZIP download failed. Use the download button to retry.'); }
       onExtractionComplete?.(newResults.reduce((sum, result) => sum + (result.results?.length || 0), 0));
     } else if (currentBatchId && !anySucceeded && newResults.every(r => !!r.error)) {
-      setError('Processing failed — check that the worker is running and try again.');
+      setError(newResults.map(result => result.error).filter(Boolean).join(' '));
     }
   };
 
@@ -305,7 +340,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
             <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded font-medium shadow">Reference set</span>
             <button
               onClick={e => { e.stopPropagation(); setAnchorPoint(null); }}
-              className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-1.5 py-0.5 rounded font-medium shadow transition-colors"
+              className="text-[10px] bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 border border-slate-200 px-1.5 py-0.5 rounded font-medium shadow transition-colors"
             >× clear</button>
           </div>
         </div>
@@ -313,7 +348,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
 
       {isLoading && (
         <>
-          <div className="absolute inset-0 bg-gray-950/55 rounded-sm" />
+          <div className="absolute inset-0 bg-white/10 rounded-sm pointer-events-none" />
           <motion.div
             className="absolute left-0 right-0 h-[2px] bg-blue-400 pointer-events-none z-10"
             style={{ boxShadow: '0 0 14px 4px rgba(96,165,250,0.55)' }}
@@ -321,7 +356,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
             transition={{ duration: 2.8, repeat: Infinity, ease: 'linear' }}
           />
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-            <div className="bg-gray-950/90 backdrop-blur-sm border border-white/10 rounded-2xl px-6 py-5 text-center min-w-[260px] max-w-xs">
+            <div className="bg-white border border-slate-200 rounded-2xl px-6 py-5 text-center min-w-[260px] max-w-xs shadow-xl">
               {jobStatus === 'started' && (
                 <div className="flex items-center justify-center gap-2 mb-4">
                   {STEPS.map(({ label }, i) => {
@@ -341,7 +376,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
                   })}
                 </div>
               )}
-              <p className="text-white font-semibold text-sm">
+              <p className="text-slate-900 font-semibold text-sm">
                 {jobStatus === 'queued' ? 'In queue…' : jobStatus === 'started' ? (progressMessage || 'Analysing P&ID…') : 'Submitting…'}
               </p>
               {currentFileName && (
@@ -384,7 +419,7 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
           >
             <button
               onClick={() => downloadHighlightedImage(batchId!)}
-              className="flex items-center gap-1.5 text-xs font-semibold text-gray-300 bg-gray-950/80 backdrop-blur-sm border border-white/[0.08] hover:border-white/20 hover:text-white px-3 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-950 px-3 py-1.5 rounded-lg shadow-lg transition-colors"
             >
               ↓ Marked Image
             </button>
@@ -426,8 +461,8 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
                 : germanPid
                   ? 'German P&ID mode — click Extract to detect pill-shaped bubbles.'
                   : anchorPoint
-                    ? 'Reference symbol selected. Extract will write rows to TDE for this unit.'
-                    : 'Click one instrument bubble on the drawing to set the reference symbol.'}
+                    ? 'Reference symbol selected. Extract will write rows to Data Editor for this unit.'
+                    : 'Automatic calibration is ready. Click Extract to detect instruments.'}
             </div>
           </div>
 
@@ -444,11 +479,11 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
 
           <button
             onClick={handleExtract}
-            disabled={(!anchorPoint && !germanPid) || isLoading}
+            disabled={isLoading || !pidFiles.length}
             className="flex h-8 items-center gap-2 rounded bg-[#0f5f99] px-4 text-sm font-semibold text-white hover:bg-[#0b4f80] disabled:cursor-not-allowed disabled:bg-[#cbd5e1] disabled:text-[#64748b]"
           >
             <Play className="h-3.5 w-3.5" />
-            Extract to TDE
+            Extract to Data Editor
             {pidFiles.length > 1 && <span className="text-xs font-normal opacity-80">({pidFiles.length})</span>}
           </button>
         </div>
@@ -461,6 +496,9 @@ const PIDAnalyserPage: React.FC<PIDAnalyserPageProps> = ({
         onClick={handleImageClick}
         onOpenFiles={onOpenFiles}
         onDropFiles={onDropFiles}
+        previewBase64={checkprintPreview}
+        previewLoading={checkprintBatchId ? checkprintLoading : isPreviewLoading}
+        previewPageCount={checkprintBatchId ? checkprintPageCount : undefined}
       />
       <StatusBar
         label={statusText.label}

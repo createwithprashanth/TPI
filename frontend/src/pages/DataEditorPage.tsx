@@ -128,7 +128,7 @@ const compareValues = (a: unknown, b: unknown, dir: SortDir) => {
   return dir === 'asc' ? result : -result;
 };
 
-const AiGridPage: React.FC = () => {
+const DataEditorPage: React.FC = () => {
   const { selected } = useDomain();
   const projectId = selected.projectId || 'default';
 
@@ -227,7 +227,7 @@ const AiGridPage: React.FC = () => {
         if (savedPinned.length) setPinnedColumns(savedPinned);
       }
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : 'Could not load TDE.');
+      setError(exc instanceof Error ? exc.message : 'Could not load Data Editor.');
     } finally {
       setLoading(false);
     }
@@ -569,7 +569,7 @@ const AiGridPage: React.FC = () => {
       setMessage(`Saved ${pendingTotal} change${pendingTotal === 1 ? '' : 's'} to SQLite.`);
       await load();
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : 'Could not save TDE changes.');
+      setError(exc instanceof Error ? exc.message : 'Could not save Data Editor changes.');
     } finally {
       setSaving(false);
     }
@@ -645,12 +645,12 @@ const AiGridPage: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#070709] text-gray-200">
+    <div className="tpi-data-editor flex h-full flex-col overflow-hidden bg-[#070709] text-gray-200">
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-white/[0.07] px-4">
         <div className="flex min-w-0 items-center gap-3">
           <Database className="h-4 w-4 text-gray-500" strokeWidth={1.7} />
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-white">TDE</div>
+            <div className="text-sm font-semibold text-white">Data Editor</div>
             <div className="truncate font-mono text-[10px] uppercase tracking-wider text-gray-600">
               Unit DB: {effectiveProjectId}
             </div>
@@ -1104,4 +1104,4 @@ const AiGridPage: React.FC = () => {
   );
 };
 
-export default AiGridPage;
+export default DataEditorPage;

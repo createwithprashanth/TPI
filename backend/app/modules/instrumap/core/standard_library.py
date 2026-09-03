@@ -145,8 +145,8 @@ _LINE_OPTIONAL_TYPES = {
 _HARDWIRED_IO_TYPES = {"AI", "AO", "DI", "DO"}
 
 _CATALOG_INSTRUMENT_PREFIXES = {
-    "AT", "BDV", "CVZI", "CVZT", "FCV", "FE", "FI", "FIC", "FIT",
-    "FQI", "FT", "FZT", "HCV", "HS", "LCV", "LI", "LIC", "LIT",
+    "AT", "BDV", "CVZI", "CVZT", "DPI", "FCV", "FE", "FI", "FIC", "FIT",
+    "ES", "FQI", "FT", "FZT", "HCV", "HS", "LCV", "LI", "LIC", "LIT",
     "LT", "MOV", "PCV", "PDT", "PI", "PIC", "PIT", "PSAH", "PSAL",
     "PSV", "PT", "PY", "RO", "SDV", "SSV", "ST", "TCV", "TE", "TI",
     "TIT", "TP", "TT", "TW", "VT", "XA", "XFD", "XGD", "XV", "ZI",
@@ -154,10 +154,37 @@ _CATALOG_INSTRUMENT_PREFIXES = {
 }
 
 _PROJECT_VALID_INSTRUMENT_PREFIXES = {
+    "CC",
+    "CVA",
+    "EI",
     "HSD",
     "HSS",
+    "ITIS",
+    "LSDL",
+    "LC",
+    "PPHS",
+    "PPX",
+    "PPXI",
+    "PPXS",
+    "PRV",
+    "PSA",
+    "PSD",
+    "PSDH",
+    "PSDL",
+    "SSOV",
+    "SSSV",
+    "SVHC",
+    "SVHO",
+    "SVZA",
+    "SY",
     "SZSH",
     "SZSL",
+    "SZIH",
+    "SZIL",
+    "XI",
+    "XGA",
+    "XTGA",
+    "XTGD",
 }
 
 _INVALID_LINE_TAG_RE = re.compile(
@@ -193,7 +220,7 @@ def _clean_connected_line(row) -> str:
     if _INVALID_LINE_TAG_RE.match(line):
         return ""
 
-    # OCR/LLM mapping can occasionally glue the instrument suffix onto a
+    # OCR mapping can occasionally glue the instrument suffix onto a
     # nearby line number, for example 2-PG-24468-251482-X-N18 for PIT-...-18.
     suffix = _clean_text(row.get("Suffix"))
     match = _LINE_WITH_SUFFIX_RE.match(line)
@@ -241,6 +268,9 @@ def instrument_tag_quality(row) -> tuple[str, str]:
 
     if not tag:
         return "rejected_noise", "Blank tag number"
+
+    if sum(char.isdigit() for char in tag) < 2 and not _is_type_only_fragment(row):
+        return "rejected_noise", "Incomplete OCR tag: missing numeric loop identifier"
 
     if _NOISE_TAG_RE.match(tag):
         return "rejected_noise", "Drawing/admin fragment, not an instrument tag"
@@ -297,7 +327,11 @@ def apply_output_sanity_rules(master_df: pd.DataFrame) -> pd.DataFrame:
     ):
         if col not in df.columns:
             df[col] = default
-    df["Connected_Line"] = df["Connected_Line"].astype("object").fillna("")
+    for text_col in (
+        "Connected_Line", "System", "IO_Type", "Signal_Type",
+        "Power_Supply", "Instrument_Description", "Noise_Reason", "Tag_Quality",
+    ):
+        df[text_col] = df[text_col].astype("object").fillna("")
 
     # F&GS area detectors/alarms are not connected to process pipe numbers.
     fgs_mask = df["System"].astype(str).str.strip().eq("F&GS")
@@ -413,7 +447,7 @@ def _loop_key(row) -> tuple:
 def compute_programmatic_fields(master_df: pd.DataFrame) -> pd.DataFrame:
     """
     Populate Fail_State, SIL_Level, Criticality and Enclosure columns
-    directly from instrument type / system classification — no LLM needed.
+    directly from instrument type and system classification.
     """
     if master_df is None or master_df.empty:
         return master_df

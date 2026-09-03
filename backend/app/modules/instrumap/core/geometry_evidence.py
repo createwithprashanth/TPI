@@ -2,7 +2,7 @@
 
 This module turns extracted drawing facts into a compact, auditable evidence
 object per instrument. It deliberately stays independent from service text
-generation so AI Grid, Excel, and future engineering models can consume the same
+generation so Data Editor, Excel, and future engineering tools can consume the same
 evidence without rerunning geometry.
 """
 from __future__ import annotations

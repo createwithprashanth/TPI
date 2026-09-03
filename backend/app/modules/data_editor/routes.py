@@ -6,8 +6,8 @@ from pydantic import BaseModel, Field
 from app.config.local_db import connection, json_text, row_to_dict, write_connection
 
 router = APIRouter()
-PREFIX = "/api/v1/aigrid"
-TAGS = ["AI Grid"]
+PREFIX = "/api/v1/data-editor"
+TAGS = ["Data Editor"]
 
 
 def _user_id(request: Request) -> str:

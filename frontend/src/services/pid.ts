@@ -33,8 +33,10 @@ export interface JobStatusResponse {
   download_endpoint?: string;
   result?: {
     status: string;
-    instrument_count: number;
-    results_table: any[];
+    instrument_count?: number;
+    results_table?: any[];
+    message?: string;
+    error?: string;
     detected_radius?: number;
     batch_id?: string;
   };
@@ -115,6 +117,21 @@ export const downloadHighlightedImage = async (batchId: string): Promise<void> =
   a.download = `highlighted_${batchId}.jpg`;
   a.click();
   URL.revokeObjectURL(url);
+};
+
+export const getCheckprintPreview = async (
+  batchId: string,
+  page = 1,
+): Promise<{ image: string; pageCount: number }> => {
+  const resp = await api.get(`/api/v1/pid/highlighted/${batchId}/preview`, {
+    params: { page },
+    timeout: 60000,
+  });
+  const { status, base64_image, page_count } = resp.data;
+  if (status === 'SUCCESS' && base64_image) {
+    return { image: `data:image/jpeg;base64,${base64_image}`, pageCount: page_count || 1 };
+  }
+  throw new Error('Failed to preview the extraction checkprint.');
 };
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

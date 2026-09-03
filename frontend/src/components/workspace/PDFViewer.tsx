@@ -14,16 +14,22 @@ interface PDFViewerProps {
   onClick?: React.MouseEventHandler<HTMLImageElement>;
   onOpenFiles?: () => void;
   onDropFiles?: (files: File[]) => void;
+  previewBase64?: string | null;
+  previewLoading?: boolean;
+  previewPageCount?: number;
 }
 
 const PDFViewer: React.FC<PDFViewerProps> = ({
   imageRef, cursor = 'default', overlays, floats,
   onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onClick,
-  onOpenFiles, onDropFiles,
+  onOpenFiles, onDropFiles, previewBase64, previewLoading, previewPageCount,
 }) => {
   const { hdPreviewBase64, isPreviewLoading, zoom, setZoom, baseDims, setBaseDims, currentPage, setCurrentPage, pageCount } = useWorkspace();
   const viewerRef = useRef<HTMLDivElement>(null);
   const [dragOver, setDragOver] = React.useState(false);
+  const displayedPreview = previewBase64 || hdPreviewBase64;
+  const displayedLoading = previewLoading ?? isPreviewLoading;
+  const displayedPageCount = previewPageCount ?? pageCount;
 
   // Ctrl/Cmd+scroll zoom
   useEffect(() => {
@@ -67,7 +73,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
   return (
     <div
       ref={viewerRef}
-      className="tpi-scroll-contained flex-1 relative bg-[#111114] min-h-0"
+      className="tpi-scroll-contained flex-1 relative bg-white min-h-0"
       style={{
         overflow: zoom > 1 ? 'auto' : 'hidden',
         display: 'flex',
@@ -91,7 +97,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
         </div>
       )}
       {/* Loading state */}
-      {isPreviewLoading && (
+      {displayedLoading && (
         <div className="flex flex-col items-center gap-3">
           <div className="animate-spin rounded-full h-7 w-7 border-2 border-white/[0.08] border-t-gray-400" />
           <p className="text-gray-600 text-xs">Loading drawing…</p>
@@ -99,16 +105,16 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
       )}
 
       {/* Image + overlays */}
-      {hdPreviewBase64 && (
+      {displayedPreview && (
         <>
           <div className="relative select-none" style={{ lineHeight: 0 }} onMouseDown={onMouseDown}>
             <img
               ref={imageRef}
-              src={hdPreviewBase64}
+              src={displayedPreview}
               alt="P&ID diagram"
               onLoad={handleImgLoad}
               className="block"
-              style={{ cursor, ...imgStyle }}
+              style={{ cursor, filter: 'contrast(1.15)', imageRendering: 'auto', ...imgStyle }}
               onClick={onClick}
               draggable={false}
             />
@@ -116,7 +122,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
           </div>
 
           {/* Zoom controls */}
-          <div className="absolute bottom-4 left-4 z-20 flex items-center gap-1 bg-[#0c0c0e]/90 backdrop-blur-sm border border-white/[0.07] rounded-lg px-1.5 py-1">
+          <div className="absolute bottom-4 left-4 z-20 flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-1.5 py-1 shadow-lg">
             <button
               onClick={() => setZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2)))}
               className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors text-sm font-bold"
@@ -131,22 +137,22 @@ const PDFViewer: React.FC<PDFViewerProps> = ({
             >+</button>
           </div>
 
-          {pageCount > 1 && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-[#0c0c0e]/90 backdrop-blur-sm border border-white/[0.07] rounded-lg px-1.5 py-1">
+          {displayedPageCount > 1 && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-1.5 py-1 shadow-lg">
               <button
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage <= 1 || isPreviewLoading}
+                disabled={currentPage <= 1 || displayedLoading}
                 className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-white hover:bg-white/10 disabled:opacity-25 transition-colors"
                 title="Previous page"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
               <span className="px-2 h-6 flex items-center text-[11px] text-gray-400 font-mono tabular-nums">
-                {currentPage} / {pageCount}
+                {currentPage} / {displayedPageCount}
               </span>
               <button
-                onClick={() => setCurrentPage(p => Math.min(pageCount, p + 1))}
-                disabled={currentPage >= pageCount || isPreviewLoading}
+                onClick={() => setCurrentPage(p => Math.min(displayedPageCount, p + 1))}
+                disabled={currentPage >= displayedPageCount || displayedLoading}
                 className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-white hover:bg-white/10 disabled:opacity-25 transition-colors"
                 title="Next page"
               >

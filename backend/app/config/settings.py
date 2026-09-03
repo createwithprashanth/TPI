@@ -28,8 +28,6 @@ class Settings(BaseSettings):
     PDF_DPI: int = 300
     POPPLER_PATH: Optional[str] = None
 
-    # Google Vision credentials — path resolved from env or defaults to file in backend root
-    GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
 
     # Debug flag for workers (saves per-page JPEGs — off in production)
     INSTRUMAP_DEBUG: bool = False
@@ -71,12 +69,6 @@ class Settings(BaseSettings):
                 self.TPI_DB_BACKEND,
             )
         return self
-
-    @property
-    def google_credentials_path(self) -> str:
-        if self.GOOGLE_APPLICATION_CREDENTIALS:
-            return self.GOOGLE_APPLICATION_CREDENTIALS
-        return str(_BACKEND_ROOT / "instrumap-464410-3cb4dae6350d.json")
 
     @property
     def local_db_path(self) -> str:

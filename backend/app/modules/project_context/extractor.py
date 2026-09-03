@@ -2,7 +2,7 @@
 Project context extractor — reads title-block metadata from P&ID PDFs.
 
 Provides load/save/merge helpers plus a PDF-based extraction path.
-The extraction falls back gracefully when Ollama is unavailable.
+The extraction falls back gracefully when PDF metadata is unavailable.
 """
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def extract_project_context_from_pdf(
     Extract title-block metadata from a PDF.
 
     Attempts deterministic extraction via PyMuPDF first; falls back to an
-    empty context when extraction fails or Ollama is unavailable.
+    empty context when extraction fails.
     """
     ctx = _empty_context()
     try:

@@ -24,12 +24,12 @@ from app.modules.pid_analyser.schemas import (
 
 logger = logging.getLogger(__name__)
 
-_preview_executor = ThreadPoolExecutor(max_workers=max(2, (os.cpu_count() or 2) - 1))
+_preview_executor = ThreadPoolExecutor(max_workers=2)
 
 # ── In-memory job store (used when Redis is unavailable) ──────────────────────
 _inmem_jobs: dict[str, dict] = {}
 _inmem_lock = threading.Lock()
-_inmem_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="inmem-worker")
+_inmem_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="inmem-worker")
 
 
 def _run_inmem_job(job_id: str, kwargs: dict) -> None:
@@ -47,23 +47,47 @@ def _run_inmem_job(job_id: str, kwargs: dict) -> None:
             _inmem_jobs[job_id]["error"] = str(exc)
 
 
-def _do_preview(content: bytes, page: int = 1) -> PreviewResponse:
+def _do_preview(content: bytes, page: int = 1, dpi: int | None = None) -> PreviewResponse:
     import fitz
+    import numpy as np
+    from PIL import Image, ImageFilter
     doc = fitz.open(stream=content, filetype="pdf")
     page_count = len(doc)
     preview_page = max(1, min(page, page_count or 1))
-    mat = fitz.Matrix(settings.PDF_DPI / 72, settings.PDF_DPI / 72)
+    # Screen preview: avoid severe browser downsampling of a 300-DPI A1/A0 page.
+    # Render close to the eventual browser size.  Very large preview rasters make
+    # browsers average this drawing's hairline, near-white CAD strokes away.
+    render_dpi = dpi or min(settings.PDF_DPI, 96)
+    mat = fitz.Matrix(render_dpi / 72, render_dpi / 72)
     pix = doc[preview_page - 1].get_pixmap(matrix=mat, alpha=False)
     doc.close()
-    buf = io.BytesIO(pix.tobytes("jpeg"))
+    # This project's original CAD layer uses near-white neutral grays, while its
+    # revision markup is coloured. Strengthen only neutral line work so the
+    # browser's fit-to-window reduction cannot wash it away; preserve colours.
+    pixels = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3).copy()
+    chroma = pixels.max(axis=2).astype(np.int16) - pixels.min(axis=2).astype(np.int16)
+    neutral = chroma <= 12
+    gray = pixels.mean(axis=2)
+    # A factor of twelve is intentional: this PDF's CAD layer sits around RGB
+    # 245-252.  A tiny minimum filter also gives its hairlines enough screen
+    # width to survive fit-to-page resampling.
+    strengthened = 255 - np.clip((255 - gray) * 12.0, 0, 255)
+    strengthened = np.asarray(
+        Image.fromarray(strengthened.astype(np.uint8), "L").filter(ImageFilter.MinFilter(3))
+    )
+    pixels[neutral] = np.repeat(strengthened[:, :, None], 3, axis=2)[neutral].astype(np.uint8)
+    # Preserve thin CAD lines and small text without JPEG ringing or fading.
+    preview_image = Image.fromarray(pixels, "RGB")
+    buf = io.BytesIO()
+    preview_image.save(buf, format="PNG", optimize=True)
     b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
     return PreviewResponse(status="SUCCESS", base64_image=b64, page_count=page_count)
 
 
-async def generate_preview(content: bytes, page: int = 1) -> PreviewResponse:
+async def generate_preview(content: bytes, page: int = 1, dpi: int | None = None) -> PreviewResponse:
     try:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(_preview_executor, _do_preview, content, page)
+        return await loop.run_in_executor(_preview_executor, _do_preview, content, page, dpi)
     except HTTPException:
         raise
     except Exception as e:

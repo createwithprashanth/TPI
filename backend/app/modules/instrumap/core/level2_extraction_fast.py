@@ -15,14 +15,21 @@ import logging
 import math
 import os
 import io
+from collections import Counter
 import pandas as pd
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageEnhance
 
 logger = logging.getLogger(__name__)
 
-from .standard_library import InstrumentLogicEngine
-from .text_engine import find_text_only_instruments, detect_text_full_page
+from .standard_library import InstrumentLogicEngine, instrument_tag_quality
+from .text_engine import (
+    find_text_only_instruments,
+    detect_text_full_page,
+    detect_text_region_discovery,
+    detect_numeric_bubble_rows,
+    recognize_structured_bubbles,
+)
 from .line_extractor import extract_line_numbers
 from .equipment_extractor import extract_equipment_from_ocr_words
 
@@ -122,12 +129,15 @@ def _tag_from_words(words, separator, max_rows):
     if not words:
         return None
 
+    # Magnified bubble OCR has tightly spaced stacked rows. The full-page
+    # tolerance would merge loop and suffix (for example 09 + 6206).
+    line_tolerance = 5 if any(w.get("focused_bubble_ocr") for w in words) else _LINE_Y_TOL
     lines = []
     line_y = None
     line_buf = []
 
     for w in words:
-        if line_y is None or abs(w['y'] - line_y) > _LINE_Y_TOL:
+        if line_y is None or abs(w['y'] - line_y) > line_tolerance:
             if line_buf:
                 text = "".join(
                     x['text'] for x in sorted(line_buf, key=lambda x: x['x'])
@@ -146,10 +156,37 @@ def _tag_from_words(words, separator, max_rows):
         if text:
             lines.append(text)
 
-    if not lines or len(lines) > max_rows:
+    if not lines:
         return None
 
-    return separator.join(lines)
+    if len(lines) > max_rows:
+        # A crop can include a nearby note or line label. Select the compact
+        # ISA-like stack (type followed by a numeric loop) instead of rejecting
+        # the complete bubble because of that surrounding text.
+        cleaned_lines = [re.sub(r"[^A-Z0-9]+", "", line.upper()) for line in lines]
+        selected = None
+        for start, first in enumerate(cleaned_lines):
+            if not re.fullmatch(r"[A-Z]{2,5}", first):
+                continue
+            for length in range(min(max_rows, len(cleaned_lines) - start), 1, -1):
+                window = cleaned_lines[start:start + length]
+                if sum(char.isdigit() for part in window[1:] for char in part) >= 2:
+                    selected = window
+                    break
+            if selected:
+                break
+        if not selected:
+            return None
+        lines = selected
+
+    tag = separator.join(lines).upper()
+    tag = re.sub(r"[^A-Z0-9-]+", "", tag)
+    tag = re.sub(r"-{2,}", "-", tag).strip("-")
+    parts = tag.split("-")
+    for index in range(1, len(parts)):
+        if any(char.isdigit() for char in parts[index]):
+            parts[index] = parts[index].replace("O", "0")
+    return "-".join(parts) or None
 
 
 def _detect_rectangles(image):
@@ -169,6 +206,129 @@ def _detect_rectangles(image):
                     'width': w, 'height': h,
                 })
     return rectangles
+
+
+def _aligned_missing_circle_candidates(circles, image_width, image_height):
+    """Extrapolate one missing bubble at the ends of a repeated instrument row."""
+    if len(circles) < 3:
+        return []
+    remaining = sorted(circles, key=lambda c: (float(c[1]), float(c[0])))
+    rows = []
+    for circle in remaining:
+        cy, radius = float(circle[1]), float(circle[2])
+        target = next(
+            (row for row in rows
+             if abs(cy - row["y"]) <= max(12.0, radius * 0.35)),
+            None,
+        )
+        if target is None:
+            rows.append({"y": cy, "circles": [circle]})
+        else:
+            target["circles"].append(circle)
+            target["y"] = sum(float(c[1]) for c in target["circles"]) / len(target["circles"])
+
+    candidates = []
+    for row in rows:
+        members = sorted(row["circles"], key=lambda c: float(c[0]))
+        if len(members) < 3:
+            continue
+        radii = [float(c[2]) for c in members]
+        median_radius = float(np.median(radii))
+        xs = [float(c[0]) for c in members]
+        gaps = [b - a for a, b in zip(xs, xs[1:])]
+        plausible = [g for g in gaps if 1.8 * median_radius <= g <= 4.0 * median_radius]
+        if len(plausible) < 2:
+            continue
+        spacing = float(np.median(plausible))
+        probe_xs = [xs[0] - spacing, xs[-1] + spacing]
+        for left_x, right_x in zip(xs, xs[1:]):
+            if right_x - left_x > spacing * 1.5:
+                # Separate panel groups often add extra whitespace. Probe from
+                # both populated sides rather than assuming an exact multiple.
+                probe_xs.extend((left_x + spacing, right_x - spacing))
+        for candidate_x in probe_xs:
+            candidate_y = float(row["y"])
+            if not (median_radius < candidate_x < image_width - median_radius
+                    and median_radius < candidate_y < image_height - median_radius):
+                continue
+            if any(math.hypot(candidate_x - float(c[0]), candidate_y - float(c[1]))
+                   < median_radius * 0.75 for c in circles):
+                continue
+            if any(math.hypot(candidate_x - float(c[0]), candidate_y - float(c[1]))
+                   < median_radius * 0.75 for c in candidates):
+                continue
+            candidates.append(np.array([candidate_x, candidate_y, median_radius], dtype=np.float32))
+    return candidates
+
+
+def _detect_local_circle(pil_image, center_x, center_y, expected_radius, min_radius, max_radius):
+    """Recover a thin circle at full resolution around an OCR text anchor."""
+    margin = int(max_radius * 1.5)
+    left, top = max(0, int(center_x - margin)), max(0, int(center_y - margin))
+    right = min(pil_image.width, int(center_x + margin))
+    bottom = min(pil_image.height, int(center_y + margin))
+    crop = pil_image.crop((left, top, right, bottom)).convert("L")
+    enhanced = ImageEnhance.Contrast(crop).enhance(10.0)
+    local = cv2.GaussianBlur(np.asarray(enhanced, dtype=np.uint8), (3, 3), 0)
+    circles = cv2.HoughCircles(
+        local, cv2.HOUGH_GRADIENT, dp=1, minDist=30,
+        param1=60, param2=16,
+        minRadius=max(20, int(min_radius * 0.75)),
+        maxRadius=max_radius,
+    )
+    if circles is None:
+        return None
+    candidates = []
+    for x, y, radius in circles[0]:
+        page_x, page_y = x + left, y + top
+        distance = math.hypot(page_x - center_x, page_y - center_y)
+        if distance <= max_radius:
+            # OCR anchors estimate the bubble centre accurately. Prefer centre
+            # alignment over radius similarity when concentric arcs are present.
+            score = distance + 0.20 * abs(radius - expected_radius)
+            candidates.append((score, int(page_x), int(page_y), int(radius)))
+    if not candidates:
+        return None
+    _, page_x, page_y, radius = min(candidates)
+    return page_x, page_y, radius
+
+
+def _detect_tiled_circles(image, min_radius, max_radius):
+    """Detect thin bubbles at full resolution without a page-sized accumulator."""
+    tile_size, overlap = 1800, 240
+    step = tile_size - overlap
+    calibrated_radius = (min_radius + max_radius) / 2
+    tile_min_radius = max(8, int(min_radius * 0.90))
+    tile_max_radius = max(tile_min_radius + 5, int(calibrated_radius * 1.05))
+    raw = []
+    height, width = image.shape[:2]
+    for top in range(0, height, step):
+        for left in range(0, width, step):
+            tile = image[top:min(top + tile_size, height), left:min(left + tile_size, width)]
+            if min(tile.shape[:2]) < tile_max_radius * 2 + 20:
+                continue
+            circles = cv2.HoughCircles(
+                tile, cv2.HOUGH_GRADIENT, dp=1, minDist=max(40, tile_min_radius),
+                # Slightly below the strict global threshold so isolated thin
+                # bubbles survive. Every candidate still requires structured
+                # type + loop OCR and the normal tag-quality gate.
+                param1=60, param2=27,
+                minRadius=tile_min_radius, maxRadius=tile_max_radius,
+            )
+            if circles is not None:
+                raw.extend(
+                    (float(x + left), float(y + top), float(radius))
+                    for x, y, radius in circles[0]
+                )
+    unique = []
+    for circle in sorted(raw, key=lambda value: value[2], reverse=True):
+        if not any(
+            math.hypot(circle[0] - existing[0], circle[1] - existing[1])
+            < max(30, min(circle[2], existing[2]) * 0.45)
+            for existing in unique
+        ):
+            unique.append(circle)
+    return np.asarray([unique], dtype=np.float32) if unique else None
 
 
 def extract_instruments(
@@ -192,9 +352,6 @@ def extract_instruments(
 
     output_image = None
     output_draw = None
-    if output_folder and pil_image:
-        output_image = pil_image.copy()
-        output_draw = ImageDraw.Draw(output_image)
 
     final_instruments_data = []
     instrument_counter = 1
@@ -209,19 +366,47 @@ def extract_instruments(
     # Pass 1 (param2=30): clean full circles.
     # Pass 2 (param2=18): catches circles with horizontal dividing lines whose
     #   broken arc doesn't accumulate enough votes in the strict pass.
+    # Keep OpenCV's accumulator comfortably within the shared VM's memory.
+    # Circle coordinates are scaled back before full-resolution OCR.
+    max_hough_dimension = 3000
+    hough_scale = min(
+        1.0,
+        max_hough_dimension / max(blurred_image.shape[0], blurred_image.shape[1]),
+    )
+    if hough_scale < 1.0:
+        hough_image = cv2.resize(
+            blurred_image,
+            None,
+            fx=hough_scale,
+            fy=hough_scale,
+            interpolation=cv2.INTER_AREA,
+        )
+    else:
+        hough_image = blurred_image
+
     def _hough(p2):
-        return cv2.HoughCircles(
-            blurred_image, cv2.HOUGH_GRADIENT,
+        detected = cv2.HoughCircles(
+            hough_image, cv2.HOUGH_GRADIENT,
             dp=config_params['HOUGH_DP'],
-            minDist=config_params['HOUGH_MIN_DIST'],
+            minDist=max(5, config_params['HOUGH_MIN_DIST'] * hough_scale),
             param1=config_params.get('HOUGH_PARAM1_FAST', 60),
             param2=p2,
-            minRadius=dynamic_min_radius,
-            maxRadius=dynamic_max_radius,
+            minRadius=max(2, round(dynamic_min_radius * hough_scale)),
+            maxRadius=max(3, round(dynamic_max_radius * hough_scale)),
         )
+        if detected is not None and hough_scale < 1.0:
+            detected = detected / hough_scale
+        return detected
 
     c1 = _hough(config_params['HOUGH_PARAM2'])
-    c2 = _hough(config_params.get('HOUGH_PARAM2_SENSITIVE', 18))
+    # Large sheets lose their thin bubbles when reduced for a global Hough
+    # accumulator. Scan them in overlapping full-resolution tiles instead.
+    if hough_scale < 0.60:
+        c2 = _detect_tiled_circles(
+            blurred_image, dynamic_min_radius, dynamic_max_radius,
+        )
+    else:
+        c2 = _hough(config_params.get('HOUGH_PARAM2_SENSITIVE', 18))
 
     # Merge: add circles from the sensitive pass not already in the strict pass
     if c1 is not None and c2 is not None:
@@ -241,12 +426,46 @@ def extract_instruments(
     found_circles_indices = circles_final
 
     if circles_final is not None:
-        for c in circles_final[0]:
+        circle_list = list(circles_final[0])
+        # Repeated control-panel bubbles are laid out on a regular pitch. Thin
+        # arcs combined with square/diamond enclosures can make Hough omit only
+        # the first member (for example LI/LSDL and ES). Probe the immediately
+        # adjacent row positions; structured OCR below still has to validate a
+        # real type + loop, so extrapolated empty positions are discarded.
+        inferred_candidates = _aligned_missing_circle_candidates(
+            circle_list, pil_image.width, pil_image.height,
+        )
+        for candidate in inferred_candidates:
+            refined = _detect_local_circle(
+                pil_image, float(candidate[0]), float(candidate[1]), float(candidate[2]),
+                dynamic_min_radius, dynamic_max_radius,
+            )
+            if refined and float(refined[2]) >= float(candidate[2]) * 0.75:
+                circle_list.append(np.asarray(refined, dtype=np.float32))
+            else:
+                circle_list.append(np.asarray(candidate, dtype=np.float32))
+        structured_results = recognize_structured_bubbles(
+            pil_image,
+            [(float(c[0]), float(c[1]), float(c[2])) for c in circle_list],
+        )
+        for circle_index, c in enumerate(circle_list):
             cx, cy, radius = int(c[0]), int(c[1]), int(c[2])
 
-            # Look up words inside this circle from the single OCR result
-            words = _words_in_circle(full_text_data, cx, cy, radius)
-            extracted_tag = _tag_from_words(words, separator, max_rows)
+            structured = structured_results[circle_index]
+            if structured.get("type") and structured.get("loop"):
+                parts = [structured["type"], structured["loop"]]
+                if structured.get("suffix"):
+                    parts.append(structured["suffix"])
+                extracted_tag = separator.join(parts)
+            else:
+                words = detect_text_region_discovery(
+                    pil_image,
+                    cx - radius * 1.25,
+                    cy - radius * 1.25,
+                    cx + radius * 1.25,
+                    cy + radius * 1.25,
+                )
+                extracted_tag = _tag_from_words(words, separator, max_rows)
 
             if not extracted_tag or not extracted_tag.strip():
                 continue
@@ -254,6 +473,15 @@ def extract_instruments(
                 continue  # reject pure-numeric/symbolic text (e.g. hazmat placard "526-6.9")
 
             epc_data = InstrumentLogicEngine.get_epc_specs(extracted_tag, default_area_code)
+
+            quality, _ = instrument_tag_quality({
+                "Tag_Number": extracted_tag,
+                "Type": epc_data.get("Instrument_Type", ""),
+                "Loop": epc_data.get("Loop_Number", ""),
+                "Suffix": epc_data.get("Tag_Suffix", ""),
+            })
+            if quality != "accepted":
+                continue
 
             # Typo cleaner (same as original)
             if epc_data['Loop_Number']:
@@ -316,6 +544,24 @@ def extract_instruments(
 
     for item in text_only_results:
         epc = item['Specs']
+        quality, _ = instrument_tag_quality({
+            "Tag_Number": item['Tag_Number'],
+            "Type": epc.get('Instrument_Type', ''),
+            "Loop": epc.get('Loop_Number', ''),
+            "Suffix": epc.get('Tag_Suffix', ''),
+        })
+        if quality != "accepted":
+            continue
+        raw_coords = list(map(int, item['Coordinates'].split(',')))
+        text_cx, text_cy = raw_coords[0], raw_coords[1]
+        expected_radius = max(55, int(dynamic_min_radius * 1.3))
+        local_circle = _detect_local_circle(
+            pil_image, text_cx, text_cy, expected_radius,
+            dynamic_min_radius, dynamic_max_radius,
+        )
+        mark_cx, mark_cy, mark_radius = (
+            local_circle if local_circle else (text_cx, text_cy, int(item.get('Radius', 0) or 0))
+        )
         seen_tags.add(item['Tag_Number'].upper().strip())
         ref_id = str(instrument_counter)
         instrument_counter += 1
@@ -332,23 +578,70 @@ def extract_instruments(
             'IO_Type': epc['IO_Type'], 'Signal_Type': epc['Signal_Type'],
             'Power_Supply': epc['Power_Supply'], 'Mounting': epc['Mounting'],
             'Location_Drawing': item['Location'],
-            'Coordinates': item['Coordinates'],
-            'Radius': item['Radius'],
+            'Coordinates': f"{mark_cx},{mark_cy}",
+            'Radius': mark_radius,
         })
 
         if output_draw:
-            coords = list(map(int, item['Coordinates'].split(',')))
-            cx2, cy2 = coords[0], coords[1]
-            box_size = 30
-            output_draw.rectangle(
-                (cx2 - box_size, cy2 - box_size, cx2 + box_size, cy2 + box_size),
-                outline=(255, 165, 0), width=4,
-            )
-            output_draw.text((cx2 + box_size, cy2 - box_size), ref_id, fill=(255, 0, 0), font=font)
+            if mark_radius:
+                output_draw.ellipse(
+                    (mark_cx - mark_radius, mark_cy - mark_radius,
+                     mark_cx + mark_radius, mark_cy + mark_radius),
+                    outline=(255, 215, 0), width=5,
+                )
+                output_draw.text(
+                    (mark_cx + mark_radius, mark_cy - mark_radius),
+                    ref_id, fill=(50, 205, 50), font=font,
+                )
+            else:
+                box_size = 30
+                output_draw.rectangle(
+                    (mark_cx - box_size, mark_cy - box_size,
+                     mark_cx + box_size, mark_cy + box_size),
+                    outline=(255, 165, 0), width=4,
+                )
+                output_draw.text(
+                    (mark_cx + box_size, mark_cy - box_size),
+                    ref_id, fill=(255, 0, 0), font=font,
+                )
 
     # ── Phase 3: ISA text-anchor scan — catches circles Hough never found ───────
     anchor_results = _find_tags_by_anchor(full_text_data, seen_tags, default_area_code)
     for est_cx, est_cy, tag, epc in anchor_results:
+        structured_radius = max(55, int(dynamic_min_radius * 1.3))
+        structured_loop, structured_suffix = detect_numeric_bubble_rows(
+            pil_image, est_cx, est_cy, structured_radius,
+        )
+        existing_loop = str(epc.get('Loop_Number', ''))
+        existing_suffix = str(epc.get('Tag_Suffix', ''))
+        if structured_loop and (
+            not existing_loop.isdigit() or len(structured_loop) > len(existing_loop)
+        ):
+            epc['Loop_Number'] = structured_loop
+        if structured_suffix and not existing_suffix.isdigit():
+            epc['Tag_Suffix'] = structured_suffix
+        final_loop = str(epc.get('Loop_Number', ''))
+        final_suffix = str(epc.get('Tag_Suffix', ''))
+        if final_loop:
+            tag_parts = [epc.get('Instrument_Type', ''), final_loop]
+            if final_suffix:
+                tag_parts.append(final_suffix)
+            tag = separator.join(part for part in tag_parts if part)
+        quality, _ = instrument_tag_quality({
+            "Tag_Number": tag,
+            "Type": epc.get('Instrument_Type', ''),
+            "Loop": epc.get('Loop_Number', ''),
+            "Suffix": epc.get('Tag_Suffix', ''),
+        })
+        if quality != "accepted":
+            continue
+        local_circle = _detect_local_circle(
+            pil_image, est_cx, est_cy, structured_radius,
+            dynamic_min_radius, dynamic_max_radius,
+        )
+        mark_cx, mark_cy, mark_radius = (
+            local_circle if local_circle else (est_cx, est_cy, 0)
+        )
         ref_id = str(instrument_counter)
         instrument_counter += 1
         final_instruments_data.append({
@@ -364,18 +657,97 @@ def extract_instruments(
             'IO_Type': epc['IO_Type'], 'Signal_Type': epc['Signal_Type'],
             'Power_Supply': epc['Power_Supply'], 'Mounting': epc['Mounting'],
             'Location_Drawing': 'Field',
-            'Coordinates': f"{est_cx},{est_cy}",
-            'Radius': 0,
+            'Coordinates': f"{mark_cx},{mark_cy}",
+            'Radius': mark_radius,
         })
         if output_draw:
-            output_draw.rectangle(
-                (est_cx - 25, est_cy - 25, est_cx + 25, est_cy + 25),
-                outline=(0, 200, 255), width=3,
-            )
-            output_draw.text((est_cx + 27, est_cy - 10), ref_id, fill=(0, 200, 255), font=font)
+            if mark_radius:
+                output_draw.ellipse(
+                    (mark_cx - mark_radius, mark_cy - mark_radius,
+                     mark_cx + mark_radius, mark_cy + mark_radius),
+                    outline=(255, 215, 0), width=5,
+                )
+                output_draw.text(
+                    (mark_cx + mark_radius, mark_cy - mark_radius),
+                    ref_id, fill=(50, 205, 50), font=font,
+                )
+            else:
+                output_draw.rectangle(
+                    (est_cx - 25, est_cy - 25, est_cx + 25, est_cy + 25),
+                    outline=(0, 200, 255), width=3,
+                )
+                output_draw.text((est_cx + 27, est_cy - 10), ref_id, fill=(0, 200, 255), font=font)
 
     # ── Save highlighted image ────────────────────────────────────────────────
-    if output_folder and output_image:
+    # Repair a faint final loop digit only when this page establishes the same
+    # dominant four-digit loop repeatedly (for example 620 -> 6201).
+    four_digit_loops = [
+        str(item.get('Loop', '')) for item in final_instruments_data
+        if re.fullmatch(r"\d{4}", str(item.get('Loop', '')))
+    ]
+    if four_digit_loops:
+        dominant_loop, dominant_count = Counter(four_digit_loops).most_common(1)[0]
+        if dominant_count >= 2:
+            for item in final_instruments_data:
+                loop = str(item.get('Loop', ''))
+                if re.fullmatch(r"\d{3}", loop) and dominant_loop.startswith(loop):
+                    item['Loop'] = dominant_loop
+                    parts = [str(item.get('Type', '')), dominant_loop]
+                    if item.get('Suffix'):
+                        parts.append(str(item['Suffix']))
+                    item['Tag_Number'] = separator.join(part for part in parts if part)
+
+    # When the page consistently uses two-digit numeric suffixes, preserve a
+    # faint leading zero that recognition can drop (5 -> 05, 6 -> 06).
+    numeric_suffixes = [
+        str(item.get('Suffix', '')) for item in final_instruments_data
+        if str(item.get('Suffix', '')).isdigit()
+    ]
+    if sum(len(value) == 2 for value in numeric_suffixes) >= 3:
+        for item in final_instruments_data:
+            suffix = str(item.get('Suffix', ''))
+            if len(suffix) == 1 and suffix.isdigit():
+                item['Suffix'] = suffix.zfill(2)
+                parts = [str(item.get('Type', '')), str(item.get('Loop', '')), item['Suffix']]
+                item['Tag_Number'] = separator.join(part for part in parts if part)
+
+    if output_folder and pil_image:
+        # Build the checkprint only after OCR and at screen/print-review
+        # resolution. Keeping a full 300-DPI copy alive during recognition can
+        # exceed the shared VM's memory limit.
+        checkprint_scale = 0.5
+        output_image = pil_image.resize(
+            (round(pil_image.width * checkprint_scale), round(pil_image.height * checkprint_scale)),
+            Image.Resampling.LANCZOS,
+        ).convert("RGB")
+        output_image = ImageEnhance.Contrast(output_image).enhance(10.0)
+        output_draw = ImageDraw.Draw(output_image)
+        for item in final_instruments_data:
+            try:
+                item_cx, item_cy = map(int, str(item.get('Coordinates', '')).split(','))
+                item_radius = int(item.get('Radius', 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            item_cx = round(item_cx * checkprint_scale)
+            item_cy = round(item_cy * checkprint_scale)
+            item_radius = round(item_radius * checkprint_scale)
+            ref_id = str(item.get('Ref_ID', ''))
+            if item_radius:
+                output_draw.ellipse(
+                    (item_cx - item_radius, item_cy - item_radius,
+                     item_cx + item_radius, item_cy + item_radius),
+                    outline=(255, 215, 0), width=3,
+                )
+                label_pos = (item_cx + item_radius, item_cy - item_radius)
+            else:
+                box_size = 15
+                output_draw.rectangle(
+                    (item_cx - box_size, item_cy - box_size,
+                     item_cx + box_size, item_cy + box_size),
+                    outline=(255, 165, 0), width=3,
+                )
+                label_pos = (item_cx + box_size, item_cy - box_size)
+            output_draw.text(label_pos, ref_id, fill=(0, 140, 0), font=font)
         save_path = os.path.join(output_folder, f"{filename_base}_checkprint.pdf")
         try:
             output_image.save(save_path, 'PDF')
